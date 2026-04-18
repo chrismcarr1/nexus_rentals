@@ -1,0 +1,9 @@
+<svg width="900" height="640" viewBox="0 0 900 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="640" fill="#F8F3EA"/>
+  <rect x="100" y="84" width="700" height="472" rx="28" fill="#FFFFFF"/>
+  <rect x="148" y="150" width="604" height="310" rx="18" fill="#E6EFEA"/>
+  <rect x="190" y="212" width="130" height="190" rx="12" fill="#C89A5B"/>
+  <rect x="352" y="248" width="196" height="154" rx="14" fill="#E1D9C9"/>
+  <rect x="582" y="196" width="116" height="206" rx="12" fill="#F2E2BB"/>
+  <text x="450" y="540" font-family="Arial" font-size="28" fill="#184C45" text-anchor="middle">Move-in Baseline</text>
+</svg>

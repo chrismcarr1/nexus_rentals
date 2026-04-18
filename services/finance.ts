@@ -1,0 +1,157 @@
+import { endOfMonth, isAfter, isBefore, startOfMonth } from "date-fns";
+
+import { db } from "@/lib/db";
+
+export async function getDashboardSnapshot(organizationId: string) {
+  const now = new Date();
+  const monthStart = startOfMonth(now);
+  const monthEnd = endOfMonth(now);
+
+  const [properties, units, leases, payments, expenses, assessments, maintenance, notifications] = await Promise.all([
+    db.property.findMany({ where: { organizationId }, include: { units: true } }),
+    db.unit.findMany({
+      where: { property: { organizationId } },
+      include: { property: true }
+    }),
+    db.lease.findMany({
+      where: { unit: { property: { organizationId } } },
+      include: {
+        unit: { include: { property: true } },
+        tenants: { include: { tenant: true } }
+      }
+    }),
+    db.payment.findMany({
+      where: { unit: { property: { organizationId } } },
+      include: { unit: { include: { property: true } } },
+      orderBy: { dueDate: "desc" }
+    }),
+    db.expense.findMany({
+      where: { property: { organizationId } },
+      include: { property: true, unit: true },
+      orderBy: { incurredAt: "desc" }
+    }),
+    db.damageAssessment.findMany({
+      where: { inspection: { unit: { property: { organizationId } } } },
+      include: {
+        inspection: { include: { unit: { include: { property: true } } } }
+      },
+      orderBy: { createdAt: "desc" }
+    }),
+    db.maintenanceRequest.findMany({
+      where: { property: { organizationId } },
+      include: { property: true, unit: true },
+      orderBy: { requestedAt: "desc" }
+    }),
+    db.notification.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: "desc" },
+      take: 6
+    })
+  ]);
+
+  const totalUnits = units.length;
+  const occupiedUnits = units.filter((unit) => unit.occupancyStatus === "OCCUPIED").length;
+  const vacantUnits = units.filter((unit) => unit.occupancyStatus === "VACANT").length;
+  const monthlyRecurringRent = units.reduce((sum, unit) => sum + unit.monthlyRent, 0);
+  const rentCollectedThisMonth = payments
+    .filter((payment) => payment.paidDate && isAfter(payment.paidDate, monthStart) && isBefore(payment.paidDate, monthEnd))
+    .reduce((sum, payment) => sum + payment.amount, 0);
+  const outstanding = payments
+    .filter((payment) => payment.status !== "PAID")
+    .reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0);
+  const overdue = payments
+    .filter((payment) => payment.status === "LATE" || (payment.status !== "PAID" && isBefore(payment.dueDate, now)))
+    .reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0);
+  const monthExpenses = expenses
+    .filter((expense) => isAfter(expense.incurredAt, monthStart) && isBefore(expense.incurredAt, monthEnd))
+    .reduce((sum, expense) => sum + expense.amount, 0);
+  const depositsHeld = leases
+    .filter((lease) => lease.status === "ACTIVE" || lease.status === "UPCOMING")
+    .reduce((sum, lease) => sum + lease.securityDeposit, 0);
+  const upcomingLeaseExpirations = leases
+    .filter((lease) => lease.status === "ACTIVE")
+    .sort((a, b) => a.endDate.getTime() - b.endDate.getTime())
+    .slice(0, 5);
+  const netOperatingCashFlow = rentCollectedThisMonth - monthExpenses;
+
+  const trendMap = new Map<string, { rent: number; expenses: number }>();
+  for (let index = 5; index >= 0; index -= 1) {
+    const cursor = new Date(now.getFullYear(), now.getMonth() - index, 1);
+    trendMap.set(cursor.toLocaleString("en-US", { month: "short" }), { rent: 0, expenses: 0 });
+  }
+
+  for (const payment of payments) {
+    const key = payment.dueDate.toLocaleString("en-US", { month: "short" });
+    if (trendMap.has(key)) {
+      trendMap.get(key)!.rent += payment.status === "PAID" ? payment.amount : 0;
+    }
+  }
+
+  for (const expense of expenses) {
+    const key = expense.incurredAt.toLocaleString("en-US", { month: "short" });
+    if (trendMap.has(key)) {
+      trendMap.get(key)!.expenses += expense.amount;
+    }
+  }
+
+  return {
+    properties,
+    units,
+    leases,
+    payments,
+    expenses,
+    assessments,
+    maintenance,
+    notifications,
+    metrics: {
+      totalProperties: properties.length,
+      totalUnits,
+      occupiedUnits,
+      vacantUnits,
+      monthlyRecurringRent,
+      rentCollectedThisMonth,
+      outstanding,
+      overdue,
+      monthExpenses,
+      netOperatingCashFlow,
+      depositsHeld
+    },
+    charts: {
+      cashFlowTrend: Array.from(trendMap.entries()).map(([label, values]) => ({ label, ...values }))
+    },
+    recentPayments: payments.slice(0, 6),
+    recentExpenses: expenses.slice(0, 6),
+    recentAssessments: assessments.slice(0, 4),
+    upcomingLeaseExpirations
+  };
+}
+
+export async function getReportsSnapshot(organizationId: string) {
+  const snapshot = await getDashboardSnapshot(organizationId);
+
+  const byProperty = snapshot.properties.map((property) => {
+    const units = snapshot.units.filter((unit) => unit.propertyId === property.id);
+    const payments = snapshot.payments.filter((payment) => payment.unit.propertyId === property.id);
+    const expenses = snapshot.expenses.filter((expense) => expense.propertyId === property.id);
+
+    const recurringRent = units.reduce((sum, unit) => sum + unit.monthlyRent, 0);
+    const collected = payments.filter((payment) => payment.status === "PAID").reduce((sum, payment) => sum + payment.amount, 0);
+    const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+
+    return {
+      propertyId: property.id,
+      name: property.name,
+      units: units.length,
+      recurringRent,
+      collected,
+      totalExpenses,
+      net: collected - totalExpenses,
+      occupancyRate: units.length ? units.filter((unit) => unit.occupancyStatus === "OCCUPIED").length / units.length : 0
+    };
+  });
+
+  return {
+    ...snapshot,
+    byProperty
+  };
+}

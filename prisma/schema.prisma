@@ -1,0 +1,355 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  TENANT
+}
+
+enum PropertyStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum UnitOccupancyStatus {
+  OCCUPIED
+  VACANT
+  NOTICE
+  TURNOVER
+}
+
+enum LeaseStatus {
+  ACTIVE
+  UPCOMING
+  EXPIRED
+  TERMINATED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIAL
+  LATE
+}
+
+enum ExpenseCategory {
+  MAINTENANCE
+  REPAIR
+  UTILITIES
+  INSURANCE
+  TAX
+  CLEANING
+  MARKETING
+  OTHER
+}
+
+enum MaintenanceStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum AssessmentSeverity {
+  LOW
+  MODERATE
+  HIGH
+  CRITICAL
+}
+
+enum NotificationType {
+  RENT_DUE
+  RENT_OVERDUE
+  LEASE_EXPIRING
+  INSPECTION_PENDING
+  MAINTENANCE_OPEN
+  DAMAGE_ASSESSMENT
+  SYSTEM
+}
+
+enum FileKind {
+  PROPERTY_IMAGE
+  UNIT_IMAGE
+  MOVE_IN_IMAGE
+  MOVE_OUT_IMAGE
+  DAMAGE_IMAGE
+  LEASE_DOCUMENT
+  AVATAR
+}
+
+model Organization {
+  id             String              @id @default(cuid())
+  name           String
+  email          String
+  phone          String?
+  mailingAddress String?
+  logoPath       String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  users          User[]
+  properties     Property[]
+  tenants        Tenant[]
+  notifications  Notification[]
+}
+
+model User {
+  id                     String               @id @default(cuid())
+  organizationId         String
+  email                  String               @unique
+  passwordHash           String
+  firstName              String
+  lastName               String
+  role                   UserRole
+  isActive               Boolean              @default(true)
+  avatarPath             String?
+  title                  String?
+  phone                  String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  organization           Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  notifications          Notification[]
+  passwordResetTokens    PasswordResetToken[]
+  createdAssessments     DamageAssessment[]   @relation("AssessmentCreator")
+}
+
+model Property {
+  id             String         @id @default(cuid())
+  organizationId String
+  name           String
+  addressLine1   String
+  addressLine2   String?
+  city           String
+  state          String
+  postalCode     String
+  status         PropertyStatus @default(ACTIVE)
+  description    String?
+  amenities      String
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  units          Unit[]
+  expenses       Expense[]
+  maintenance    MaintenanceRequest[]
+  files          UploadedFile[]
+}
+
+model Unit {
+  id                  String               @id @default(cuid())
+  propertyId          String
+  unitNumber          String
+  nickname            String?
+  addressOverride     String?
+  unitType            String
+  bedrooms            Int
+  bathrooms           Float
+  squareFeet          Int?
+  monthlyRent         Float
+  depositAmount       Float
+  leaseStatus         LeaseStatus          @default(UPCOMING)
+  occupancyStatus     UnitOccupancyStatus  @default(VACANT)
+  amenities           String
+  notes               String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  property            Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  leases              Lease[]
+  payments            Payment[]
+  expenses            Expense[]
+  maintenance         MaintenanceRequest[]
+  inspections         Inspection[]
+  files               UploadedFile[]
+
+  @@unique([propertyId, unitNumber])
+}
+
+model Tenant {
+  id             String         @id @default(cuid())
+  organizationId String
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String?
+  employer       String?
+  emergencyName  String?
+  emergencyPhone String?
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leaseTenants   LeaseTenant[]
+}
+
+model Lease {
+  id                String       @id @default(cuid())
+  unitId            String
+  startDate         DateTime
+  endDate           DateTime
+  monthlyRent       Float
+  dueDay            Int
+  securityDeposit   Float
+  recurringCharges  String
+  lateFeePolicy     String?
+  notes             String?
+  status            LeaseStatus
+  documentPath      String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  unit              Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  tenants           LeaseTenant[]
+  inspections       Inspection[]
+  payments          Payment[]
+}
+
+model LeaseTenant {
+  leaseId   String
+  tenantId  String
+  createdAt DateTime @default(now())
+  lease     Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([leaseId, tenantId])
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  unitId        String
+  leaseId       String?
+  description   String
+  amount        Float
+  dueDate       DateTime
+  paidDate      DateTime?
+  status        PaymentStatus
+  lateFeeAmount Float         @default(0)
+  balanceDue    Float         @default(0)
+  categoryTag   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  unit          Unit          @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  lease         Lease?        @relation(fields: [leaseId], references: [id], onDelete: SetNull)
+}
+
+model Expense {
+  id          String          @id @default(cuid())
+  propertyId  String
+  unitId      String?
+  title       String
+  description String?
+  amount      Float
+  incurredAt  DateTime
+  category    ExpenseCategory
+  tags        String
+  vendor      String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  property    Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unit        Unit?           @relation(fields: [unitId], references: [id], onDelete: SetNull)
+}
+
+model MaintenanceRequest {
+  id             String              @id @default(cuid())
+  propertyId     String
+  unitId         String?
+  title          String
+  description    String
+  status         MaintenanceStatus   @default(OPEN)
+  priority       MaintenancePriority @default(MEDIUM)
+  estimatedCost  Float?
+  actualCost     Float?
+  assignedTo     String?
+  requestedAt    DateTime            @default(now())
+  resolvedAt     DateTime?
+  timeline       String
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  property       Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unit           Unit?               @relation(fields: [unitId], references: [id], onDelete: SetNull)
+}
+
+model Inspection {
+  id               String              @id @default(cuid())
+  unitId           String
+  leaseId          String?
+  inspectionDate   DateTime
+  type             String
+  notes            String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  unit             Unit                @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  lease            Lease?              @relation(fields: [leaseId], references: [id], onDelete: SetNull)
+  assessments      DamageAssessment[]
+  files            UploadedFile[]
+}
+
+model DamageAssessment {
+  id                String              @id @default(cuid())
+  inspectionId      String
+  createdById       String
+  summary           String
+  damageCategories  String
+  severity          AssessmentSeverity
+  confidenceScore   Float
+  estimatedLow      Float
+  estimatedHigh     Float
+  wearAndTear       Boolean             @default(false)
+  explanation       String
+  recommendedNext   String
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  inspection        Inspection          @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  createdBy         User                @relation("AssessmentCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  files             UploadedFile[]
+}
+
+model UploadedFile {
+  id                 String             @id @default(cuid())
+  propertyId         String?
+  unitId             String?
+  inspectionId       String?
+  assessmentId       String?
+  kind               FileKind
+  label              String?
+  path               String
+  mimeType           String
+  createdAt          DateTime           @default(now())
+  property           Property?          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  unit               Unit?              @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  inspection         Inspection?        @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  assessment         DamageAssessment?  @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id             String           @id @default(cuid())
+  organizationId String
+  userId         String?
+  type           NotificationType
+  title          String
+  body           String
+  isRead         Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id         String   @id @default(cuid())
+  userId     String
+  token      String   @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

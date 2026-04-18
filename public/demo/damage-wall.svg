@@ -1,0 +1,10 @@
+<svg width="900" height="640" viewBox="0 0 900 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="640" fill="#F5F2EB"/>
+  <rect x="84" y="70" width="732" height="500" rx="26" fill="#FFFFFF"/>
+  <rect x="154" y="132" width="592" height="264" rx="18" fill="#ECE7DB"/>
+  <rect x="154" y="410" width="592" height="100" rx="8" fill="#C89A5B"/>
+  <path d="M386 228L436 178L506 208L552 156L604 198" stroke="#A43520" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="438" cy="250" r="32" fill="#B98B39" opacity="0.6"/>
+  <path d="M532 294C572 254 620 258 654 280" stroke="#A43520" stroke-width="14" stroke-linecap="round"/>
+  <text x="450" y="550" font-family="Arial" font-size="26" fill="#A43520" text-anchor="middle">Wall and fixture damage sample</text>
+</svg>
