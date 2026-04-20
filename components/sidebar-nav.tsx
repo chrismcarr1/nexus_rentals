@@ -2,14 +2,40 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  BellRing,
+  Building2,
+  ClipboardList,
+  CreditCard,
+  FileCheck2,
+  Gauge,
+  Home,
+  Settings,
+  ShieldCheck,
+  Users
+} from "lucide-react";
 
+import type { NavIconName } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
+
+const iconMap = {
+  bellRing: BellRing,
+  building2: Building2,
+  clipboardList: ClipboardList,
+  creditCard: CreditCard,
+  fileCheck2: FileCheck2,
+  gauge: Gauge,
+  home: Home,
+  settings: Settings,
+  shieldCheck: ShieldCheck,
+  users: Users
+} satisfies Record<NavIconName, React.ComponentType<{ className?: string }>>;
 
 type NavItem = {
   href: string;
   label: string;
   description: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: NavIconName;
 };
 
 export function SidebarNav({ items }: { items: NavItem[] }) {
@@ -18,7 +44,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
   return (
     <nav className="space-y-2">
       {items.map((item) => {
-        const Icon = item.icon;
+        const Icon = iconMap[item.icon];
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
         return (
