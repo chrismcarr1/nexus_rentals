@@ -1,20 +1,16 @@
 import { AppShell } from "@/components/app-shell";
 import { logoutAction } from "@/lib/actions";
 import { requireUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { getPortalContext } from "@/services/portal";
 
 export default async function ProtectedLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const user = await requireUser();
-  const notifications = await db.notification.findMany({
-    where: { organizationId: user.organizationId },
-    orderBy: { createdAt: "desc" },
-    take: 5
-  });
+  const portal = await getPortalContext(user);
 
   return (
     <AppShell
       user={user}
-      notifications={notifications}
+      notifications={portal.notifications.slice(0, 5)}
       logoutAction={logoutAction}
     >
       {children}

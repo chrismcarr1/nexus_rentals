@@ -1,65 +1,80 @@
+import { DataTable } from "@/components/data-table";
+import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createTenantAction } from "@/lib/actions";
-import { requireUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { requireRouteAccess } from "@/lib/auth";
+import { getPortalContext } from "@/services/portal";
 
 export default async function TenantsPage() {
-  const user = await requireUser();
-  const tenants = await db.tenant.findMany({
-    where: { organizationId: user.organizationId },
-    include: {
-      leaseTenants: {
-        include: { lease: { include: { unit: { include: { property: true } } } } }
-      }
-    },
-    orderBy: { createdAt: "desc" }
+  const user = await requireRouteAccess("/tenants");
+  const portal = await getPortalContext(user);
+  const tenantRows = portal.scope.tenants.map((tenant) => {
+    const currentLease = portal.scope.leases.find((lease) => lease.tenantIds.includes(tenant.id) && (lease.status === "ACTIVE" || lease.status === "UPCOMING"));
+    const unit = currentLease ? portal.scope.units.find((item) => item.id === currentLease.unitId) : null;
+    const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) : null;
+
+    return { tenant, property, unit };
   });
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-      <Card className="p-6">
-        <p className="text-sm uppercase tracking-[0.24em] text-stone-400">Tenant Directory</p>
-        <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left">
-            <thead className="text-xs uppercase tracking-[0.2em] text-stone-400">
-              <tr>
-                <th className="pb-3">Name</th>
-                <th className="pb-3">Contact</th>
-                <th className="pb-3">Employer</th>
-                <th className="pb-3">Current Unit</th>
+    <div className="space-y-4">
+      <PageHeader
+        eyebrow={user.role === "ADMIN" ? "People and leasing" : "Tenant roster"}
+        title={user.role === "ADMIN" ? "Tenant directory with operator and manager visibility." : "Residents and active leases for your assigned buildings."}
+        description={
+          user.role === "ADMIN"
+            ? "Review all residents, understand current tenancy placement, and keep visibility into the active manager team."
+            : "Stay focused on the residents, lease placements, and contact information tied to the properties you manage."
+        }
+      />
+      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <Card className="p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Tenant directory</p>
+          <DataTable columns={["Name", "Contact", "Employer", "Current unit"]} className="mt-5">
+            {tenantRows.map(({ tenant, property, unit }) => (
+              <tr key={tenant.id} className="table-row">
+                <td className="py-4 pr-4 font-semibold">{tenant.firstName} {tenant.lastName}</td>
+                <td className="py-4 pr-4 text-[var(--muted)]">{tenant.email || "No email"}<br />{tenant.phone || "No phone"}</td>
+                <td className="py-4 pr-4 text-[var(--muted)]">{tenant.employer || "Not set"}</td>
+                <td className="py-4 pr-4 text-[var(--muted)]">{property && unit ? `${property.name} ${unit.unitNumber}` : "No active lease"}</td>
               </tr>
-            </thead>
-            <tbody>
-              {tenants.map((tenant) => {
-                const currentLease = tenant.leaseTenants[0]?.lease;
-                return (
-                  <tr key={tenant.id} className="border-t border-[var(--line)] text-sm">
-                    <td className="py-4 font-semibold">{tenant.firstName} {tenant.lastName}</td>
-                    <td className="py-4 text-stone-500">{tenant.email || "No email"}<br />{tenant.phone || "No phone"}</td>
-                    <td className="py-4 text-stone-500">{tenant.employer || "Not set"}</td>
-                    <td className="py-4 text-stone-500">{currentLease ? `${currentLease.unit.property.name} ${currentLease.unit.unitNumber}` : "No active lease"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+            ))}
+          </DataTable>
+        </Card>
+        <div className="space-y-4">
+          <Card className="p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Add tenant</p>
+            <form action={createTenantAction} className="mt-6 space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <input name="firstName" placeholder="First name" className="field" />
+                <input name="lastName" placeholder="Last name" className="field" />
+              </div>
+              <input name="email" type="email" placeholder="Email" className="field" />
+              <input name="phone" placeholder="Phone" className="field" />
+              <input name="employer" placeholder="Employer" className="field" />
+              <textarea name="notes" placeholder="Notes" className="field min-h-24" />
+              <SubmitButton>Create tenant</SubmitButton>
+            </form>
+          </Card>
+          {user.role === "ADMIN" ? (
+            <Card className="p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Manager overview</p>
+              <div className="mt-4 space-y-3">
+                {portal.managers.map((manager) => (
+                  <div key={manager.id} className="panel-muted rounded-[24px] p-4">
+                    <p className="font-semibold">{manager.firstName} {manager.lastName}</p>
+                    <p className="mt-1 text-sm text-[var(--muted)]">{manager.title || "Property Manager"}</p>
+                    <p className="mt-2 text-sm text-[var(--muted)]">
+                      {portal.scope.properties.filter((property) => property.managerId === manager.id).length} assigned properties
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ) : null}
         </div>
-      </Card>
-      <Card className="p-6">
-        <p className="text-sm uppercase tracking-[0.24em] text-[var(--brand)]">Add Tenant</p>
-        <form action={createTenantAction} className="mt-6 space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <input name="firstName" placeholder="First name" className="rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-            <input name="lastName" placeholder="Last name" className="rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-          </div>
-          <input name="email" type="email" placeholder="Email" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-          <input name="phone" placeholder="Phone" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-          <input name="employer" placeholder="Employer" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-          <textarea name="notes" placeholder="Notes" className="min-h-24 w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-          <SubmitButton>Create tenant</SubmitButton>
-        </form>
-      </Card>
+      </div>
     </div>
   );
 }

@@ -5,13 +5,15 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { addUnitAssetAction } from "@/lib/actions";
-import { requireUser } from "@/lib/auth";
+import { requireRouteAccess } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatCurrency, formatDate, parseTags } from "@/lib/utils";
+import { getPortalContext } from "@/services/portal";
 
 export default async function UnitDetailPage({ params }: { params: Promise<{ unitId: string }> }) {
   const { unitId } = await params;
-  const user = await requireUser();
+  const user = await requireRouteAccess("/units");
+  const portal = await getPortalContext(user);
   const unit = await db.unit.findFirst({
     where: { id: unitId, property: { organizationId: user.organizationId } },
     include: {
@@ -25,14 +27,14 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
     }
   });
 
-  if (!unit) notFound();
+  if (!unit || !portal.scope.units.some((item) => item.id === unit.id)) notFound();
 
   return (
     <div className="space-y-4">
       <Card className="p-6">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-sm uppercase tracking-[0.24em] text-[var(--brand)]">Unit Detail</p>
+            <p className="text-sm uppercase tracking-[0.24em] text-[var(--brand)]">Unit detail</p>
             <h1 className="mt-3 font-[var(--font-display)] text-5xl">
               {unit.property.name} <span className="text-[var(--brand)]">{unit.unitNumber}</span>
             </h1>
@@ -73,7 +75,7 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
         </Card>
         <div className="space-y-4">
           <Card className="p-6">
-            <p className="text-sm uppercase tracking-[0.24em] text-stone-400">Lease History</p>
+            <p className="text-sm uppercase tracking-[0.24em] text-stone-400">Lease history</p>
             <div className="mt-5 space-y-3">
               {unit.leases.map((lease) => (
                 <div key={lease.id} className="rounded-[22px] bg-stone-900/5 p-4">
@@ -89,7 +91,7 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
             </div>
           </Card>
           <Card className="p-6">
-            <p className="text-sm uppercase tracking-[0.24em] text-stone-400">Financial Activity</p>
+            <p className="text-sm uppercase tracking-[0.24em] text-stone-400">Financial activity</p>
             <div className="mt-5 space-y-3">
               {unit.payments.map((payment) => (
                 <div key={payment.id} className="rounded-[22px] bg-stone-900/5 p-4">

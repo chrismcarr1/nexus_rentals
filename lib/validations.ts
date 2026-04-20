@@ -24,7 +24,8 @@ export const propertySchema = z.object({
   addressLine2: z.string().optional(),
   description: z.string().optional(),
   amenities: z.string().optional(),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  managerId: z.string().optional()
 });
 
 export const unitSchema = z.object({

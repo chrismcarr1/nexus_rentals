@@ -1,16 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f4f1ea;
-  --surface: rgba(255, 255, 255, 0.84);
+  --bg: #eef3f8;
+  --panel: rgba(255, 255, 255, 0.74);
+  --panel-strong: rgba(255, 255, 255, 0.96);
+  --surface: rgba(255, 255, 255, 0.8);
   --surface-strong: #ffffff;
-  --line: rgba(34, 29, 20, 0.08);
-  --text: #18130d;
-  --muted: #665d52;
-  --brand: #184c45;
-  --brand-2: #b98b39;
+  --line: rgba(15, 23, 42, 0.08);
+  --line-strong: rgba(15, 23, 42, 0.12);
+  --text: #0f172a;
+  --muted: #5f6b7d;
+  --brand: #1f6b5f;
+  --brand-2: #b48a4e;
   --danger: #b42318;
-  --success: #157347;
+  --success: #15803d;
+  --warning: #b45309;
 }
 
 * {
@@ -19,9 +23,9 @@
 
 html {
   background:
-    radial-gradient(circle at top left, rgba(24, 76, 69, 0.09), transparent 34%),
-    radial-gradient(circle at top right, rgba(185, 139, 57, 0.12), transparent 30%),
-    linear-gradient(180deg, #f7f4ef 0%, #f0ebe2 100%);
+    radial-gradient(circle at top left, rgba(31, 107, 95, 0.12), transparent 34%),
+    radial-gradient(circle at top right, rgba(180, 138, 78, 0.12), transparent 26%),
+    linear-gradient(180deg, #f6f9fc 0%, #e9f0f7 100%);
 }
 
 body {
@@ -50,12 +54,62 @@ select {
 }
 
 .card-shadow {
-  box-shadow: 0 20px 60px rgba(41, 31, 16, 0.08);
+  box-shadow: 0 26px 60px rgba(15, 23, 42, 0.08);
 }
 
 .grid-bg {
   background-image:
-    linear-gradient(rgba(24, 76, 69, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(24, 76, 69, 0.05) 1px, transparent 1px);
+    linear-gradient(rgba(31, 107, 95, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(31, 107, 95, 0.04) 1px, transparent 1px);
   background-size: 42px 42px;
+}
+
+.surface-panel {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.84));
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 30px;
+  box-shadow:
+    0 28px 72px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.panel-muted {
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.9));
+  border: 1px solid var(--line);
+}
+
+input,
+textarea,
+select {
+  color: var(--text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #8c98aa;
+}
+
+.field {
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.94);
+  padding: 0.85rem 1rem;
+  outline: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.field:focus {
+  border-color: rgba(31, 107, 95, 0.34);
+  box-shadow: 0 0 0 4px rgba(31, 107, 95, 0.08);
+}
+
+.table-row {
+  border-top: 1px solid var(--line);
+  transition: background 160ms ease;
+}
+
+.table-row:hover {
+  background: rgba(248, 250, 252, 0.8);
 }

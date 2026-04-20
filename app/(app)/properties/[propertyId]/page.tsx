@@ -6,13 +6,15 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createUnitAction } from "@/lib/actions";
-import { requireUser } from "@/lib/auth";
+import { requireRouteAccess } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatCurrency, parseTags } from "@/lib/utils";
+import { getPortalContext } from "@/services/portal";
 
 export default async function PropertyDetailPage({ params }: { params: Promise<{ propertyId: string }> }) {
   const { propertyId } = await params;
-  const user = await requireUser();
+  const user = await requireRouteAccess("/properties");
+  const portal = await getPortalContext(user);
   const property = await db.property.findFirst({
     where: { id: propertyId, organizationId: user.organizationId },
     include: {
@@ -27,14 +29,14 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
     }
   });
 
-  if (!property) notFound();
+  if (!property || !portal.scope.properties.some((item) => item.id === property.id)) notFound();
 
   return (
     <div className="space-y-4">
       <Card className="overflow-hidden">
         <div className="grid gap-6 p-6 lg:grid-cols-[1.3fr_0.7fr]">
           <div>
-            <p className="text-sm uppercase tracking-[0.24em] text-[var(--brand)]">Property Detail</p>
+            <p className="text-sm uppercase tracking-[0.24em] text-[var(--brand)]">Property detail</p>
             <h1 className="mt-3 font-[var(--font-display)] text-5xl">{property.name}</h1>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-stone-600">{property.description}</p>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -78,39 +80,39 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
           </div>
         </Card>
         <Card className="p-6">
-          <p className="text-sm uppercase tracking-[0.24em] text-[var(--brand)]">Add Unit</p>
+          <p className="text-sm uppercase tracking-[0.24em] text-[var(--brand)]">Add unit</p>
           <h2 className="mt-2 text-2xl font-semibold">Extend this property</h2>
           <form action={createUnitAction} className="mt-6 space-y-4">
             <input type="hidden" name="propertyId" value={property.id} />
             <div className="grid gap-4 md:grid-cols-2">
-              <input name="unitNumber" placeholder="Unit number" className="rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-              <input name="nickname" placeholder="Nickname" className="rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
+              <input name="unitNumber" placeholder="Unit number" className="field" />
+              <input name="nickname" placeholder="Nickname" className="field" />
             </div>
-            <input name="unitType" placeholder="Unit type" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
+            <input name="unitType" placeholder="Unit type" className="field" />
             <div className="grid gap-4 md:grid-cols-3">
-              <input name="bedrooms" type="number" step="1" placeholder="Bedrooms" className="rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-              <input name="bathrooms" type="number" step="0.5" placeholder="Bathrooms" className="rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-              <input name="squareFeet" type="number" step="1" placeholder="Sq ft" className="rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
+              <input name="bedrooms" type="number" step="1" placeholder="Bedrooms" className="field" />
+              <input name="bathrooms" type="number" step="0.5" placeholder="Bathrooms" className="field" />
+              <input name="squareFeet" type="number" step="1" placeholder="Sq ft" className="field" />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <input name="monthlyRent" type="number" step="0.01" placeholder="Monthly rent" className="rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-              <input name="depositAmount" type="number" step="0.01" placeholder="Deposit" className="rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
+              <input name="monthlyRent" type="number" step="0.01" placeholder="Monthly rent" className="field" />
+              <input name="depositAmount" type="number" step="0.01" placeholder="Deposit" className="field" />
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <select name="occupancyStatus" className="rounded-2xl border border-[var(--line)] bg-white px-4 py-3">
+              <select name="occupancyStatus" className="field">
                 <option value="VACANT">Vacant</option>
                 <option value="OCCUPIED">Occupied</option>
                 <option value="NOTICE">Notice</option>
                 <option value="TURNOVER">Turnover</option>
               </select>
-              <select name="leaseStatus" className="rounded-2xl border border-[var(--line)] bg-white px-4 py-3">
+              <select name="leaseStatus" className="field">
                 <option value="UPCOMING">Upcoming</option>
                 <option value="ACTIVE">Active</option>
                 <option value="EXPIRED">Expired</option>
                 <option value="TERMINATED">Terminated</option>
               </select>
             </div>
-            <textarea name="amenities" placeholder="Amenities, comma separated" className="min-h-24 w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
+            <textarea name="amenities" placeholder="Amenities, comma separated" className="field min-h-24" />
             <SingleUploadInput name="imagePath" label="Upload unit image" />
             <SubmitButton>Create unit</SubmitButton>
           </form>

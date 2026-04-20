@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
+import { canAccessPath } from "@/lib/rbac";
+
 const protectedPaths = [
   "/dashboard",
   "/properties",
@@ -34,7 +36,11 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    await jwtVerify(token, getSecret());
+    const { payload } = await jwtVerify(token, getSecret());
+    const role = String(payload.role ?? "") as any;
+    if (!canAccessPath(role, pathname)) {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
     return NextResponse.next();
   } catch {
     return NextResponse.redirect(new URL("/login", request.url));

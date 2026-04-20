@@ -21,6 +21,7 @@ import {
   unitSchema
 } from "@/lib/validations";
 import { generateDamageEstimate } from "@/services/damage-estimator";
+import { getPortalContext } from "@/services/portal";
 
 function getString(formData: FormData, key: string) {
   return String(formData.get(key) ?? "");
@@ -154,7 +155,8 @@ export async function createPropertyAction(formData: FormData) {
     addressLine2: getOptionalString(formData, "addressLine2"),
     description: getOptionalString(formData, "description"),
     amenities: getOptionalString(formData, "amenities"),
-    notes: getOptionalString(formData, "notes")
+    notes: getOptionalString(formData, "notes"),
+    managerId: getOptionalString(formData, "managerId")
   });
   const uploadedPath = getOptionalString(formData, "imagePath");
 
@@ -162,6 +164,7 @@ export async function createPropertyAction(formData: FormData) {
     data: {
       organizationId: user.organizationId,
       ...parsed,
+      managerId: user.role === UserRole.MANAGER ? user.id : parsed.managerId,
       amenities: parsed.amenities ?? "",
       files: uploadedPath
         ? {
@@ -179,6 +182,33 @@ export async function createPropertyAction(formData: FormData) {
   revalidatePath("/properties");
   revalidatePath("/dashboard");
   redirect("/properties");
+}
+
+export async function assignPropertyManagerAction(formData: FormData) {
+  await requireRoles([UserRole.ADMIN]);
+  const propertyId = getString(formData, "propertyId");
+  const managerId = getOptionalString(formData, "managerId");
+
+  await db.property.update({
+    where: { id: propertyId },
+    data: { managerId: managerId || undefined }
+  });
+
+  revalidatePath("/properties");
+  revalidatePath("/dashboard");
+}
+
+export async function archivePropertyAction(formData: FormData) {
+  await requireRoles([UserRole.ADMIN]);
+  const propertyId = getString(formData, "propertyId");
+
+  await db.property.update({
+    where: { id: propertyId },
+    data: { status: "ARCHIVED" }
+  });
+
+  revalidatePath("/properties");
+  revalidatePath("/dashboard");
 }
 
 export async function createUnitAction(formData: FormData) {
@@ -359,7 +389,7 @@ export async function createExpenseAction(formData: FormData) {
 }
 
 export async function createMaintenanceAction(formData: FormData) {
-  await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const user = await requireUser();
   const parsed = maintenanceSchema.parse({
     propertyId: getString(formData, "propertyId"),
     unitId: getOptionalString(formData, "unitId"),
@@ -377,9 +407,13 @@ export async function createMaintenanceAction(formData: FormData) {
     data: {
       ...parsed,
       unitId: parsed.unitId || null,
-      estimatedCost: parsed.estimatedCost ?? null,
-      actualCost: parsed.actualCost ?? null,
-      timeline: parsed.timeline ?? "Created from operations dashboard."
+      status: user.role === UserRole.TENANT ? "OPEN" : parsed.status,
+      estimatedCost: user.role === UserRole.TENANT ? null : parsed.estimatedCost ?? null,
+      actualCost: user.role === UserRole.TENANT ? null : parsed.actualCost ?? null,
+      assignedTo: user.role === UserRole.TENANT ? null : parsed.assignedTo,
+      timeline:
+        parsed.timeline ??
+        (user.role === UserRole.TENANT ? "Submitted from resident portal; awaiting manager triage." : "Created from operations dashboard.")
     }
   });
 
@@ -388,7 +422,7 @@ export async function createMaintenanceAction(formData: FormData) {
 }
 
 export async function updateSettingsAction(formData: FormData) {
-  const user = await requireUser();
+  const user = await requireRoles([UserRole.ADMIN]);
   const parsed = settingsSchema.parse({
     name: getString(formData, "name"),
     email: getString(formData, "email"),
@@ -408,6 +442,57 @@ export async function updateSettingsAction(formData: FormData) {
 
   revalidatePath("/settings");
   redirect("/settings");
+}
+
+export async function updateProfileAction(formData: FormData) {
+  const user = await requireUser();
+
+  await db.user.update({
+    where: { id: user.id },
+    data: {
+      firstName: getString(formData, "firstName"),
+      lastName: getString(formData, "lastName"),
+      phone: getOptionalString(formData, "phone"),
+      title: getOptionalString(formData, "title")
+    }
+  });
+
+  revalidatePath("/settings");
+  redirect("/settings");
+}
+
+export async function payRentAction(formData: FormData) {
+  const user = await requireRoles([UserRole.TENANT]);
+  const paymentId = getString(formData, "paymentId");
+  const portal = await getPortalContext(user);
+
+  const payment = await db.payment.findFirst?.({ where: { id: paymentId } });
+  if (!payment || !portal.scope.payments.some((item: any) => item.id === paymentId)) {
+    redirect("/transactions");
+  }
+
+  await db.payment.update({
+    where: { id: paymentId },
+    data: {
+      status: "PAID",
+      paidDate: new Date(),
+      balanceDue: 0
+    }
+  });
+
+  await db.notification.create({
+    data: {
+      organizationId: user.organizationId,
+      userId: user.id,
+      type: "RENT_DUE",
+      title: "Rent payment submitted",
+      body: "Your payment was marked as paid in the resident portal."
+    }
+  });
+
+  revalidatePath("/transactions");
+  revalidatePath("/dashboard");
+  redirect("/transactions");
 }
 
 export async function addUnitAssetAction(formData: FormData) {

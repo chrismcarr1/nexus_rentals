@@ -58,6 +58,7 @@
     {
       "id": "prop_harbor",
       "organizationId": "org_northstar",
+      "managerId": "user_manager",
       "name": "Harbor Point Residences",
       "addressLine1": "880 Mission Bay Blvd",
       "city": "San Francisco",
@@ -73,6 +74,7 @@
     {
       "id": "prop_maple",
       "organizationId": "org_northstar",
+      "managerId": "user_manager",
       "name": "Maple Terrace Townhomes",
       "addressLine1": "1416 Maple Terrace",
       "city": "Oakland",

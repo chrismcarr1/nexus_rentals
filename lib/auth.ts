@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { getOrganizationById, getUserById, type UserRole } from "@/lib/store";
+import { canAccessPath } from "@/lib/rbac";
 
 const SESSION_COOKIE = "rentroll_session";
 const encoder = new TextEncoder();
@@ -78,6 +79,14 @@ export async function requireUser() {
 export async function requireRoles(roles: UserRole[]) {
   const user = await requireUser();
   if (!roles.includes(user.role)) {
+    redirect("/dashboard");
+  }
+  return user;
+}
+
+export async function requireRouteAccess(pathname: string) {
+  const user = await requireUser();
+  if (!canAccessPath(user.role, pathname)) {
     redirect("/dashboard");
   }
   return user;
