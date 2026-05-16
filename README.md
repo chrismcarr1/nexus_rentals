@@ -15,7 +15,7 @@ Use this demo to show:
 - Frontend and backend: `Next.js` App Router with server actions and API routes
 - Language: `TypeScript`
 - Styling: `Tailwind CSS`
-- Persistence: hosted Postgres document store initialized by `npm run db:setup`
+- Persistence: hosted Postgres document store with first-run demo bootstrap
 - Auth: secure custom cookie/JWT auth with `jose` and `bcryptjs`
 - Charts: `Recharts`
 - Validation: `zod`
@@ -23,7 +23,7 @@ Use this demo to show:
 
 ### Persistence approach
 
-The UI and server actions use a Prisma-shaped adapter in `lib/db.ts`. To keep the patch small and Vercel-compatible, the adapter now stores the existing `AppStore` document in hosted Postgres instead of writing `data/app-db.json`. This preserves the current app behavior while avoiding local JSON, SQLite, or filesystem persistence in production.
+The UI and server actions use a Prisma-shaped adapter in `lib/db.ts`. To keep the patch small and Vercel-compatible, the adapter now stores the existing `AppStore` document in hosted Postgres instead of writing `data/app-db.json`. This preserves the current app behavior while avoiding local JSON, SQLite, or filesystem persistence in production. If the hosted table is empty, the app safely bootstraps demo login data on first read without overwriting an existing production store.
 
 ## Architecture
 
@@ -154,7 +154,7 @@ Recommended setup:
 3. Attach Vercel Blob and add `BLOB_READ_WRITE_TOKEN`.
 4. Set `AUTH_SECRET` to a long random string.
 5. Set `APP_URL` to the deployed Vercel URL.
-6. Run `npm run db:migrate` and `npm run db:setup` once against the production environment to create and seed the store.
+6. Run `npm run db:migrate` once against the production environment to create the table. The app will bootstrap demo login data automatically if the store is empty; run `npm run db:setup` only when you intentionally want to reseed the full demo dataset.
 7. Deploy normally with Vercel.
 
 ## Key Pages

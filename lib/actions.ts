@@ -89,7 +89,14 @@ export async function loginAction(formData: FormData) {
     password: getString(formData, "password")
   });
 
-  const user = await db.user.findUnique({ where: { email: parsed.email } });
+  let user;
+  try {
+    user = await db.user.findUnique({ where: { email: parsed.email } });
+  } catch (error) {
+    console.error("[auth] Login database lookup failed", error);
+    redirect("/login?error=server");
+  }
+
   if (!user || !(await verifyPassword(parsed.password, user.passwordHash))) {
     redirect("/login?error=invalid-credentials");
   }
