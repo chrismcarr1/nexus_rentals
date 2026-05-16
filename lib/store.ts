@@ -84,6 +84,180 @@ function emptyStore(): AppStore {
   };
 }
 
+function shiftDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
+
+function shiftMonths(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + amount);
+  return next;
+}
+
+function createDefaultStore(): AppStore {
+  const now = new Date();
+  const iso = (date: Date) => date.toISOString();
+
+  return {
+    organizations: [
+      {
+        id: "org_northstar",
+        name: "Northstar Residential Group",
+        email: "contact@northstar.local",
+        phone: "(415) 555-0190",
+        mailingAddress: "240 Valencia Street, Suite 500, San Francisco, CA 94103",
+        logoPath: "/demo/logo-mark.svg",
+        createdAt: iso(now),
+        updatedAt: iso(now)
+      }
+    ],
+    users: [
+      {
+        id: "user_admin",
+        organizationId: "org_northstar",
+        email: "demo@northstar.local",
+        passwordHash: "$2a$12$MIJMDXWS1d0FXDhN9CCvCuS3NGZfDtUBcW35Lgj9dcpWl9Rl5UgbK",
+        firstName: "Avery",
+        lastName: "Stone",
+        role: "ADMIN",
+        isActive: true,
+        title: "Principal Operator",
+        phone: "(415) 555-0132",
+        createdAt: iso(now),
+        updatedAt: iso(now)
+      },
+      {
+        id: "user_manager",
+        organizationId: "org_northstar",
+        email: "manager@northstar.local",
+        passwordHash: "$2a$12$IEepTugRNcPbTyHPHF3wuujjzk4SrMWB15LFv5CAylJa8Ro7tPzFK",
+        firstName: "Jordan",
+        lastName: "Lee",
+        role: "MANAGER",
+        isActive: true,
+        title: "Property Manager",
+        phone: "(415) 555-0177",
+        createdAt: iso(now),
+        updatedAt: iso(now)
+      },
+      {
+        id: "user_tenant",
+        organizationId: "org_northstar",
+        email: "tenant@northstar.local",
+        passwordHash: "$2a$12$pQi6MHcgf1F.JeAsCetLseBBHOwcPn9Nsk55rz1NTOo4iYF8RXU3W",
+        firstName: "Sam",
+        lastName: "Carter",
+        role: "TENANT",
+        isActive: true,
+        title: "Resident",
+        createdAt: iso(now),
+        updatedAt: iso(now)
+      }
+    ],
+    properties: [
+      {
+        id: "prop_harbor",
+        organizationId: "org_northstar",
+        managerId: "user_manager",
+        name: "Harbor Point Residences",
+        addressLine1: "880 Mission Bay Blvd",
+        city: "San Francisco",
+        state: "CA",
+        postalCode: "94158",
+        status: "ACTIVE",
+        description: "A mixed-use mid-rise asset with renovated interiors and strong waterfront demand.",
+        amenities: "Fitness studio, secure package room, rooftop lounge, EV charging",
+        notes: "Auto-seeded first-run production demo property.",
+        createdAt: iso(now),
+        updatedAt: iso(now)
+      }
+    ],
+    units: [
+      {
+        id: "unit_3a",
+        propertyId: "prop_harbor",
+        unitNumber: "3A",
+        nickname: "Bay View",
+        unitType: "Apartment",
+        bedrooms: 2,
+        bathrooms: 2,
+        squareFeet: 1040,
+        monthlyRent: 4250,
+        depositAmount: 4250,
+        occupancyStatus: "OCCUPIED",
+        leaseStatus: "ACTIVE",
+        amenities: "Water view, balcony, quartz kitchen",
+        createdAt: iso(now),
+        updatedAt: iso(now)
+      }
+    ],
+    tenants: [
+      {
+        id: "tenant_sam",
+        organizationId: "org_northstar",
+        firstName: "Sam",
+        lastName: "Carter",
+        email: "tenant@northstar.local",
+        phone: "(510) 555-0189",
+        employer: "Bayshore Labs",
+        emergencyName: "Nina Carter",
+        emergencyPhone: "(510) 555-0121",
+        notes: "Pays via ACH, prefers text updates.",
+        createdAt: iso(now),
+        updatedAt: iso(now)
+      }
+    ],
+    leases: [
+      {
+        id: "lease_3a",
+        unitId: "unit_3a",
+        tenantIds: ["tenant_sam"],
+        startDate: iso(shiftMonths(now, -8)),
+        endDate: iso(shiftMonths(now, 4)),
+        monthlyRent: 4250,
+        dueDay: 1,
+        securityDeposit: 4250,
+        recurringCharges: "Parking 175, Pet 50",
+        lateFeePolicy: "5% of unpaid balance after day 5",
+        status: "ACTIVE",
+        createdAt: iso(now),
+        updatedAt: iso(now)
+      }
+    ],
+    payments: [
+      {
+        id: "pay_1",
+        unitId: "unit_3a",
+        leaseId: "lease_3a",
+        description: "Current month rent",
+        amount: 4250,
+        dueDate: iso(shiftDays(now, 7)),
+        status: "PENDING",
+        lateFeeAmount: 0,
+        balanceDue: 4250,
+        categoryTag: "Rent",
+        createdAt: iso(now),
+        updatedAt: iso(now)
+      }
+    ],
+    expenses: [],
+    maintenanceRequests: [],
+    inspections: [],
+    damageAssessments: [],
+    uploadedFiles: [
+      { id: "file_prop_cover_1", propertyId: "prop_harbor", kind: "PROPERTY_IMAGE", label: "Cover image", path: "/demo/property-cover.svg", mimeType: "image/svg+xml", createdAt: iso(now) },
+      { id: "file_unit_3a", unitId: "unit_3a", kind: "UNIT_IMAGE", label: "Unit hero", path: "/demo/unit-b.svg", mimeType: "image/svg+xml", createdAt: iso(now) }
+    ],
+    notifications: [
+      { id: "note_1", organizationId: "org_northstar", userId: "user_admin", type: "SYSTEM", title: "Production datastore is ready", body: "First-run demo data was created in hosted Postgres.", isRead: false, createdAt: iso(now) },
+      { id: "note_2", organizationId: "org_northstar", userId: "user_manager", type: "LEASE_EXPIRING", title: "Lease renewal window open", body: "Bay View lease is active and available for review.", isRead: false, createdAt: iso(now) }
+    ],
+    passwordResetTokens: [{ id: "reset_demo", userId: "user_admin", token: "demo-reset-token", expiresAt: iso(shiftDays(now, 2)), createdAt: iso(now) }]
+  };
+}
+
 function getDatabaseUrl() {
   return process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
 }
@@ -120,7 +294,18 @@ export async function readStore(): Promise<AppStore> {
   try {
     await ensureStoreTable();
     const rows = await getSql()`select data from app_store where id = ${STORE_ID} limit 1`;
-    return (rows[0]?.data as AppStore | undefined) ?? emptyStore();
+    const existing = rows[0]?.data as AppStore | undefined;
+    if (existing) return existing;
+
+    const seededStore = createDefaultStore();
+    await getSql()`
+      insert into app_store (id, data, updated_at)
+      values (${STORE_ID}, ${JSON.stringify(seededStore)}::jsonb, now())
+      on conflict (id) do nothing
+    `;
+    const seededRows = await getSql()`select data from app_store where id = ${STORE_ID} limit 1`;
+    console.info("[store] Bootstrapped hosted Postgres datastore with first-run demo data.");
+    return (seededRows[0]?.data as AppStore | undefined) ?? seededStore;
   } catch (error) {
     console.error("[store] Failed to read hosted Postgres datastore", error);
     throw error;

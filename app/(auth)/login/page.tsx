@@ -27,7 +27,11 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
           <p className="mt-3 text-sm text-stone-500">Use a seeded demo account or your own locally created organization account.</p>
           {(params.error || params.reset) && (
             <div className="mt-6 rounded-2xl border border-[var(--line)] bg-stone-900/5 px-4 py-3 text-sm">
-              {params.error === "invalid-credentials" ? "Invalid email or password." : "Password reset complete. Sign in with the new password."}
+              {params.error === "invalid-credentials"
+                ? "Invalid email or password."
+                : params.error === "server"
+                  ? "Login could not reach the hosted database. Check the Vercel environment variables."
+                  : "Password reset complete. Sign in with the new password."}
             </div>
           )}
           <form action={loginAction} className="mt-8 space-y-4">
