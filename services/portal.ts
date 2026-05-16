@@ -49,7 +49,7 @@ export const getPortalContext = cache(async (user: AppUser) => {
       ? tenantProfile
         ? [tenantProfile.id]
         : []
-      : Array.from(new Set(snapshot.leases.filter((lease) => leaseIds.includes(lease.id)).flatMap((lease) => lease.tenantIds)));
+      : snapshot.tenants.map((tenant) => tenant.id);
 
   const scoped = {
     properties: snapshot.properties.filter((property) => propertyIds.includes(property.id)),
@@ -59,6 +59,7 @@ export const getPortalContext = cache(async (user: AppUser) => {
     payments: snapshot.payments.filter((payment) => unitIds.includes(payment.unitId)),
     expenses: snapshot.expenses.filter((expense) => propertyIds.includes(expense.propertyId)),
     maintenance: snapshot.maintenanceRequests.filter((item) => propertyIds.includes(item.propertyId)),
+    inspections: snapshot.inspections.filter((inspection) => unitIds.includes(inspection.unitId)),
     assessments: snapshot.damageAssessments.filter((assessment) => {
       const inspection = snapshot.inspections.find((item) => item.id === assessment.inspectionId);
       return inspection ? unitIds.includes(inspection.unitId) : false;

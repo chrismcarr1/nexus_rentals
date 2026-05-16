@@ -10,6 +10,7 @@ import {
   FileCheck2,
   Gauge,
   Home,
+  Receipt,
   Settings,
   ShieldCheck,
   Users
@@ -26,6 +27,7 @@ const iconMap = {
   fileCheck2: FileCheck2,
   gauge: Gauge,
   home: Home,
+  receipt: Receipt,
   settings: Settings,
   shieldCheck: ShieldCheck,
   users: Users

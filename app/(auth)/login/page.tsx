@@ -37,7 +37,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
             </label>
             <label className="block">
               <span className="mb-2 block text-sm font-medium">Password</span>
-              <input name="password" type="password" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" placeholder="••••••••" />
+              <input name="password" type="password" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" placeholder="Password" />
             </label>
             <button type="submit" className="w-full rounded-2xl bg-[var(--brand)] px-4 py-3 font-semibold text-white">
               Sign in

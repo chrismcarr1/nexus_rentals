@@ -32,6 +32,10 @@ function getOptionalString(formData: FormData, key: string) {
   return value || undefined;
 }
 
+function hasId(items: Array<{ id: string }>, id?: string | null) {
+  return Boolean(id && items.some((item) => item.id === id));
+}
+
 export async function signupAction(formData: FormData) {
   const parsed = signupSchema.parse({
     businessName: getString(formData, "businessName"),
@@ -212,7 +216,8 @@ export async function archivePropertyAction(formData: FormData) {
 }
 
 export async function createUnitAction(formData: FormData) {
-  await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
   const parsed = unitSchema.parse({
     propertyId: getString(formData, "propertyId"),
     unitNumber: getString(formData, "unitNumber"),
@@ -229,6 +234,10 @@ export async function createUnitAction(formData: FormData) {
     notes: getOptionalString(formData, "notes")
   });
   const imagePath = getOptionalString(formData, "imagePath");
+
+  if (!hasId(portal.scope.properties, parsed.propertyId)) {
+    redirect("/properties");
+  }
 
   const unit = await db.unit.create({
     data: {
@@ -279,7 +288,8 @@ export async function createTenantAction(formData: FormData) {
 }
 
 export async function createLeaseAction(formData: FormData) {
-  await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
   const parsed = leaseSchema.parse({
     unitId: getString(formData, "unitId"),
     tenantId: getString(formData, "tenantId"),
@@ -293,6 +303,10 @@ export async function createLeaseAction(formData: FormData) {
     notes: getOptionalString(formData, "notes"),
     status: getString(formData, "status")
   });
+
+  if (!hasId(portal.scope.units, parsed.unitId) || !hasId(portal.scope.tenants, parsed.tenantId)) {
+    redirect("/leases");
+  }
 
   await db.lease.create({
     data: {
@@ -326,7 +340,8 @@ export async function createLeaseAction(formData: FormData) {
 }
 
 export async function createPaymentAction(formData: FormData) {
-  await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
   const parsed = paymentSchema.parse({
     unitId: getString(formData, "unitId"),
     leaseId: getOptionalString(formData, "leaseId"),
@@ -339,6 +354,13 @@ export async function createPaymentAction(formData: FormData) {
     balanceDue: getOptionalString(formData, "balanceDue"),
     categoryTag: getOptionalString(formData, "categoryTag")
   });
+
+  if (!hasId(portal.scope.units, parsed.unitId) || (parsed.leaseId && !hasId(portal.scope.leases, parsed.leaseId))) {
+    redirect("/transactions");
+  }
+  if (parsed.leaseId && portal.scope.leases.find((lease) => lease.id === parsed.leaseId)?.unitId !== parsed.unitId) {
+    redirect("/transactions");
+  }
 
   await db.payment.create({
     data: {
@@ -361,7 +383,8 @@ export async function createPaymentAction(formData: FormData) {
 }
 
 export async function createExpenseAction(formData: FormData) {
-  await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
   const parsed = expenseSchema.parse({
     propertyId: getString(formData, "propertyId"),
     unitId: getOptionalString(formData, "unitId"),
@@ -373,6 +396,13 @@ export async function createExpenseAction(formData: FormData) {
     tags: getOptionalString(formData, "tags"),
     vendor: getOptionalString(formData, "vendor")
   });
+
+  if (!hasId(portal.scope.properties, parsed.propertyId) || (parsed.unitId && !hasId(portal.scope.units, parsed.unitId))) {
+    redirect("/expenses");
+  }
+  if (parsed.unitId && portal.scope.units.find((unit) => unit.id === parsed.unitId)?.propertyId !== parsed.propertyId) {
+    redirect("/expenses");
+  }
 
   await db.expense.create({
     data: {
@@ -390,6 +420,7 @@ export async function createExpenseAction(formData: FormData) {
 
 export async function createMaintenanceAction(formData: FormData) {
   const user = await requireUser();
+  const portal = await getPortalContext(user);
   const parsed = maintenanceSchema.parse({
     propertyId: getString(formData, "propertyId"),
     unitId: getOptionalString(formData, "unitId"),
@@ -402,6 +433,13 @@ export async function createMaintenanceAction(formData: FormData) {
     assignedTo: getOptionalString(formData, "assignedTo"),
     timeline: getOptionalString(formData, "timeline")
   });
+
+  if (!hasId(portal.scope.properties, parsed.propertyId) || (parsed.unitId && !hasId(portal.scope.units, parsed.unitId))) {
+    redirect("/maintenance");
+  }
+  if (parsed.unitId && portal.scope.units.find((unit) => unit.id === parsed.unitId)?.propertyId !== parsed.propertyId) {
+    redirect("/maintenance");
+  }
 
   await db.maintenanceRequest.create({
     data: {
@@ -496,10 +534,15 @@ export async function payRentAction(formData: FormData) {
 }
 
 export async function addUnitAssetAction(formData: FormData) {
-  await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
   const unitId = getString(formData, "unitId");
   const path = getString(formData, "path");
   const kind = getString(formData, "kind") as FileKind;
+
+  if (!hasId(portal.scope.units, unitId) || !path) {
+    redirect("/properties");
+  }
 
   await db.uploadedFile.create({
     data: {
@@ -516,6 +559,7 @@ export async function addUnitAssetAction(formData: FormData) {
 
 export async function createDamageAssessmentAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
   const imagePaths = formData.getAll("imagePaths").map(String);
   const baselinePaths = formData.getAll("baselinePaths").map(String);
   const parsed = damageAssessmentSchema.parse({
@@ -526,6 +570,13 @@ export async function createDamageAssessmentAction(formData: FormData) {
     imagePaths,
     baselinePaths
   });
+
+  if (!hasId(portal.scope.units, parsed.unitId) || (parsed.leaseId && !hasId(portal.scope.leases, parsed.leaseId))) {
+    redirect("/ai-assessments");
+  }
+  if (parsed.leaseId && portal.scope.leases.find((lease) => lease.id === parsed.leaseId)?.unitId !== parsed.unitId) {
+    redirect("/ai-assessments");
+  }
 
   const estimate = generateDamageEstimate({
     notes: parsed.notes,
