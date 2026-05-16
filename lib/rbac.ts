@@ -6,6 +6,7 @@ import {
   FileCheck2,
   Gauge,
   Home,
+  Receipt,
   Settings,
   ShieldCheck,
   Users
@@ -21,6 +22,7 @@ export const navIconNames = {
   fileCheck2: FileCheck2.displayName ?? "FileCheck2",
   gauge: Gauge.displayName ?? "Gauge",
   home: Home.displayName ?? "Home",
+  receipt: Receipt.displayName ?? "Receipt",
   settings: Settings.displayName ?? "Settings",
   shieldCheck: ShieldCheck.displayName ?? "ShieldCheck",
   users: Users.displayName ?? "Users"
@@ -54,7 +56,9 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/tenants", label: "People", icon: "users", description: "Tenant, manager, and leaseholder directory" },
       { href: "/leases", label: "Leases", icon: "home", description: "Lease pipeline and renewal exposure" },
       { href: "/transactions", label: "Payments", icon: "creditCard", description: "Collections and receivables" },
+      { href: "/expenses", label: "Expenses", icon: "receipt", description: "Operating spend and vendor cost tracking" },
       { href: "/maintenance", label: "Maintenance", icon: "clipboardList", description: "Service volume and work orders" },
+      { href: "/ai-assessments", label: "Inspections", icon: "fileCheck2", description: "Damage review and turnover support" },
       { href: "/reports", label: "Reporting", icon: "fileCheck2", description: "Financials, compliance, and exports" },
       { href: "/settings", label: "Settings", icon: "shieldCheck", description: "Platform settings and permissions" }
     ],
@@ -70,10 +74,12 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/tenants", label: "Tenants", icon: "users", description: "Resident roster and communications" },
       { href: "/leases", label: "Leases", icon: "home", description: "Renewals, move-ins, and upcoming expirations" },
       { href: "/transactions", label: "Payments", icon: "creditCard", description: "Overdue rent and rent status" },
+      { href: "/expenses", label: "Expenses", icon: "receipt", description: "Spend entries for assigned properties" },
       { href: "/maintenance", label: "Maintenance", icon: "clipboardList", description: "Open issues and vendor progress" },
-      { href: "/ai-assessments", label: "Inspections", icon: "fileCheck2", description: "Damage review and turnover support" }
+      { href: "/ai-assessments", label: "Inspections", icon: "fileCheck2", description: "Damage review and turnover support" },
+      { href: "/settings", label: "Profile", icon: "settings", description: "Profile and assigned property context" }
     ],
-    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/maintenance", "/units", "/ai-assessments"]
+    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/expenses", "/maintenance", "/units", "/ai-assessments", "/settings"]
   },
   TENANT: {
     label: "Tenant",

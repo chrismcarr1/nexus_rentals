@@ -35,7 +35,7 @@ export default async function MaintenancePage() {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="font-semibold">{item.title}</p>
-                      <p className="text-sm text-[var(--muted)]">{property?.name}{unit ? ` • ${unit.unitNumber}` : ""} • Requested {formatDate(item.requestedAt)}</p>
+                      <p className="text-sm text-[var(--muted)]">{property?.name}{unit ? ` - ${unit.unitNumber}` : ""} - Requested {formatDate(item.requestedAt)}</p>
                       <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{item.description}</p>
                     </div>
                     <div className="text-right">

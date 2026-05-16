@@ -20,7 +20,14 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const role = getRoleConfig(user.role);
   const portal = await getPortalContext(user);
   const snapshot = await getDashboardSnapshot(user.organizationId);
-  const searchResults = params.q && user.role !== "TENANT" ? await globalSearch(user.organizationId, params.q) : null;
+  const searchResults =
+    params.q && user.role !== "TENANT"
+      ? await globalSearch(user.organizationId, params.q, {
+          propertyIds: portal.scope.properties.map((item) => item.id),
+          unitIds: portal.scope.units.map((item) => item.id),
+          tenantIds: portal.scope.tenants.map((item) => item.id)
+        })
+      : null;
 
   const trend =
     user.role === "ADMIN"

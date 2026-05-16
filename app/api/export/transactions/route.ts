@@ -1,8 +1,9 @@
-import { requireUser } from "@/lib/auth";
+import { requireRoles } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { UserRole } from "@/lib/store";
 
 export async function GET() {
-  const user = await requireUser();
+  const user = await requireRoles([UserRole.ADMIN]);
   const payments = await db.payment.findMany({
     where: { unit: { property: { organizationId: user.organizationId } } },
     include: { unit: { include: { property: true } } },

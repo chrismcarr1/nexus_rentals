@@ -15,16 +15,21 @@ const damageCatalog = [
   { key: "water damage", weight: 2.3, low: 900, high: 5000, severity: "CRITICAL" }
 ];
 
-function guessCategory(notes: string) {
-  const normalized = notes.toLowerCase();
-  const matches = damageCatalog.filter((entry) => normalized.includes(entry.key.split(" ")[0]));
+function guessCategory(signal: string) {
+  const normalized = signal.toLowerCase();
+  const matches = damageCatalog.filter((entry) => {
+    const [primary, secondary] = entry.key.split("/");
+    const firstWord = entry.key.split(" ")[0];
+    return normalized.includes(firstWord) || Boolean(primary && normalized.includes(primary)) || Boolean(secondary && normalized.includes(secondary));
+  });
   if (matches.length) return matches;
   return [damageCatalog[normalized.length % damageCatalog.length], damageCatalog[(normalized.length + 3) % damageCatalog.length]];
 }
 
 export function generateDamageEstimate(input: DamageAssessmentInput) {
   const notes = input.notes?.trim() || "General move-out inspection with visible finish and fixture issues.";
-  const categories = guessCategory(notes);
+  const imageSignal = [...input.imagePaths, ...(input.baselinePaths ?? [])].join(" ");
+  const categories = guessCategory(`${notes} ${imageSignal}`);
   const imageFactor = Math.max(1, input.imagePaths.length * 0.55);
   const baselineFactor = input.baselinePaths?.length ? 1.12 : 1;
 
