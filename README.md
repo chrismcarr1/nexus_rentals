@@ -1,6 +1,6 @@
 # Northstar Rent OS
 
-Northstar Rent OS is a polished local-first MVP for landlord and property-operator workflows. It combines secure authentication, portfolio management, leasing, rent and expense tracking, maintenance operations, reporting, and an AI-style damage estimation flow suitable for partner demos.
+Northstar Rent OS is a polished rental operations MVP for landlord and property-operator workflows. It combines secure authentication, portfolio management, leasing, rent and expense tracking, maintenance operations, reporting, and an AI-style damage estimation flow suitable for partner demos.
 
 ## Product Overview
 
@@ -15,26 +15,25 @@ Use this demo to show:
 - Frontend and backend: `Next.js` App Router with server actions and API routes
 - Language: `TypeScript`
 - Styling: `Tailwind CSS`
-- Local persistence: file-backed local datastore initialized by `npm run db:setup`
+- Persistence: hosted Postgres document store initialized by `npm run db:setup`
 - Auth: secure custom cookie/JWT auth with `jose` and `bcryptjs`
 - Charts: `Recharts`
 - Validation: `zod`
-- Local file storage: `public/uploads`
+- File storage: Vercel Blob
 
-### Why the local datastore
+### Persistence approach
 
-The original architecture targeted Prisma plus SQLite, and a Prisma schema is still included as a future reference model. In this Windows/Node environment, Prisma engine compatibility blocked reliable local setup, so the runtime persistence layer was switched to a deterministic file-backed datastore to keep the app runnable and demoable without changing the product architecture.
+The UI and server actions use a Prisma-shaped adapter in `lib/db.ts`. To keep the patch small and Vercel-compatible, the adapter now stores the existing `AppStore` document in hosted Postgres instead of writing `data/app-db.json`. This preserves the current app behavior while avoiding local JSON, SQLite, or filesystem persistence in production.
 
 ## Architecture
 
 - `app/`: pages, layouts, server actions, and API routes
 - `components/`: reusable UI, dashboard, and upload components
-- `lib/`: auth, local datastore adapter, validation, utilities
+- `lib/`: auth, hosted datastore adapter, validation, utilities
 - `services/`: financial rollups, search, AI damage estimation logic
 - `prisma/`: future relational schema reference
-- `scripts/`: local datastore initializer
+- `scripts/`: hosted datastore migration and seed scripts
 - `public/demo/`: bundled local demo visuals
-- `public/uploads/`: runtime upload destination
 - `tests/`: critical unit tests for core local logic
 
 ## Data Model
@@ -90,16 +89,20 @@ The damage workflow is intentionally modular.
 Copy `.env.example` to `.env` and use:
 
 ```env
-DATABASE_URL="file:./dev.db"
+DATABASE_URL="postgres://user:password@host/db?sslmode=require"
 AUTH_SECRET="change-this-to-a-long-random-string"
 APP_URL="http://localhost:3000"
+BLOB_READ_WRITE_TOKEN="vercel-blob-read-write-token"
 ```
+
+`DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `POSTGRES_URL` is also accepted as a fallback. `BLOB_READ_WRITE_TOKEN` is created when Vercel Blob is attached to the project.
 
 ## Setup
 
 ```bash
 npm install
 copy .env.example .env
+npm run db:migrate
 npm run db:setup
 npm run dev
 ```
@@ -115,6 +118,7 @@ http://localhost:3000
 ```bash
 npm install
 copy .env.example .env
+npm run db:migrate
 npm run db:setup
 npm run dev
 ```
@@ -127,9 +131,31 @@ http://localhost:3000
 
 ## Datastore Commands
 
-- Initialize local data: `npm run db:setup`
+- Create the hosted Postgres table: `npm run db:migrate`
+- Initialize hosted demo data: `npm run db:setup`
 - Reseed demo data: `npm run db:seed`
-- `npm run db:push`, `npm run db:generate`, and `npm run db:migrate` are no-op compatibility scripts in this local build
+- `npm run db:push` runs the same lightweight hosted table migration as `npm run db:migrate`
+
+## Vercel Deployment
+
+Required Vercel environment variables:
+
+```text
+DATABASE_URL
+AUTH_SECRET
+APP_URL
+BLOB_READ_WRITE_TOKEN
+```
+
+Recommended setup:
+
+1. Create or attach a hosted Postgres database, such as Vercel Postgres or Neon.
+2. Add the database connection string to Vercel as `DATABASE_URL`.
+3. Attach Vercel Blob and add `BLOB_READ_WRITE_TOKEN`.
+4. Set `AUTH_SECRET` to a long random string.
+5. Set `APP_URL` to the deployed Vercel URL.
+6. Run `npm run db:migrate` and `npm run db:setup` once against the production environment to create and seed the store.
+7. Deploy normally with Vercel.
 
 ## Key Pages
 
@@ -151,7 +177,7 @@ http://localhost:3000
 - `/reports`
 - `/settings`
 
-## Critical Local Demo Flows
+## Critical Demo Flows
 
 - Sign in with seeded credentials
 - Review dashboard metrics and charts
@@ -173,7 +199,6 @@ Included tests cover core utility behavior and the damage estimation service.
 
 ## Notes for Future Deployment
 
-- Restore a relational database adapter against the included `prisma/schema.prisma` or a cloud database of choice
-- Replace local upload storage with S3 or another object store behind the existing upload abstraction
+- Replace the hosted document store with a fully relational database adapter against the included `prisma/schema.prisma` if the product needs stronger reporting and multi-user concurrency
 - Replace the heuristic damage estimator with a real multimodal model while preserving the current assessment contract
 - If this machine is kept on Node `24`, keep the current runtime workaround or move the app to a verified Node `22` project runtime for Next.js

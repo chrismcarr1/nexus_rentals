@@ -8,9 +8,9 @@
     "build": "set NEXT_DISABLE_SWC_NATIVE=1&& npx -y node@22 node_modules/next/dist/bin/next build",
     "start": "set NEXT_DISABLE_SWC_NATIVE=1&& npx -y node@22 node_modules/next/dist/bin/next start",
     "lint": "set NEXT_DISABLE_SWC_NATIVE=1&& npx -y node@22 node_modules/next/dist/bin/next lint",
-    "db:generate": "node -e \"console.log('No generation step required for local datastore.')\"",
-    "db:migrate": "node -e \"console.log('No migration step required for local datastore.')\"",
-    "db:push": "node -e \"console.log('No schema push step required for local datastore.')\"",
+    "db:generate": "node -e \"console.log('No generation step required for hosted JSON document store.')\"",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "db:push": "node scripts/db-migrate.mjs",
     "db:seed": "node scripts/db-setup.mjs",
     "db:setup": "node scripts/db-setup.mjs",
     "test": "vitest run --pool=threads --maxWorkers=1"
@@ -18,6 +18,8 @@
   "dependencies": {
     "@next/swc-wasm-nodejs": "15.5.15",
     "@next/swc-wasm-web": "15.5.15",
+    "@neondatabase/serverless": "^1.0.2",
+    "@vercel/blob": "^1.1.1",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
