@@ -1,6 +1,16 @@
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
+import "dotenv/config";
+
+import { neon } from "@neondatabase/serverless";
 import bcrypt from "bcryptjs";
+
+const databaseUrl = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+
+if (!databaseUrl) {
+  console.error("Missing DATABASE_URL or POSTGRES_URL. Set a hosted Postgres connection string before seeding.");
+  process.exit(1);
+}
+
+const sql = neon(databaseUrl);
 
 function iso(date) {
   return date.toISOString();
@@ -20,10 +30,6 @@ function shiftMonths(date, amount) {
 
 async function main() {
   const now = new Date();
-  const dataDir = path.join(process.cwd(), "data");
-  const filePath = path.join(dataDir, "app-db.json");
-  await mkdir(dataDir, { recursive: true });
-  await mkdir(path.join(process.cwd(), "public", "uploads"), { recursive: true });
 
   const store = {
     organizations: [{ id: "org_northstar", name: "Northstar Residential Group", email: "contact@northstar.local", phone: "(415) 555-0190", mailingAddress: "240 Valencia Street, Suite 500, San Francisco, CA 94103", logoPath: "/demo/logo-mark.svg", createdAt: iso(now), updatedAt: iso(now) }],
@@ -105,8 +111,20 @@ async function main() {
     passwordResetTokens: [{ id: "reset_demo", userId: "user_admin", token: "demo-reset-token", expiresAt: iso(shiftDays(now, 2)), createdAt: iso(now) }]
   };
 
-  await writeFile(filePath, JSON.stringify(store, null, 2), "utf8");
-  console.log("Local datastore initialized.");
+  await sql`
+    create table if not exists app_store (
+      id text primary key,
+      data jsonb not null,
+      updated_at timestamptz not null default now()
+    )
+  `;
+  await sql`
+    insert into app_store (id, data, updated_at)
+    values (${"default"}, ${JSON.stringify(store)}::jsonb, now())
+    on conflict (id) do update set data = excluded.data, updated_at = now()
+  `;
+
+  console.log("Hosted Postgres datastore initialized.");
   console.log("Admin: demo@northstar.local / DemoPass123!");
 }
 

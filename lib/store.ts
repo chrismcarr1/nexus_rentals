@@ -1,7 +1,6 @@
 import "server-only";
 
-import { mkdir, readFile, writeFile } from "fs/promises";
-import path from "path";
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 
 export type UserRole = "ADMIN" | "MANAGER" | "TENANT";
 export type PropertyStatus = "ACTIVE" | "ARCHIVED";
@@ -63,8 +62,51 @@ export type AppStore = {
   passwordResetTokens: PasswordResetToken[];
 };
 
-const dataDir = path.join(process.cwd(), "data");
-const dataFile = path.join(dataDir, "app-db.json");
+const STORE_ID = "default";
+let sqlClient: NeonQueryFunction<false, false> | null = null;
+
+function emptyStore(): AppStore {
+  return {
+    organizations: [],
+    users: [],
+    properties: [],
+    units: [],
+    tenants: [],
+    leases: [],
+    payments: [],
+    expenses: [],
+    maintenanceRequests: [],
+    inspections: [],
+    damageAssessments: [],
+    uploadedFiles: [],
+    notifications: [],
+    passwordResetTokens: []
+  };
+}
+
+function getDatabaseUrl() {
+  return process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+}
+
+function getSql() {
+  const databaseUrl = getDatabaseUrl();
+  if (!databaseUrl) {
+    throw new Error("Missing DATABASE_URL or POSTGRES_URL. Configure a hosted Postgres connection string for persistence.");
+  }
+
+  sqlClient ??= neon(databaseUrl);
+  return sqlClient;
+}
+
+async function ensureStoreTable() {
+  await getSql()`
+    create table if not exists app_store (
+      id text primary key,
+      data jsonb not null,
+      updated_at timestamptz not null default now()
+    )
+  `;
+}
 
 export function createId(prefix: string) {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
@@ -76,38 +118,39 @@ export function nowIso() {
 
 export async function readStore(): Promise<AppStore> {
   try {
-    const content = await readFile(dataFile, "utf8");
-    return JSON.parse(content) as AppStore;
-  } catch {
-    return {
-      organizations: [],
-      users: [],
-      properties: [],
-      units: [],
-      tenants: [],
-      leases: [],
-      payments: [],
-      expenses: [],
-      maintenanceRequests: [],
-      inspections: [],
-      damageAssessments: [],
-      uploadedFiles: [],
-      notifications: [],
-      passwordResetTokens: []
-    };
+    await ensureStoreTable();
+    const rows = await getSql()`select data from app_store where id = ${STORE_ID} limit 1`;
+    return (rows[0]?.data as AppStore | undefined) ?? emptyStore();
+  } catch (error) {
+    console.error("[store] Failed to read hosted Postgres datastore", error);
+    throw error;
   }
 }
 
 export async function writeStore(store: AppStore) {
-  await mkdir(dataDir, { recursive: true });
-  await writeFile(dataFile, JSON.stringify(store, null, 2), "utf8");
+  try {
+    await ensureStoreTable();
+    await getSql()`
+      insert into app_store (id, data, updated_at)
+      values (${STORE_ID}, ${JSON.stringify(store)}::jsonb, now())
+      on conflict (id) do update set data = excluded.data, updated_at = now()
+    `;
+  } catch (error) {
+    console.error("[store] Failed to write hosted Postgres datastore", error);
+    throw error;
+  }
 }
 
 export async function updateStore(updater: (store: AppStore) => AppStore | Promise<AppStore>) {
-  const store = await readStore();
-  const next = await updater(store);
-  await writeStore(next);
-  return next;
+  try {
+    const store = await readStore();
+    const next = await updater(store);
+    await writeStore(next);
+    return next;
+  } catch (error) {
+    console.error("[store] Failed to update hosted Postgres datastore", error);
+    throw error;
+  }
 }
 
 export async function getUserByEmail(email: string) {

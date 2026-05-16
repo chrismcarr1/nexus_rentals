@@ -6,6 +6,7 @@ prisma/dev.db
 prisma/dev.db-journal
 .env
 uploads
+data/app-db.json
 
 node_modules/
 .env

@@ -1,5 +1,4 @@
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
+import { put } from "@vercel/blob";
 
 export async function POST(request: Request) {
   const data = await request.formData();
@@ -9,17 +8,19 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing file" }, { status: 400 });
   }
 
-  const bytes = await file.arrayBuffer();
-  const buffer = Buffer.from(bytes);
-  const fileName = `${Date.now()}-${file.name.replace(/\s+/g, "-")}`;
-  const outputDir = path.join(process.cwd(), "public", "uploads");
-  await mkdir(outputDir, { recursive: true });
-  const outputPath = path.join(outputDir, fileName);
+  try {
+    const fileName = `uploads/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+    const blob = await put(fileName, file, {
+      access: "public",
+      addRandomSuffix: true
+    });
 
-  await writeFile(outputPath, buffer);
-
-  return Response.json({
-    path: `/uploads/${fileName}`,
-    name: file.name
-  });
+    return Response.json({
+      path: blob.url,
+      name: file.name
+    });
+  } catch (error) {
+    console.error("[upload] Failed to persist file to Vercel Blob", error);
+    return Response.json({ error: "Upload failed" }, { status: 500 });
+  }
 }
