@@ -37,7 +37,7 @@ function hasId(items: Array<{ id: string }>, id?: string | null) {
 }
 
 export async function signupAction(formData: FormData) {
-  const parsed = signupSchema.parse({
+  const result = signupSchema.safeParse({
     businessName: getString(formData, "businessName"),
     firstName: getString(formData, "firstName"),
     lastName: getString(formData, "lastName"),
@@ -46,8 +46,20 @@ export async function signupAction(formData: FormData) {
     phone: getOptionalString(formData, "phone"),
     mailingAddress: getOptionalString(formData, "mailingAddress")
   });
+  if (!result.success) {
+    redirect("/signup?error=invalid-form");
+  }
 
-  const existingUser = await db.user.findUnique({ where: { email: parsed.email } });
+  const parsed = result.data;
+
+  let existingUser;
+  try {
+    existingUser = await db.user.findUnique({ where: { email: parsed.email } });
+  } catch (error) {
+    console.error("[auth] Signup database lookup failed", error);
+    redirect("/signup?error=server");
+  }
+
   if (existingUser) {
     redirect("/signup?error=account-exists");
   }
@@ -84,10 +96,15 @@ export async function signupAction(formData: FormData) {
 }
 
 export async function loginAction(formData: FormData) {
-  const parsed = loginSchema.parse({
+  const result = loginSchema.safeParse({
     email: getString(formData, "email"),
     password: getString(formData, "password")
   });
+  if (!result.success) {
+    redirect("/login?error=invalid-credentials");
+  }
+
+  const parsed = result.data;
 
   let user;
   try {

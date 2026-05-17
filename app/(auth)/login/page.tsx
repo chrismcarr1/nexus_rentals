@@ -30,18 +30,18 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
               {params.error === "invalid-credentials"
                 ? "Invalid email or password."
                 : params.error === "server"
-                  ? "Login could not reach the hosted database. Check the Vercel environment variables."
+                  ? "Login could not reach the hosted database. Check DATABASE_URL in .env.local and Vercel."
                   : "Password reset complete. Sign in with the new password."}
             </div>
           )}
           <form action={loginAction} className="mt-8 space-y-4">
             <label className="block">
               <span className="mb-2 block text-sm font-medium">Email</span>
-              <input name="email" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" placeholder="you@company.com" />
+              <input name="email" type="email" required className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" placeholder="you@company.com" />
             </label>
             <label className="block">
               <span className="mb-2 block text-sm font-medium">Password</span>
-              <input name="password" type="password" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" placeholder="Password" />
+              <input name="password" type="password" required className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" placeholder="Password" />
             </label>
             <button type="submit" className="w-full rounded-2xl bg-[var(--brand)] px-4 py-3 font-semibold text-white">
               Sign in

@@ -19,7 +19,11 @@ type SessionPayload = {
 };
 
 function getAuthSecret() {
-  return process.env.AUTH_SECRET ?? "dev-secret-change-me";
+  if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing AUTH_SECRET. Set a long random secret in Vercel.");
+  }
+  return "dev-secret-change-me";
 }
 
 export async function createSession(payload: SessionPayload) {
@@ -61,11 +65,16 @@ export async function getCurrentUser() {
   const session = await getSession();
   if (!session) return null;
 
-  const user = await getUserById(session.sub);
-  if (!user) return null;
-  const organization = await getOrganizationById(user.organizationId);
-  if (!organization) return null;
-  return { ...user, organization };
+  try {
+    const user = await getUserById(session.sub);
+    if (!user) return null;
+    const organization = await getOrganizationById(user.organizationId);
+    if (!organization) return null;
+    return { ...user, organization };
+  } catch (error) {
+    console.error("[auth] Failed to load current user from database", error);
+    return null;
+  }
 }
 
 export async function requireUser() {
