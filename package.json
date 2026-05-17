@@ -2,12 +2,15 @@
   "name": "rental-webapp",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
-    "postinstall": "node scripts/patch-next-swc.mjs",
-    "dev": "set NEXT_DISABLE_SWC_NATIVE=1&& npx -y node@22 node_modules/next/dist/bin/next dev",
-    "build": "set NEXT_DISABLE_SWC_NATIVE=1&& npx -y node@22 node_modules/next/dist/bin/next build",
-    "start": "set NEXT_DISABLE_SWC_NATIVE=1&& npx -y node@22 node_modules/next/dist/bin/next start",
-    "lint": "set NEXT_DISABLE_SWC_NATIVE=1&& npx -y node@22 node_modules/next/dist/bin/next lint",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "npm run typecheck",
+    "typecheck": "tsc --noEmit",
     "db:generate": "node -e \"console.log('No generation step required for hosted JSON document store.')\"",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:push": "node scripts/db-migrate.mjs",
@@ -16,9 +19,6 @@
     "test": "vitest run --pool=threads --maxWorkers=1"
   },
   "dependencies": {
-    "@next/swc-wasm-nodejs": "15.5.15",
-    "@next/swc-wasm-web": "15.5.15",
-    "@neondatabase/serverless": "^1.0.2",
     "@vercel/blob": "^1.1.1",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
@@ -28,6 +28,7 @@
     "jose": "^5.9.6",
     "lucide-react": "^0.511.0",
     "next": "15.5.15",
+    "postgres": "^3.4.9",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "recharts": "^2.15.3",

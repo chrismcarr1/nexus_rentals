@@ -15,15 +15,15 @@ Use this demo to show:
 - Frontend and backend: `Next.js` App Router with server actions and API routes
 - Language: `TypeScript`
 - Styling: `Tailwind CSS`
-- Persistence: hosted Postgres document store with first-run demo bootstrap
+- Persistence: hosted Postgres document store through `DATABASE_URL`
 - Auth: secure custom cookie/JWT auth with `jose` and `bcryptjs`
 - Charts: `Recharts`
 - Validation: `zod`
-- File storage: Vercel Blob
+- File storage: Vercel Blob when `BLOB_READ_WRITE_TOKEN` is configured
 
 ### Persistence approach
 
-The UI and server actions use a Prisma-shaped adapter in `lib/db.ts`. To keep the patch small and Vercel-compatible, the adapter now stores the existing `AppStore` document in hosted Postgres instead of writing `data/app-db.json`. This preserves the current app behavior while avoiding local JSON, SQLite, or filesystem persistence in production. If the hosted table is empty, the app safely bootstraps demo login data on first read without overwriting an existing production store.
+The UI and server actions use a Prisma-shaped adapter in `lib/db.ts`. To keep the app small and Vercel-compatible, the adapter stores the existing `AppStore` document in hosted Postgres instead of writing `data/app-db.json`. This preserves the current app behavior while avoiding local JSON, SQLite, or filesystem persistence in production.
 
 ## Architecture
 
@@ -31,7 +31,6 @@ The UI and server actions use a Prisma-shaped adapter in `lib/db.ts`. To keep th
 - `components/`: reusable UI, dashboard, and upload components
 - `lib/`: auth, hosted datastore adapter, validation, utilities
 - `services/`: financial rollups, search, AI damage estimation logic
-- `prisma/`: future relational schema reference
 - `scripts/`: hosted datastore migration and seed scripts
 - `public/demo/`: bundled local demo visuals
 - `tests/`: critical unit tests for core local logic
@@ -86,22 +85,22 @@ The damage workflow is intentionally modular.
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and use:
+Copy `.env.example` to `.env.local` and use:
 
 ```env
-DATABASE_URL="postgres://user:password@host/db?sslmode=require"
+DATABASE_URL="postgresql://user:password@host/db?sslmode=require"
 AUTH_SECRET="change-this-to-a-long-random-string"
 APP_URL="http://localhost:3000"
-BLOB_READ_WRITE_TOKEN="vercel-blob-read-write-token"
+BLOB_READ_WRITE_TOKEN=""
 ```
 
-`DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `POSTGRES_URL` is also accepted as a fallback. `BLOB_READ_WRITE_TOKEN` is created when Vercel Blob is attached to the project.
+`DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `BLOB_READ_WRITE_TOKEN` is optional for the MVP; if it is not set, uploads are skipped gracefully instead of failing the page.
 
 ## Setup
 
 ```bash
 npm install
-copy .env.example .env
+copy .env.example .env.local
 npm run db:migrate
 npm run db:setup
 npm run dev
@@ -117,7 +116,7 @@ http://localhost:3000
 
 ```bash
 npm install
-copy .env.example .env
+copy .env.example .env.local
 npm run db:migrate
 npm run db:setup
 npm run dev
@@ -144,6 +143,11 @@ Required Vercel environment variables:
 DATABASE_URL
 AUTH_SECRET
 APP_URL
+```
+
+Optional Vercel environment variable:
+
+```text
 BLOB_READ_WRITE_TOKEN
 ```
 
@@ -151,11 +155,12 @@ Recommended setup:
 
 1. Create or attach a hosted Postgres database, such as Vercel Postgres or Neon.
 2. Add the database connection string to Vercel as `DATABASE_URL`.
-3. Attach Vercel Blob and add `BLOB_READ_WRITE_TOKEN`.
-4. Set `AUTH_SECRET` to a long random string.
-5. Set `APP_URL` to the deployed Vercel URL.
-6. Run `npm run db:migrate` once against the production environment to create the table. The app will bootstrap demo login data automatically if the store is empty; run `npm run db:setup` only when you intentionally want to reseed the full demo dataset.
-7. Deploy normally with Vercel.
+3. Set `AUTH_SECRET` to a long random string.
+4. Set `APP_URL` to the deployed Vercel URL.
+5. Optional: attach Vercel Blob and add `BLOB_READ_WRITE_TOKEN` if uploads should persist.
+6. Run `npm run db:migrate` against the production database to create the table.
+7. Run `npm run db:setup` once if you want the seeded demo accounts and data in production.
+8. Deploy normally with Vercel. The project declares Node `22.x` in `package.json`.
 
 ## Key Pages
 
@@ -199,6 +204,6 @@ Included tests cover core utility behavior and the damage estimation service.
 
 ## Notes for Future Deployment
 
-- Replace the hosted document store with a fully relational database adapter against the included `prisma/schema.prisma` if the product needs stronger reporting and multi-user concurrency
+- Replace the hosted document store with a fully relational database adapter if the product needs stronger reporting and multi-user concurrency
 - Replace the heuristic damage estimator with a real multimodal model while preserving the current assessment contract
 - If this machine is kept on Node `24`, keep the current runtime workaround or move the app to a verified Node `22` project runtime for Next.js

@@ -1,17 +1,6 @@
 import type { Metadata } from "next";
-import { Fraunces, Manrope } from "next/font/google";
 
 import "@/app/globals.css";
-
-const display = Fraunces({
-  subsets: ["latin"],
-  variable: "--font-display"
-});
-
-const body = Manrope({
-  subsets: ["latin"],
-  variable: "--font-body"
-});
 
 export const metadata: Metadata = {
   title: "Northstar Rent OS",
@@ -20,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable}`}>
+    <html lang="en">
       <body>{children}</body>
     </html>
   );

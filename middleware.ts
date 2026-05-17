@@ -19,6 +19,9 @@ const protectedPaths = [
 ];
 
 function getSecret() {
+  if (!process.env.AUTH_SECRET && process.env.NODE_ENV === "production") {
+    throw new Error("Missing AUTH_SECRET. Set a long random secret in Vercel.");
+  }
   return new TextEncoder().encode(process.env.AUTH_SECRET ?? "dev-secret-change-me");
 }
 

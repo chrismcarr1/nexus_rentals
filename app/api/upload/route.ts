@@ -8,6 +8,15 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing file" }, { status: 400 });
   }
 
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    console.warn("[upload] BLOB_READ_WRITE_TOKEN is not configured. Skipping optional file upload.");
+    return Response.json({
+      path: "",
+      name: file.name,
+      skipped: true
+    });
+  }
+
   try {
     const fileName = `uploads/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
     const blob = await put(fileName, file, {

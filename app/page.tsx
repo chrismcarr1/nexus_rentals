@@ -11,12 +11,15 @@ export default async function HomePage() {
       <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-7xl flex-col rounded-[36px] border border-white/60 bg-[linear-gradient(145deg,rgba(255,255,255,0.92),rgba(255,248,240,0.76))] p-6 shadow-[0_30px_80px_rgba(28,22,14,0.08)] lg:p-10">
         <header className="flex items-center justify-between">
           <div>
-            <p className="text-sm uppercase tracking-[0.28em] text-[var(--brand)]">Northstar Rent OS</p>
-            <h1 className="mt-2 font-[var(--font-display)] text-3xl">AI property operations, built for serious operators.</h1>
+            <p className="text-sm uppercase tracking-[0.28em] text-[var(--brand)]">Nexus Rentals</p>
+            <h1 className="mt-2 font-[var(--font-display)] text-3xl">Built by property managers, for property managers.</h1>
           </div>
           <div className="flex gap-3">
-            <Link href={session ? "/dashboard" : "/login"} className="rounded-2xl border border-[var(--line)] bg-white px-5 py-3 text-sm font-semibold">
-              {session ? "Open dashboard" : "Login"}
+            <Link
+              href={session ? "/dashboard" : "/login"}
+              className="rounded-2xl border border-[var(--line)] bg-white px-5 py-3 text-sm font-semibold"
+            >
+              Login
             </Link>
             <Link href="/signup" className="rounded-2xl bg-[var(--brand)] px-5 py-3 text-sm font-semibold text-white">
               Create account

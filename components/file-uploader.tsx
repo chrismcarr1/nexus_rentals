@@ -5,7 +5,7 @@ import { Upload, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
-type UploadedAsset = { path: string; name: string };
+type UploadedAsset = { path: string; name: string; skipped?: boolean };
 
 export function FileUploader({
   label,
@@ -30,7 +30,7 @@ export function FileUploader({
         const response = await fetch("/api/upload", { method: "POST", body: formData });
         if (!response.ok) continue;
         const payload = (await response.json()) as UploadedAsset;
-        uploaded.push(payload);
+        if (payload.path) uploaded.push(payload);
       }
 
       const next = multiple ? [...items, ...uploaded] : uploaded.slice(0, 1);
