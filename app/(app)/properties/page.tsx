@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
-import { SingleUploadInput } from "@/components/upload-inputs";
+import { MultiUploadInput } from "@/components/upload-inputs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,8 +15,17 @@ import { getPortalContext } from "@/services/portal";
 export default async function PropertiesPage() {
   const user = await requireRouteAccess("/properties");
   const portal = await getPortalContext(user);
+  const propertyCoverImages = new Map<string, string>();
+
+  for (const file of portal.scope.files
+    .filter((file) => file.kind === "PROPERTY_IMAGE" && file.propertyId)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    propertyCoverImages.set(file.propertyId!, file.path);
+  }
+
   const properties = portal.scope.properties.map((property) => ({
     ...property,
+    coverImagePath: propertyCoverImages.get(property.id),
     units: portal.scope.units.filter((unit) => unit.propertyId === property.id)
   }));
 
@@ -37,8 +46,14 @@ export default async function PropertiesPage() {
           {properties.map((property) => (
             <Link key={property.id} href={`/properties/${property.id}`}>
               <Card className="h-full overflow-hidden">
-                <div className="h-48 bg-[linear-gradient(135deg,#102842,#1f6b5f)] p-5 text-white">
-                  <div className="flex items-start justify-between gap-3">
+                <div className="relative h-48 overflow-hidden bg-[linear-gradient(135deg,#102842,#1f6b5f)] p-5 text-white">
+                  {property.coverImagePath ? (
+                    <>
+                      <img src={property.coverImagePath} alt={`${property.name} property photo`} className="absolute inset-0 h-full w-full object-cover" />
+                      <div className="absolute inset-0 bg-gradient-to-br from-slate-950/65 via-slate-900/25 to-slate-950/50" />
+                    </>
+                  ) : null}
+                  <div className="relative flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm uppercase tracking-[0.22em] text-white/64">Property</p>
                       <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em]">{property.name}</h2>
@@ -91,7 +106,7 @@ export default async function PropertiesPage() {
                   ))}
                 </select>
               ) : null}
-              <SingleUploadInput name="imagePath" label="Upload property cover image" />
+              <MultiUploadInput name="imagePaths" label="Upload property photos" accept="image/*" />
               <SubmitButton>Save property</SubmitButton>
             </form>
           </Card>

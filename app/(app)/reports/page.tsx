@@ -1,7 +1,6 @@
-import Link from "next/link";
-
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
+import { ReportExportMenu } from "@/components/report-export-menu";
 import { Card } from "@/components/ui/card";
 import { requireRoles } from "@/lib/auth";
 import { UserRole } from "@/lib/store";
@@ -20,12 +19,7 @@ export default async function ReportsPage() {
         eyebrow="Executive reporting"
         title="Financial reporting, compliance context, and audit visibility."
         description="A higher-level reporting view for admins with portfolio summaries, export actions, recent operational activity, and document/compliance awareness."
-        actions={
-          <>
-            <Link href="/api/export/transactions" className="inline-flex rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-sm font-semibold">Export transactions CSV</Link>
-            <Link href="/api/export/expenses" className="inline-flex rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-sm font-semibold">Export expenses CSV</Link>
-          </>
-        }
+        actions={<ReportExportMenu />}
       />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card className="p-5"><p className="text-sm text-[var(--muted)]">Collected</p><p className="mt-3 text-3xl font-semibold">{formatCurrency(report.metrics.rentCollectedThisMonth)}</p></Card>

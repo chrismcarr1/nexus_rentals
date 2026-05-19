@@ -108,6 +108,10 @@ textarea::placeholder {
   box-shadow: 0 0 0 4px rgba(31, 107, 95, 0.08);
 }
 
+.app-shell-search-input {
+  padding-left: 3rem;
+}
+
 .table-row {
   border-top: 1px solid var(--line);
   transition: background 160ms ease;

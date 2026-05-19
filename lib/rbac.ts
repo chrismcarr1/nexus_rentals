@@ -79,7 +79,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/ai-assessments", label: "Inspections", icon: "fileCheck2", description: "Damage review and turnover support" },
       { href: "/settings", label: "Profile", icon: "settings", description: "Profile and assigned property context" }
     ],
-    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/expenses", "/maintenance", "/units", "/ai-assessments", "/settings"]
+    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/expenses", "/maintenance", "/units", "/ai-assessments", "/settings", "/manager-guide"]
   },
   TENANT: {
     label: "Tenant",
@@ -93,7 +93,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/settings", label: "Profile", icon: "settings", description: "Account details and preferences" },
       { href: "/dashboard#announcements", label: "Messages", icon: "bellRing", description: "Recent notices and building updates" }
     ],
-    routes: ["/dashboard", "/leases", "/transactions", "/maintenance", "/settings"]
+    routes: ["/dashboard", "/leases", "/transactions", "/maintenance", "/settings", "/renter-guide"]
   }
 };
 

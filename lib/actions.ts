@@ -1,10 +1,13 @@
 "use server";
 
+import { createHash, randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { clearSession, createSession, requireRoles, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { sendPasswordResetEmail } from "@/lib/email";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { FileKind, UserRole } from "@/lib/store";
 import {
@@ -15,6 +18,8 @@ import {
   maintenanceSchema,
   paymentSchema,
   propertySchema,
+  requestResetSchema,
+  resetPasswordSchema,
   settingsSchema,
   signupSchema,
   tenantSchema,
@@ -36,9 +41,25 @@ function hasId(items: Array<{ id: string }>, id?: string | null) {
   return Boolean(id && items.some((item) => item.id === id));
 }
 
+function hashResetToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+async function getAppOrigin() {
+  const headerStore = await headers();
+  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
+  const proto = headerStore.get("x-forwarded-proto") ?? "http";
+  const headerOrigin = host ? `${proto}://${host}` : null;
+  const configuredOrigin = process.env.APP_URL?.replace(/\/$/, "");
+
+  if (process.env.NODE_ENV === "production" && configuredOrigin) return configuredOrigin;
+  return headerOrigin ?? configuredOrigin ?? "http://localhost:3000";
+}
+
 export async function signupAction(formData: FormData) {
   const result = signupSchema.safeParse({
     businessName: getString(formData, "businessName"),
+    role: getString(formData, "role"),
     firstName: getString(formData, "firstName"),
     lastName: getString(formData, "lastName"),
     email: getString(formData, "email"),
@@ -80,10 +101,22 @@ export async function signupAction(formData: FormData) {
       passwordHash: await hashPassword(parsed.password),
       firstName: parsed.firstName,
       lastName: parsed.lastName,
-      role: UserRole.ADMIN,
+      role: parsed.role,
       phone: parsed.phone
     }
   });
+
+  if (parsed.role === UserRole.TENANT) {
+    await db.tenant.create({
+      data: {
+        organizationId: organization.id,
+        firstName: parsed.firstName,
+        lastName: parsed.lastName,
+        email: parsed.email,
+        phone: parsed.phone
+      }
+    });
+  }
 
   await createSession({
     sub: user.id,
@@ -134,28 +167,76 @@ export async function logoutAction() {
 }
 
 export async function requestResetAction(formData: FormData) {
-  const email = getString(formData, "email");
+  const result = requestResetSchema.safeParse({
+    email: getString(formData, "email")
+  });
+
+  if (!result.success) {
+    redirect("/forgot-password?error=invalid-email");
+  }
+
+  const email = result.data.email;
   const user = await db.user.findUnique({ where: { email } });
   if (!user) {
     redirect("/forgot-password?success=1");
   }
 
+  const rawToken = randomBytes(32).toString("base64url");
+  const origin = await getAppOrigin();
+  const resetUrl = `${origin}/reset-password?token=${encodeURIComponent(rawToken)}`;
+
+  await db.passwordResetToken.updateMany({
+    where: { userId: user.id, usedAt: null },
+    data: { usedAt: new Date() }
+  });
+
   await db.passwordResetToken.create({
     data: {
       userId: user.id,
-      token: crypto.randomUUID(),
-      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 6)
+      token: hashResetToken(rawToken),
+      expiresAt: new Date(Date.now() + 1000 * 60 * 60)
     }
   });
 
-  redirect("/forgot-password?success=1");
+  let resetEmailSent = false;
+
+  try {
+    const emailResult = await sendPasswordResetEmail({
+      to: user.email,
+      name: user.firstName || "there",
+      resetUrl
+    });
+    resetEmailSent = emailResult.sent;
+  } catch (error) {
+    console.error("[auth] Password reset email failed", error);
+  }
+
+  const devResetLink =
+    process.env.NODE_ENV !== "production" && !resetEmailSent
+      ? `&devResetLink=${encodeURIComponent(resetUrl)}`
+      : "";
+
+  redirect(`/forgot-password?success=1${devResetLink}`);
 }
 
 export async function resetPasswordAction(formData: FormData) {
-  const token = getString(formData, "token");
-  const password = getString(formData, "password");
+  const result = resetPasswordSchema.safeParse({
+    token: getString(formData, "token"),
+    password: getString(formData, "password"),
+    confirmPassword: getString(formData, "confirmPassword")
+  });
 
-  const record = await db.passwordResetToken.findUnique({ where: { token } });
+  if (!result.success) {
+    const token = encodeURIComponent(getString(formData, "token"));
+    redirect(`/reset-password?token=${token}&error=invalid-form`);
+  }
+
+  const { token, password } = result.data;
+  const tokenHash = hashResetToken(token);
+
+  const record =
+    (await db.passwordResetToken.findUnique({ where: { token: tokenHash } })) ??
+    (await db.passwordResetToken.findUnique({ where: { token } }));
   if (!record || record.usedAt || record.expiresAt < new Date()) {
     redirect("/reset-password?error=invalid-token");
   }
@@ -186,7 +267,9 @@ export async function createPropertyAction(formData: FormData) {
     notes: getOptionalString(formData, "notes"),
     managerId: getOptionalString(formData, "managerId")
   });
-  const uploadedPath = getOptionalString(formData, "imagePath");
+  const imagePaths = formData.getAll("imagePaths").map(String).filter(Boolean);
+  const fallbackImagePath = getOptionalString(formData, "imagePath");
+  const uploadedPaths = imagePaths.length ? imagePaths : fallbackImagePath ? [fallbackImagePath] : [];
 
   await db.property.create({
     data: {
@@ -194,14 +277,14 @@ export async function createPropertyAction(formData: FormData) {
       ...parsed,
       managerId: user.role === UserRole.MANAGER ? user.id : parsed.managerId,
       amenities: parsed.amenities ?? "",
-      files: uploadedPath
+      files: uploadedPaths.length
         ? {
-            create: {
+            create: uploadedPaths.map((path, index) => ({
               kind: FileKind.PROPERTY_IMAGE,
-              label: "Uploaded cover",
-              path: uploadedPath,
+              label: index === 0 ? "Uploaded cover" : "Uploaded property photo",
+              path,
               mimeType: "image/*"
-            }
+            }))
           }
         : undefined
     }

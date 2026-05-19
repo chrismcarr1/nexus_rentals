@@ -209,6 +209,19 @@ export const db: any = {
         })
       }));
       return toDateFields(updated, ["expiresAt", "usedAt", "createdAt"]);
+    },
+    async updateMany({ where, data }: any) {
+      let count = 0;
+      await updateStore((store) => ({
+        ...store,
+        passwordResetTokens: store.passwordResetTokens.map((item) => {
+          if (where?.userId && item.userId !== where.userId) return item;
+          if (where?.usedAt === null && item.usedAt) return item;
+          count += 1;
+          return { ...item, ...data };
+        })
+      }));
+      return { count };
     }
   },
   notification: {
@@ -246,7 +259,8 @@ export const db: any = {
       await updateStore(async (store) => {
         const next = { ...store, properties: [...store.properties, property] };
         if (data.files?.create) {
-          await createUploadedFiles(next, [{ ...data.files.create, propertyId: property.id }]);
+          const files = Array.isArray(data.files.create) ? data.files.create : [data.files.create];
+          await createUploadedFiles(next, files.map((file: any) => ({ ...file, propertyId: property.id })));
         }
         return next;
       });

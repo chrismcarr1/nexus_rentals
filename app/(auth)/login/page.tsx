@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { PasswordField } from "@/components/password-field";
 import { loginAction } from "@/lib/actions";
 
 export default async function LoginPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
@@ -15,8 +16,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
             Secure access, portfolio reporting, tenant and lease management, maintenance workflows, and AI-assisted damage estimation are all live in this local demo.
           </p>
           <div className="mt-8 rounded-[28px] bg-white/10 p-5 text-sm">
-            <p className="font-semibold">Demo credentials</p>
-            <p className="mt-3">Admin: `demo@northstar.local` / `DemoPass123!`</p>
+            <p className="font-semibold">Limited demo credentials</p>
             <p>Manager: `manager@northstar.local` / `ManagerPass123!`</p>
             <p>Tenant: `tenant@northstar.local` / `TenantPass123!`</p>
           </div>
@@ -39,10 +39,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
               <span className="mb-2 block text-sm font-medium">Email</span>
               <input name="email" type="email" required className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" placeholder="you@company.com" />
             </label>
-            <label className="block">
-              <span className="mb-2 block text-sm font-medium">Password</span>
-              <input name="password" type="password" required className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" placeholder="Password" />
-            </label>
+            <PasswordField name="password" required label="Password" placeholder="Password" />
             <button type="submit" className="w-full rounded-2xl bg-[var(--brand)] px-4 py-3 font-semibold text-white">
               Sign in
             </button>

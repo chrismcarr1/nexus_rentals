@@ -31,9 +31,20 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
 
   if (!property || !portal.scope.properties.some((item) => item.id === property.id)) notFound();
 
+  const imageTimestamp = (value: unknown) => (value instanceof Date ? value.toISOString() : String(value));
+  const propertyImages = [...(property.files ?? [])]
+    .filter((file: any) => file.kind === "PROPERTY_IMAGE")
+    .sort((a: any, b: any) => imageTimestamp(b.createdAt).localeCompare(imageTimestamp(a.createdAt)));
+  const coverImage = propertyImages[0];
+
   return (
     <div className="space-y-4">
       <Card className="overflow-hidden">
+        {coverImage ? (
+          <div className="h-72 overflow-hidden bg-stone-900/5">
+            <img src={coverImage.path} alt={coverImage.label ?? `${property.name} property photo`} className="h-full w-full object-cover" />
+          </div>
+        ) : null}
         <div className="grid gap-6 p-6 lg:grid-cols-[1.3fr_0.7fr]">
           <div>
             <p className="text-sm uppercase tracking-[0.24em] text-[var(--brand)]">Property detail</p>
@@ -51,6 +62,13 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
             <p className="text-sm text-stone-500">units in this asset</p>
             <p className="mt-6 text-xl font-semibold">{formatCurrency(property.units.reduce((sum, unit) => sum + unit.monthlyRent, 0))}/month</p>
             <p className="text-sm text-stone-500">scheduled monthly rent</p>
+            {propertyImages.length > 1 ? (
+              <div className="mt-5 grid grid-cols-3 gap-2">
+                {propertyImages.slice(1, 4).map((file: any) => (
+                  <img key={file.id} src={file.path} alt={file.label ?? `${property.name} property photo`} className="aspect-square rounded-2xl object-cover" />
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
       </Card>

@@ -1,4 +1,25 @@
 import { put } from "@vercel/blob";
+import { mkdir, writeFile } from "fs/promises";
+import path from "path";
+
+export const runtime = "nodejs";
+
+const localUploadDir = path.join(process.cwd(), "public", "uploads");
+
+function sanitizeFileName(name: string) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "-");
+}
+
+async function saveLocalUpload(file: File) {
+  await mkdir(localUploadDir, { recursive: true });
+  const fileName = `${Date.now()}-${sanitizeFileName(file.name)}`;
+  const uploadPath = path.join(localUploadDir, fileName);
+  const bytes = await file.arrayBuffer();
+
+  await writeFile(uploadPath, Buffer.from(bytes));
+
+  return `/uploads/${fileName}`;
+}
 
 export async function POST(request: Request) {
   const data = await request.formData();
@@ -9,16 +30,16 @@ export async function POST(request: Request) {
   }
 
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    console.warn("[upload] BLOB_READ_WRITE_TOKEN is not configured. Skipping optional file upload.");
+    const localPath = await saveLocalUpload(file);
+
     return Response.json({
-      path: "",
-      name: file.name,
-      skipped: true
+      path: localPath,
+      name: file.name
     });
   }
 
   try {
-    const fileName = `uploads/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+    const fileName = `uploads/${Date.now()}-${sanitizeFileName(file.name)}`;
     const blob = await put(fileName, file, {
       access: "public",
       addRandomSuffix: true
