@@ -1,6 +1,6 @@
-# Northstar Rent OS
+# Nexus Rentals
 
-Northstar Rent OS is a polished rental operations MVP for landlord and property-operator workflows. It combines secure authentication, portfolio management, leasing, rent and expense tracking, maintenance operations, reporting, and an AI-style damage estimation flow suitable for partner demos.
+Nexus is a polished rental operations MVP for landlord and property-operator workflows. It combines secure authentication, portfolio management, leasing, rent and expense tracking, maintenance operations, reporting, and an AI-style damage estimation flow suitable for partner demos.
 
 ## Product Overview
 
