@@ -9,10 +9,12 @@ type UploadedAsset = { path: string; name: string; skipped?: boolean };
 
 export function FileUploader({
   label,
+  accept = "image/*,.pdf",
   multiple = true,
   onChange
 }: {
   label: string;
+  accept?: string;
   multiple?: boolean;
   onChange: (assets: UploadedAsset[]) => void;
 }) {
@@ -46,8 +48,8 @@ export function FileUploader({
           <Upload className="h-4 w-4" />
           {label}
         </span>
-        <span>{isPending ? "Uploading..." : "Choose files"}</span>
-        <input type="file" className="hidden" accept="image/*,.pdf" multiple={multiple} onChange={(e) => handleFiles(e.target.files)} />
+        <span>{isPending ? "Uploading..." : multiple ? "Choose files" : "Choose file"}</span>
+        <input type="file" className="hidden" accept={accept} multiple={multiple} onChange={(e) => handleFiles(e.target.files)} />
       </label>
       <div className="space-y-2">
         {items.length === 0 ? <p className="text-sm text-stone-500">No files uploaded yet.</p> : null}

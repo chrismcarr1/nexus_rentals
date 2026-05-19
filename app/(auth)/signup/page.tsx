@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { PasswordField } from "@/components/password-field";
 import { signupAction } from "@/lib/actions";
 
 export default async function SignupPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
@@ -8,9 +9,9 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
   return (
     <main className="grid-bg flex min-h-screen items-center justify-center p-6">
       <div className="glass card-shadow w-full max-w-3xl rounded-[36px] border border-white/60 p-8 lg:p-10">
-        <p className="text-sm uppercase tracking-[0.28em] text-[var(--brand)]">Create Organization</p>
-        <h1 className="mt-3 font-[var(--font-display)] text-4xl">Launch a local landlord workspace</h1>
-        <p className="mt-3 text-sm text-stone-500">The first user becomes an admin and owns the organization profile.</p>
+        <p className="text-sm uppercase tracking-[0.28em] text-[var(--brand)]">Create Account</p>
+        <h1 className="mt-3 font-[var(--font-display)] text-4xl">Join Northstar Rent OS</h1>
+        <p className="mt-3 text-sm text-stone-500">Choose a manager or tenant account. Admin access is reserved for approved organization owners.</p>
         {params.error ? (
           <div className="mt-5 rounded-2xl border border-[var(--line)] bg-stone-900/5 px-4 py-3 text-sm">
             {params.error === "account-exists"
@@ -22,8 +23,15 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
         ) : null}
         <form action={signupAction} className="mt-8 grid gap-4 md:grid-cols-2">
           <label className="block md:col-span-2">
-            <span className="mb-2 block text-sm font-medium">Business name</span>
+            <span className="mb-2 block text-sm font-medium">Organization or community name</span>
             <input name="businessName" required minLength={2} className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="mb-2 block text-sm font-medium">Account type</span>
+            <select name="role" required defaultValue="MANAGER" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3">
+              <option value="MANAGER">Manager</option>
+              <option value="TENANT">Tenant</option>
+            </select>
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium">First name</span>
@@ -37,10 +45,7 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
             <span className="mb-2 block text-sm font-medium">Email</span>
             <input name="email" type="email" required className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
           </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium">Password</span>
-            <input name="password" type="password" required minLength={8} className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-          </label>
+          <PasswordField name="password" required minLength={8} label="Password" />
           <label className="block">
             <span className="mb-2 block text-sm font-medium">Phone</span>
             <input name="phone" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
@@ -50,7 +55,7 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
             <input name="mailingAddress" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
           </label>
           <button type="submit" className="mt-2 rounded-2xl bg-[var(--brand)] px-4 py-3 font-semibold text-white md:col-span-2">
-            Create workspace
+            Create account
           </button>
         </form>
         <div className="mt-6 text-sm text-stone-500">

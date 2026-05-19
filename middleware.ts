@@ -15,7 +15,9 @@ const protectedPaths = [
   "/ai-assessments",
   "/reports",
   "/settings",
-  "/units"
+  "/units",
+  "/manager-guide",
+  "/renter-guide"
 ];
 
 function getSecret() {

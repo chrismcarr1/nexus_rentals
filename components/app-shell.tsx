@@ -1,9 +1,13 @@
+"use client";
+
 import Link from "next/link";
-import { Bell, Search } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { Bell, BookOpen, Search } from "lucide-react";
 
 import { SidebarNav } from "@/components/sidebar-nav";
 import { getRoleConfig } from "@/lib/rbac";
-import { initials } from "@/lib/utils";
+import { cn, initials } from "@/lib/utils";
 
 export function AppShell({
   user,
@@ -30,6 +34,25 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const role = getRoleConfig(user.role);
+  const pathname = usePathname();
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const [alertsHovered, setAlertsHovered] = useState(false);
+  const [alertsHoverSuppressed, setAlertsHoverSuppressed] = useState(false);
+  const showAlerts = alertsOpen || (alertsHovered && !alertsHoverSuppressed);
+  const guideLink =
+    user.role === "MANAGER"
+      ? { href: "/manager-guide", label: "Tips to Being a Good Manager", description: "Simple habits for stronger operations." }
+      : user.role === "TENANT"
+        ? { href: "/renter-guide", label: "Tips to Being a Good Renter", description: "Practical ways to protect your home and record." }
+        : null;
+
+  function handleAlertsClick() {
+    setAlertsOpen((open) => {
+      const nextOpen = !open;
+      setAlertsHoverSuppressed(!nextOpen);
+      return nextOpen;
+    });
+  }
 
   return (
     <div className="min-h-screen p-4 lg:p-6">
@@ -48,10 +71,36 @@ export function AppShell({
             <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{role.description}</p>
           </div>
           <SidebarNav items={role.nav} />
-          <div className="mt-auto rounded-[28px] bg-[linear-gradient(145deg,#0f172a,#1d3557)] p-5 text-white">
-            <p className="text-sm uppercase tracking-[0.24em] text-white/60">Operations Pulse</p>
-            <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">Serious SaaS posture</h3>
-            <p className="mt-2 text-sm leading-6 text-white/74">Role-aware access, scoped operational views, and cleaner decision support are now built into the platform shell.</p>
+          <div className="mt-auto space-y-3">
+            {guideLink ? (
+              <Link
+                href={guideLink.href}
+                className={cn(
+                  "group flex items-start gap-3 rounded-2xl border px-4 py-3.5 transition duration-200",
+                  pathname === guideLink.href
+                    ? "border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text)] shadow-[0_18px_40px_rgba(15,23,42,0.08)]"
+                    : "border-[var(--line)] bg-white/60 text-[var(--muted)] hover:bg-[var(--panel)] hover:text-[var(--text)]"
+                )}
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition",
+                    pathname === guideLink.href ? "bg-[var(--accent-soft)] text-[var(--brand)]" : "bg-white text-[var(--muted)] group-hover:bg-[var(--accent-soft)]"
+                  )}
+                >
+                  <BookOpen className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">{guideLink.label}</span>
+                  <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">{guideLink.description}</span>
+                </span>
+              </Link>
+            ) : null}
+            <div className="rounded-[28px] bg-[linear-gradient(145deg,#0f172a,#1d3557)] p-5 text-white">
+              <p className="text-sm uppercase tracking-[0.24em] text-white/60">Operations Pulse</p>
+              <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">Serious SaaS posture</h3>
+              <p className="mt-2 text-sm leading-6 text-white/74">Role-aware access, scoped operational views, and cleaner decision support are now built into the platform shell.</p>
+            </div>
           </div>
         </aside>
         <main className="space-y-4">
@@ -63,7 +112,7 @@ export function AppShell({
                   name="q"
                   defaultValue={searchQuery}
                   placeholder={user.role === "TENANT" ? "Search your records and notices" : "Search properties, units, or tenants"}
-                  className="field pl-11"
+                  className="field app-shell-search-input"
                 />
                 {searchQuery && searchResults ? (
                   <div className="surface-panel absolute left-0 right-0 top-[calc(100%+8px)] p-3">
@@ -90,17 +139,52 @@ export function AppShell({
                   <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">Workspace</p>
                   <p className="text-sm font-semibold text-[var(--text)]">{role.label}</p>
                 </div>
-                <div className="relative">
-                  <button type="button" className="rounded-2xl border border-[var(--line)] bg-[var(--panel-strong)] p-3 text-slate-700 transition hover:-translate-y-0.5 hover:bg-white">
+                <div
+                  className="relative"
+                  onMouseEnter={() => {
+                    setAlertsHovered(true);
+                    setAlertsHoverSuppressed(false);
+                  }}
+                  onMouseLeave={() => {
+                    setAlertsHovered(false);
+                    setAlertsHoverSuppressed(false);
+                  }}
+                >
+                  <button
+                    onClick={handleAlertsClick}
+                    type="button"
+                    aria-label="Alerts"
+                    aria-controls="alerts-menu"
+                    aria-expanded={showAlerts}
+                    className={cn(
+                      "rounded-2xl border border-[var(--line)] bg-[var(--panel-strong)] p-3 text-slate-700 transition hover:-translate-y-0.5 hover:bg-white",
+                      showAlerts && "border-[var(--line-strong)] bg-white text-[var(--brand)] shadow-[0_12px_28px_rgba(15,23,42,0.08)]"
+                    )}
+                  >
                     <Bell className="h-4 w-4" />
                   </button>
-                  <div className="surface-panel absolute right-0 top-[calc(100%+8px)] hidden w-80 p-3 lg:block">
-                    {notifications.map((item) => (
-                      <div key={item.id} className="rounded-2xl px-3 py-2 hover:bg-slate-100">
-                        <p className="text-sm font-semibold">{item.title}</p>
-                        <p className="text-xs text-[var(--muted)]">{item.body}</p>
-                      </div>
-                    ))}
+                  <div
+                    id="alerts-menu"
+                    className={cn(
+                      "absolute right-0 top-full z-20 w-80 max-w-[calc(100vw-2rem)] pt-2",
+                      showAlerts ? "block" : "hidden"
+                    )}
+                  >
+                    <div className="surface-panel p-3">
+                      {notifications.length ? (
+                        notifications.map((item) => (
+                          <div key={item.id} className="rounded-2xl px-3 py-2 hover:bg-slate-100">
+                            <p className="text-sm font-semibold">{item.title}</p>
+                            <p className="text-xs text-[var(--muted)]">{item.body}</p>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-2xl px-3 py-2">
+                          <p className="text-sm font-semibold">No alerts</p>
+                          <p className="text-xs text-[var(--muted)]">You are all caught up.</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 rounded-[22px] border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2">

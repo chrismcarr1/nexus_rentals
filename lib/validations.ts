@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const signupSchema = z.object({
   businessName: z.string().min(2),
+  role: z.enum(["MANAGER", "TENANT"]),
   firstName: z.string().min(2),
   lastName: z.string().min(2),
   email: z.string().email(),
@@ -14,6 +15,21 @@ export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8)
 });
+
+export const requestResetSchema = z.object({
+  email: z.string().email()
+});
+
+export const resetPasswordSchema = z
+  .object({
+    token: z.string().min(20),
+    password: z.string().min(8),
+    confirmPassword: z.string().min(8)
+  })
+  .refine((value) => value.password === value.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"]
+  });
 
 export const propertySchema = z.object({
   name: z.string().min(2),
