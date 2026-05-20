@@ -1,6 +1,6 @@
-# Northstar Rent OS
+# Nexus Rentals
 
-Northstar Rent OS is a polished rental operations MVP for landlord and property-operator workflows. It combines secure authentication, portfolio management, leasing, rent and expense tracking, maintenance operations, reporting, and an AI-style damage estimation flow suitable for partner demos.
+Nexus Rentals is a rental operations app for landlord and property-operator workflows. It combines secure authentication, portfolio management, leasing, rent and expense tracking, maintenance operations, reporting, and damage estimation.
 
 ## Product Overview
 
@@ -74,9 +74,9 @@ The damage workflow is intentionally modular.
 
 ## Demo Credentials
 
-- Admin: `demo@northstar.local` / `DemoPass123!`
-- Manager: `manager@northstar.local` / `ManagerPass123!`
-- Tenant: `tenant@northstar.local` / `TenantPass123!`
+- Admin: `demo@nexusrentals.local` / `DemoPass123!`
+- Manager: `manager@nexusrentals.local` / `ManagerPass123!`
+- Tenant: `tenant@nexusrentals.local` / `TenantPass123!`
 
 ## Password Reset Demo
 
@@ -94,7 +94,7 @@ APP_URL="http://localhost:3000"
 BLOB_READ_WRITE_TOKEN=""
 ```
 
-`DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `BLOB_READ_WRITE_TOKEN` is optional for the MVP; if it is not set, uploads are skipped gracefully instead of failing the page.
+`DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `BLOB_READ_WRITE_TOKEN` is optional for local development, but should be configured in production if uploads need to persist.
 
 ## Setup
 

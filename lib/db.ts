@@ -439,6 +439,18 @@ export const db: any = {
       const item = { id: createId("maint"), requestedAt: nowIso(), createdAt: nowIso(), updatedAt: nowIso(), ...data };
       await updateStore((store) => ({ ...store, maintenanceRequests: [...store.maintenanceRequests, item] }));
       return toDateFields(item, ["requestedAt", "resolvedAt", "createdAt", "updatedAt"]);
+    },
+    async update({ where, data }: any) {
+      let updated: any;
+      await updateStore((store) => ({
+        ...store,
+        maintenanceRequests: store.maintenanceRequests.map((item) => {
+          if (item.id !== where.id) return item;
+          updated = { ...item, ...data, updatedAt: nowIso() };
+          return updated;
+        })
+      }));
+      return updated ? toDateFields(updated, ["requestedAt", "resolvedAt", "createdAt", "updatedAt"]) : null;
     }
   },
   inspection: {

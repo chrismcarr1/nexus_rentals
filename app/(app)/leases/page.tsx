@@ -7,9 +7,11 @@ import { requireUser } from "@/lib/auth";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
-export default async function LeasesPage() {
+export default async function LeasesPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireUser();
   const portal = await getPortalContext(user);
+  const params = (await searchParams) ?? {};
+  const canCreateLease = portal.scope.units.length > 0 && portal.scope.tenants.length > 0;
 
   if (user.role === "TENANT") {
     return (
@@ -103,35 +105,46 @@ export default async function LeasesPage() {
         </Card>
         <Card className="p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Create lease</p>
-          <form action={createLeaseAction} className="mt-6 space-y-4">
-            <select name="unitId" className="field">
-              {portal.scope.units.map((unit) => {
-                const property = portal.scope.properties.find((item) => item.id === unit.propertyId);
-                return <option key={unit.id} value={unit.id}>{property?.name} {unit.unitNumber}</option>;
-              })}
-            </select>
-            <select name="tenantId" className="field">
-              {portal.scope.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.firstName} {tenant.lastName}</option>)}
-            </select>
-            <div className="grid gap-4 md:grid-cols-2">
-              <input name="startDate" type="date" className="field" />
-              <input name="endDate" type="date" className="field" />
+          {params.error === "invalid-lease" ? (
+            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Choose a unit, tenant, lease dates, rent amount, due day, and deposit before creating the lease.
             </div>
-            <div className="grid gap-4 md:grid-cols-3">
-              <input name="monthlyRent" type="number" step="0.01" placeholder="Monthly rent" className="field" />
-              <input name="dueDay" type="number" placeholder="Due day" className="field" />
-              <input name="securityDeposit" type="number" step="0.01" placeholder="Deposit" className="field" />
-            </div>
-            <textarea name="recurringCharges" placeholder="Recurring charges" className="field min-h-24" />
-            <input name="lateFeePolicy" placeholder="Late fee policy" className="field" />
-            <select name="status" className="field">
-              <option value="ACTIVE">Active</option>
-              <option value="UPCOMING">Upcoming</option>
-              <option value="EXPIRED">Expired</option>
-              <option value="TERMINATED">Terminated</option>
-            </select>
-            <SubmitButton>Create lease</SubmitButton>
-          </form>
+          ) : null}
+          {!canCreateLease ? (
+            <EmptyState title="Need a unit and tenant first" description="Create at least one unit and one tenant in your scope before adding a lease." />
+          ) : (
+            <form action={createLeaseAction} className="mt-6 space-y-4">
+              <select name="unitId" className="field" required defaultValue="">
+                <option value="" disabled>Select unit</option>
+                {portal.scope.units.map((unit) => {
+                  const property = portal.scope.properties.find((item) => item.id === unit.propertyId);
+                  return <option key={unit.id} value={unit.id}>{property?.name} {unit.unitNumber}</option>;
+                })}
+              </select>
+              <select name="tenantId" className="field" required defaultValue="">
+                <option value="" disabled>Select tenant</option>
+                {portal.scope.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.firstName} {tenant.lastName}</option>)}
+              </select>
+              <div className="grid gap-4 md:grid-cols-2">
+                <input name="startDate" type="date" required className="field" />
+                <input name="endDate" type="date" required className="field" />
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <input name="monthlyRent" type="number" min="0" step="0.01" required placeholder="Monthly rent" className="field" />
+                <input name="dueDay" type="number" min="1" max="28" required placeholder="Due day" className="field" />
+                <input name="securityDeposit" type="number" min="0" step="0.01" required placeholder="Deposit" className="field" />
+              </div>
+              <textarea name="recurringCharges" placeholder="Recurring charges" className="field min-h-24" />
+              <input name="lateFeePolicy" placeholder="Late fee policy" className="field" />
+              <select name="status" className="field" required defaultValue="ACTIVE">
+                <option value="ACTIVE">Active</option>
+                <option value="UPCOMING">Upcoming</option>
+                <option value="EXPIRED">Expired</option>
+                <option value="TERMINATED">Terminated</option>
+              </select>
+              <SubmitButton>Create lease</SubmitButton>
+            </form>
+          )}
         </Card>
       </div>
     </div>

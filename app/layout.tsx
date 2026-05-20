@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import "@/app/globals.css";
 
 export const metadata: Metadata = {
-  title: "Northstar Rent OS",
+  title: "Nexus Rentals",
   description: "AI-enhanced property and rental management platform."
 };
 

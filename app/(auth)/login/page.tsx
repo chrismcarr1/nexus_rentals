@@ -10,15 +10,15 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
     <main className="grid-bg flex min-h-screen items-center justify-center p-6">
       <div className="glass card-shadow grid w-full max-w-5xl overflow-hidden rounded-[36px] border border-white/60 lg:grid-cols-[1.05fr_0.95fr]">
         <section className="bg-[linear-gradient(155deg,#184c45,#123732)] p-10 text-white">
-          <p className="text-sm uppercase tracking-[0.3em] text-white/70">Northstar Rent OS</p>
+          <p className="text-sm uppercase tracking-[0.3em] text-white/70">Nexus Rentals</p>
           <h1 className="mt-6 font-[var(--font-display)] text-5xl leading-tight">Run landlord operations with financial confidence.</h1>
           <p className="mt-6 max-w-md text-base leading-7 text-white/80">
             Secure access, portfolio reporting, tenant and lease management, maintenance workflows, and AI-assisted damage estimation are all live in this local demo.
           </p>
           <div className="mt-8 rounded-[28px] bg-white/10 p-5 text-sm">
             <p className="font-semibold">Limited demo credentials</p>
-            <p>Manager: `manager@northstar.local` / `ManagerPass123!`</p>
-            <p>Tenant: `tenant@northstar.local` / `TenantPass123!`</p>
+            <p>Manager: `manager@nexusrentals.local` / `ManagerPass123!`</p>
+            <p>Tenant: `tenant@nexusrentals.local` / `TenantPass123!`</p>
           </div>
         </section>
         <section className="p-8 lg:p-10">

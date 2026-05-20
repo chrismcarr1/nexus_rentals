@@ -44,14 +44,14 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         eyebrow={role.homeLabel}
         title={
           user.role === "ADMIN"
-            ? "Enterprise portfolio visibility with cleaner operating control."
+            ? "Portfolio visibility and operating control."
             : user.role === "MANAGER"
               ? "Assigned-property operations, prioritized for execution."
               : "Everything you need for rent, maintenance, and lease self-service."
         }
         description={
           user.role === "ADMIN"
-            ? "Track occupancy, collections, leasing risk, maintenance volume, and cross-team execution from one polished command center."
+            ? "Track occupancy, collections, leasing risk, maintenance volume, and team activity from one dashboard."
             : user.role === "MANAGER"
               ? "Stay on top of overdue rent, work orders, expiring leases, and resident follow-up for the properties currently assigned to you."
               : "Review your balance, next payment, active lease details, service requests, and recent building announcements without the operational noise."

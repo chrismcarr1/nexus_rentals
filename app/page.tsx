@@ -29,13 +29,13 @@ export default async function HomePage() {
         <section className="mt-12 grid gap-8 lg:grid-cols-[1.3fr_0.9fr] lg:items-center">
           <div>
             <div className="inline-flex rounded-full bg-[var(--brand)]/10 px-4 py-2 text-sm font-semibold text-[var(--brand)]">
-              Demo-ready local MVP with seeded portfolio data
+              Rental operations with role-based access
             </div>
             <h2 className="mt-6 max-w-3xl font-[var(--font-display)] text-6xl leading-[1.05] text-[var(--text)]">
               Portfolio control, financial clarity, and damage intelligence in one workspace.
             </h2>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-[var(--muted)]">
-              Manage properties, leases, tenants, collections, maintenance, and move-out charge analysis through a polished desktop-first interface designed for partner demos and future cloud deployment.
+              Manage properties, leases, tenants, collections, maintenance, and move-out charge analysis from one workspace.
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
               <Link href={session ? "/dashboard" : "/login"} className="inline-flex items-center gap-2 rounded-2xl bg-[var(--brand)] px-5 py-3 text-sm font-semibold text-white">
