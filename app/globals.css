@@ -1,18 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #eef3f8;
-  --panel: rgba(255, 255, 255, 0.74);
+  --bg: #eef3f0;
+  --panel: rgba(255, 255, 255, 0.76);
   --panel-strong: rgba(255, 255, 255, 0.96);
   --surface: rgba(255, 255, 255, 0.8);
   --surface-strong: #ffffff;
-  --line: rgba(15, 23, 42, 0.08);
-  --line-strong: rgba(15, 23, 42, 0.12);
-  --text: #0f172a;
-  --muted: #5f6b7d;
-  --brand: #1f6b5f;
-  --brand-2: #b48a4e;
-  --accent-soft: rgba(31, 107, 95, 0.1);
+  --line: rgba(34, 49, 63, 0.09);
+  --line-strong: rgba(34, 49, 63, 0.16);
+  --text: #14211f;
+  --muted: #65726f;
+  --brand: #23675d;
+  --brand-2: #ad8547;
+  --accent-soft: rgba(35, 103, 93, 0.1);
   --danger: #b42318;
   --success: #15803d;
   --warning: #b45309;
@@ -26,9 +26,9 @@
 
 html {
   background:
-    radial-gradient(circle at top left, rgba(31, 107, 95, 0.12), transparent 34%),
-    radial-gradient(circle at top right, rgba(180, 138, 78, 0.12), transparent 26%),
-    linear-gradient(180deg, #f6f9fc 0%, #e9f0f7 100%);
+    radial-gradient(circle at 8% 4%, rgba(35, 103, 93, 0.15), transparent 32%),
+    radial-gradient(circle at 92% 0%, rgba(173, 133, 71, 0.14), transparent 28%),
+    linear-gradient(180deg, #f8faf7 0%, #edf3f1 48%, #e8eef3 100%);
 }
 
 body {
@@ -37,11 +37,18 @@ body {
   min-height: 100vh;
   background: transparent;
   font-family: var(--font-body), sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a {
   color: inherit;
   text-decoration: none;
+}
+
+img {
+  display: block;
+  max-width: 100%;
 }
 
 button,
@@ -51,29 +58,40 @@ select {
   font: inherit;
 }
 
+button,
+select {
+  cursor: pointer;
+}
+
+::selection {
+  background: rgba(35, 103, 93, 0.18);
+}
+
 .glass {
-  background: var(--surface);
-  backdrop-filter: blur(18px);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(249, 244, 235, 0.72));
+  backdrop-filter: blur(20px);
 }
 
 .card-shadow {
-  box-shadow: 0 26px 60px rgba(15, 23, 42, 0.08);
+  box-shadow:
+    0 28px 70px rgba(22, 32, 42, 0.09),
+    0 1px 0 rgba(255, 255, 255, 0.7) inset;
 }
 
 .grid-bg {
   background-image:
-    linear-gradient(rgba(31, 107, 95, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(31, 107, 95, 0.04) 1px, transparent 1px);
+    linear-gradient(rgba(35, 103, 93, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(35, 103, 93, 0.045) 1px, transparent 1px);
   background-size: 42px 42px;
 }
 
 .surface-panel {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.84));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(250, 252, 250, 0.86));
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  border-radius: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 24px;
   box-shadow:
-    0 28px 72px rgba(15, 23, 42, 0.08),
+    0 24px 58px rgba(22, 32, 42, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
@@ -95,7 +113,7 @@ textarea::placeholder {
 
 .field {
   width: 100%;
-  border-radius: 18px;
+  border-radius: 16px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.94);
   padding: 0.85rem 1rem;
