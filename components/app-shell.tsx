@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Bell, BookOpen, Search } from "lucide-react";
+import { Bell, BookOpen, Building2, ChevronDown, Gauge, LogOut, Search, Settings, UserRound } from "lucide-react";
 
 import { SidebarNav } from "@/components/sidebar-nav";
 import { getRoleConfig } from "@/lib/rbac";
@@ -23,7 +23,7 @@ export function AppShell({
     role: "ADMIN" | "MANAGER" | "TENANT";
     organization: { name: string };
   };
-  notifications: Array<{ id: string; title: string; body: string }>;
+  notifications: Array<{ id: string; title: string; body: string; href?: string; label?: string }>;
   searchQuery?: string;
   searchResults?: {
     properties: Array<{ id: string; name: string }>;
@@ -38,6 +38,7 @@ export function AppShell({
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [alertsHovered, setAlertsHovered] = useState(false);
   const [alertsHoverSuppressed, setAlertsHoverSuppressed] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const showAlerts = alertsOpen || (alertsHovered && !alertsHoverSuppressed);
   const guideLink =
     user.role === "MANAGER"
@@ -61,7 +62,7 @@ export function AppShell({
           <Link href="/dashboard" className="mb-8 flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(180deg,#1f6b5f,#174a43)] text-lg font-bold text-white shadow-[0_18px_32px_rgba(22,74,67,0.24)]">N</div>
             <div>
-              <p className="text-xl font-semibold tracking-[-0.03em] text-[var(--text)]">Northstar Rent OS</p>
+              <p className="text-xl font-semibold tracking-[-0.03em] text-[var(--text)]">Nexus Rentals</p>
               <p className="text-sm text-[var(--muted)]">{user.organization.name}</p>
             </div>
           </Link>
@@ -96,10 +97,61 @@ export function AppShell({
                 </span>
               </Link>
             ) : null}
-            <div className="rounded-[28px] bg-[linear-gradient(145deg,#0f172a,#1d3557)] p-5 text-white">
-              <p className="text-sm uppercase tracking-[0.24em] text-white/60">Operations Pulse</p>
-              <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">Serious SaaS posture</h3>
-              <p className="mt-2 text-sm leading-6 text-white/74">Role-aware access, scoped operational views, and cleaner decision support are now built into the platform shell.</p>
+            <div className="relative">
+              {accountOpen ? (
+                <div className="absolute bottom-[calc(100%+10px)] left-0 right-0 z-30 rounded-[24px] border border-[var(--line)] bg-white p-2 shadow-[0_22px_60px_rgba(15,23,42,0.16)]">
+                  <div className="px-3 py-2">
+                    <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">Signed in as</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-[var(--text)]">{user.firstName} {user.lastName}</p>
+                  </div>
+                  <Link href="/dashboard" className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm text-[var(--muted)] transition hover:bg-slate-100 hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>
+                    <Gauge className="h-4 w-4" />
+                    Dashboard
+                  </Link>
+                  <Link href="/settings" className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm text-[var(--muted)] transition hover:bg-slate-100 hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>
+                    <Settings className="h-4 w-4" />
+                    Settings
+                  </Link>
+                  <Link href="/settings" className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm text-[var(--muted)] transition hover:bg-slate-100 hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>
+                    <UserRound className="h-4 w-4" />
+                    Account info
+                  </Link>
+                  {guideLink ? (
+                    <Link href={guideLink.href} className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm text-[var(--muted)] transition hover:bg-slate-100 hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>
+                      <BookOpen className="h-4 w-4" />
+                      {user.role === "MANAGER" ? "Manager tips" : "Renter tips"}
+                    </Link>
+                  ) : null}
+                  <div className="my-2 h-px bg-[var(--line)]" />
+                  <form action={logoutAction}>
+                    <button type="submit" className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50">
+                      <LogOut className="h-4 w-4" />
+                      Logout
+                    </button>
+                  </form>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setAccountOpen((open) => !open)}
+                aria-expanded={accountOpen}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-[24px] border bg-[var(--panel-strong)] p-3 text-left transition hover:-translate-y-0.5 hover:bg-white",
+                  accountOpen ? "border-[var(--line-strong)] shadow-[0_18px_40px_rgba(15,23,42,0.10)]" : "border-[var(--line)]"
+                )}
+              >
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(180deg,#1f6b5f,#174a43)] text-sm font-bold text-white shadow-[0_12px_24px_rgba(22,74,67,0.20)]">
+                  {initials(user.firstName, user.lastName)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-[var(--text)]">{user.firstName} {user.lastName}</p>
+                  <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-[var(--muted)]">
+                    <Building2 className="h-3.5 w-3.5 shrink-0" />
+                    {user.organization.name}
+                  </p>
+                </div>
+                <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--muted)] transition", accountOpen && "rotate-180")} />
+              </button>
             </div>
           </div>
         </aside>
@@ -173,10 +225,23 @@ export function AppShell({
                     <div className="surface-panel p-3">
                       {notifications.length ? (
                         notifications.map((item) => (
-                          <div key={item.id} className="rounded-2xl px-3 py-2 hover:bg-slate-100">
-                            <p className="text-sm font-semibold">{item.title}</p>
-                            <p className="text-xs text-[var(--muted)]">{item.body}</p>
-                          </div>
+                          item.href ? (
+                            <Link key={item.id} href={item.href} className="block rounded-2xl px-3 py-2 hover:bg-slate-100">
+                              <div className="flex items-start justify-between gap-3">
+                                <p className="text-sm font-semibold">{item.title}</p>
+                                {item.label ? <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--brand)]">{item.label}</span> : null}
+                              </div>
+                              <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{item.body}</p>
+                            </Link>
+                          ) : (
+                            <div key={item.id} className="rounded-2xl px-3 py-2 hover:bg-slate-100">
+                              <div className="flex items-start justify-between gap-3">
+                                <p className="text-sm font-semibold">{item.title}</p>
+                                {item.label ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{item.label}</span> : null}
+                              </div>
+                              <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{item.body}</p>
+                            </div>
+                          )
                         ))
                       ) : (
                         <div className="rounded-2xl px-3 py-2">
@@ -186,22 +251,6 @@ export function AppShell({
                       )}
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-3 rounded-[22px] border border-[var(--line)] bg-[var(--panel-strong)] px-3 py-2">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[linear-gradient(180deg,#1f6b5f,#174a43)] text-sm font-bold text-white">
-                    {initials(user.firstName, user.lastName)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">
-                      {user.firstName} {user.lastName}
-                    </p>
-                    <p className="text-xs text-[var(--muted)]">{user.organization.name}</p>
-                  </div>
-                  <form action={logoutAction}>
-                    <button type="submit" className="rounded-xl px-3 py-2 text-sm text-[var(--muted)] transition hover:bg-slate-100 hover:text-[var(--text)]">
-                      Logout
-                    </button>
-                  </form>
                 </div>
               </div>
             </div>

@@ -7,7 +7,7 @@ type PasswordResetEmailInput = {
 };
 
 function getEmailFromAddress() {
-  return process.env.RESET_EMAIL_FROM || "Northstar Rent OS <no-reply@northstar.local>";
+  return process.env.RESET_EMAIL_FROM || "Nexus Rentals <no-reply@nexusrentals.local>";
 }
 
 function escapeHtml(value: string) {
@@ -38,12 +38,12 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }: PasswordRes
     body: JSON.stringify({
       from,
       to,
-      subject: "Reset your Northstar Rent OS password",
+      subject: "Reset your Nexus Rentals password",
       html: `
         <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
           <h1 style="font-size: 22px;">Reset your password</h1>
           <p>Hi ${safeName},</p>
-          <p>We received a request to reset your Northstar Rent OS password. This link expires in 1 hour.</p>
+          <p>We received a request to reset your Nexus Rentals password. This link expires in 1 hour.</p>
           <p>
             <a href="${safeResetUrl}" style="display: inline-block; border-radius: 12px; background: #1f6b5f; color: #ffffff; padding: 12px 18px; text-decoration: none; font-weight: 700;">
               Reset password
@@ -53,7 +53,7 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }: PasswordRes
           <p style="font-size: 12px; color: #5f6b7d;">${safeResetUrl}</p>
         </div>
       `,
-      text: `Hi ${name},\n\nReset your Northstar Rent OS password using this link. It expires in 1 hour:\n\n${resetUrl}\n\nIf you did not request this, you can ignore this email.`
+      text: `Hi ${name},\n\nReset your Nexus Rentals password using this link. It expires in 1 hour:\n\n${resetUrl}\n\nIf you did not request this, you can ignore this email.`
     })
   });
 

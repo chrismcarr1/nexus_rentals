@@ -10,7 +10,7 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
     <main className="grid-bg flex min-h-screen items-center justify-center p-6">
       <div className="glass card-shadow w-full max-w-3xl rounded-[36px] border border-white/60 p-8 lg:p-10">
         <p className="text-sm uppercase tracking-[0.28em] text-[var(--brand)]">Create Account</p>
-        <h1 className="mt-3 font-[var(--font-display)] text-4xl">Join Northstar Rent OS</h1>
+        <h1 className="mt-3 font-[var(--font-display)] text-4xl">Join Nexus Rentals</h1>
         <p className="mt-3 text-sm text-stone-500">Choose a manager or tenant account. Admin access is reserved for approved organization owners.</p>
         {params.error ? (
           <div className="mt-5 rounded-2xl border border-[var(--line)] bg-stone-900/5 px-4 py-3 text-sm">

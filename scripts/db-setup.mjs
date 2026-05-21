@@ -61,16 +61,16 @@ async function main() {
   const now = new Date();
 
   const store = {
-    organizations: [{ id: "org_northstar", name: "Northstar Residential Group", email: "contact@northstar.local", phone: "(415) 555-0190", mailingAddress: "240 Valencia Street, Suite 500, San Francisco, CA 94103", logoPath: "/demo/logo-mark.svg", createdAt: iso(now), updatedAt: iso(now) }],
+    organizations: [{ id: "org_nexus", name: "Nexus Rentals", email: "contact@nexusrentals.local", phone: "(415) 555-0190", mailingAddress: "240 Valencia Street, Suite 500, San Francisco, CA 94103", logoPath: "/demo/logo-mark.svg", createdAt: iso(now), updatedAt: iso(now) }],
     users: [
-      { id: "user_admin", organizationId: "org_northstar", email: "demo@northstar.local", passwordHash: await bcrypt.hash("DemoPass123!", 12), firstName: "Avery", lastName: "Stone", role: "ADMIN", isActive: true, title: "Principal Operator", phone: "(415) 555-0132", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "user_manager", organizationId: "org_northstar", email: "manager@northstar.local", passwordHash: await bcrypt.hash("ManagerPass123!", 12), firstName: "Jordan", lastName: "Lee", role: "MANAGER", isActive: true, title: "Property Manager", phone: "(415) 555-0177", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "user_tenant", organizationId: "org_northstar", email: "tenant@northstar.local", passwordHash: await bcrypt.hash("TenantPass123!", 12), firstName: "Sam", lastName: "Carter", role: "TENANT", isActive: true, title: "Resident", createdAt: iso(now), updatedAt: iso(now) }
+      { id: "user_admin", organizationId: "org_nexus", email: "demo@nexusrentals.local", passwordHash: await bcrypt.hash("DemoPass123!", 12), firstName: "Avery", lastName: "Stone", role: "ADMIN", isActive: true, title: "Principal Operator", phone: "(415) 555-0132", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "user_manager", organizationId: "org_nexus", email: "manager@nexusrentals.local", passwordHash: await bcrypt.hash("ManagerPass123!", 12), firstName: "Jordan", lastName: "Lee", role: "MANAGER", isActive: true, title: "Property Manager", phone: "(415) 555-0177", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "user_tenant", organizationId: "org_nexus", email: "tenant@nexusrentals.local", passwordHash: await bcrypt.hash("TenantPass123!", 12), firstName: "Sam", lastName: "Carter", role: "TENANT", isActive: true, title: "Resident", createdAt: iso(now), updatedAt: iso(now) }
     ],
     properties: [
-      { id: "prop_harbor", organizationId: "org_northstar", managerId: "user_manager", name: "Harbor Point Residences", addressLine1: "880 Mission Bay Blvd", city: "San Francisco", state: "CA", postalCode: "94158", status: "ACTIVE", description: "A mixed-use mid-rise asset with renovated interiors and strong waterfront demand.", amenities: "Fitness studio, secure package room, rooftop lounge, EV charging", notes: "Premium Class A demo property with high occupancy.", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "prop_maple", organizationId: "org_northstar", managerId: "user_manager", name: "Maple Terrace Townhomes", addressLine1: "1416 Maple Terrace", city: "Oakland", state: "CA", postalCode: "94612", status: "ACTIVE", description: "Townhome cluster with stable long-term residents and lower turnover.", amenities: "Private garages, dog run, community patio", notes: "Strong family occupancy, maintenance-heavy landscaping.", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "prop_cedar", organizationId: "org_northstar", name: "Cedar Heights Flats", addressLine1: "522 Cedar Street", city: "Berkeley", state: "CA", postalCode: "94709", status: "ACTIVE", description: "Small-format student and graduate housing with high lease velocity.", amenities: "Bike storage, parcel lockers, study lounge", notes: "Targeted to graduate students and faculty.", createdAt: iso(now), updatedAt: iso(now) }
+      { id: "prop_harbor", organizationId: "org_nexus", managerId: "user_manager", name: "Harbor Point Residences", addressLine1: "880 Mission Bay Blvd", city: "San Francisco", state: "CA", postalCode: "94158", status: "ACTIVE", description: "A mixed-use mid-rise asset with renovated interiors and strong waterfront demand.", amenities: "Fitness studio, secure package room, rooftop lounge, EV charging", notes: "Premium Class A demo property with high occupancy.", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "prop_maple", organizationId: "org_nexus", managerId: "user_manager", name: "Maple Terrace Townhomes", addressLine1: "1416 Maple Terrace", city: "Oakland", state: "CA", postalCode: "94612", status: "ACTIVE", description: "Townhome cluster with stable long-term residents and lower turnover.", amenities: "Private garages, dog run, community patio", notes: "Strong family occupancy, maintenance-heavy landscaping.", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "prop_cedar", organizationId: "org_nexus", name: "Cedar Heights Flats", addressLine1: "522 Cedar Street", city: "Berkeley", state: "CA", postalCode: "94709", status: "ACTIVE", description: "Small-format student and graduate housing with high lease velocity.", amenities: "Bike storage, parcel lockers, study lounge", notes: "Targeted to graduate students and faculty.", createdAt: iso(now), updatedAt: iso(now) }
     ],
     units: [
       { id: "unit_3a", propertyId: "prop_harbor", unitNumber: "3A", nickname: "Bay View", unitType: "Apartment", bedrooms: 2, bathrooms: 2, squareFeet: 1040, monthlyRent: 4250, depositAmount: 4250, occupancyStatus: "OCCUPIED", leaseStatus: "ACTIVE", amenities: "Water view, balcony, quartz kitchen", createdAt: iso(now), updatedAt: iso(now) },
@@ -82,10 +82,10 @@ async function main() {
       { id: "unit_4a", propertyId: "prop_cedar", unitNumber: "4A", nickname: "Top Floor", unitType: "Apartment", bedrooms: 2, bathrooms: 1, squareFeet: 890, monthlyRent: 3150, depositAmount: 3000, occupancyStatus: "OCCUPIED", leaseStatus: "UPCOMING", amenities: "Top floor, skylight, storage niche", createdAt: iso(now), updatedAt: iso(now) }
     ],
     tenants: [
-      { id: "tenant_sam", organizationId: "org_northstar", firstName: "Sam", lastName: "Carter", email: "tenant@northstar.local", phone: "(510) 555-0189", employer: "Bayshore Labs", emergencyName: "Nina Carter", emergencyPhone: "(510) 555-0121", notes: "Pays via ACH, prefers text updates.", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "tenant_maya", organizationId: "org_northstar", firstName: "Maya", lastName: "Patel", email: "maya.patel@example.com", phone: "(415) 555-0171", employer: "Kite Health", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "tenant_luis", organizationId: "org_northstar", firstName: "Luis", lastName: "Moreno", email: "luis.moreno@example.com", phone: "(415) 555-0147", employer: "Arc Transit", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "tenant_elena", organizationId: "org_northstar", firstName: "Elena", lastName: "Kim", email: "elena.kim@example.com", phone: "(510) 555-0118", employer: "UC Berkeley", createdAt: iso(now), updatedAt: iso(now) }
+      { id: "tenant_sam", organizationId: "org_nexus", firstName: "Sam", lastName: "Carter", email: "tenant@nexusrentals.local", phone: "(510) 555-0189", employer: "Bayshore Labs", emergencyName: "Nina Carter", emergencyPhone: "(510) 555-0121", notes: "Pays via ACH, prefers text updates.", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "tenant_maya", organizationId: "org_nexus", firstName: "Maya", lastName: "Patel", email: "maya.patel@example.com", phone: "(415) 555-0171", employer: "Kite Health", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "tenant_luis", organizationId: "org_nexus", firstName: "Luis", lastName: "Moreno", email: "luis.moreno@example.com", phone: "(415) 555-0147", employer: "Arc Transit", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "tenant_elena", organizationId: "org_nexus", firstName: "Elena", lastName: "Kim", email: "elena.kim@example.com", phone: "(510) 555-0118", employer: "UC Berkeley", createdAt: iso(now), updatedAt: iso(now) }
     ],
     leases: [
       { id: "lease_3a", unitId: "unit_3a", tenantIds: ["tenant_sam"], startDate: iso(shiftMonths(now, -8)), endDate: iso(shiftMonths(now, 4)), monthlyRent: 4250, dueDay: 1, securityDeposit: 4250, recurringCharges: "Parking 175, Pet 50", lateFeePolicy: "5% of unpaid balance after day 5", status: "ACTIVE", createdAt: iso(now), updatedAt: iso(now) },
@@ -132,10 +132,10 @@ async function main() {
       { id: "file_assess_2", assessmentId: "assess_15", kind: "DAMAGE_IMAGE", label: "Assessment image 2", path: "/demo/damage-wall.svg", mimeType: "image/svg+xml", createdAt: iso(now) }
     ],
     notifications: [
-      { id: "note_1", organizationId: "org_northstar", userId: "user_admin", type: "RENT_OVERDUE", title: "1 rent payment is overdue", body: "Unit 5C at Harbor Point has an overdue balance of $3,490 including fees.", isRead: false, createdAt: iso(now) },
-      { id: "note_2", organizationId: "org_northstar", userId: "user_manager", type: "LEASE_EXPIRING", title: "Lease expiring in 24 days", body: "Skyline Loft lease ends soon. Renewal decision is still pending.", isRead: false, createdAt: iso(now) },
-      { id: "note_3", organizationId: "org_northstar", type: "MAINTENANCE_OPEN", title: "Maintenance item still open", body: "Dishwasher leak review has not been scheduled with a vendor yet.", isRead: false, createdAt: iso(now) },
-      { id: "note_4", organizationId: "org_northstar", type: "DAMAGE_ASSESSMENT", title: "New AI assessment available", body: "Turnover estimate for Maple Terrace unit 15 is ready for review.", isRead: false, createdAt: iso(now) }
+      { id: "note_1", organizationId: "org_nexus", userId: "user_admin", type: "RENT_OVERDUE", title: "1 rent payment is overdue", body: "Unit 5C at Harbor Point has an overdue balance of $3,490 including fees.", isRead: false, createdAt: iso(now) },
+      { id: "note_2", organizationId: "org_nexus", userId: "user_manager", type: "LEASE_EXPIRING", title: "Lease expiring in 24 days", body: "Skyline Loft lease ends soon. Renewal decision is still pending.", isRead: false, createdAt: iso(now) },
+      { id: "note_3", organizationId: "org_nexus", type: "MAINTENANCE_OPEN", title: "Maintenance item still open", body: "Dishwasher leak review has not been scheduled with a vendor yet.", isRead: false, createdAt: iso(now) },
+      { id: "note_4", organizationId: "org_nexus", type: "DAMAGE_ASSESSMENT", title: "New AI assessment available", body: "Turnover estimate for Maple Terrace unit 15 is ready for review.", isRead: false, createdAt: iso(now) }
     ],
     passwordResetTokens: [{ id: "reset_demo", userId: "user_admin", token: "demo-reset-token", expiresAt: iso(shiftDays(now, 2)), createdAt: iso(now) }]
   };
@@ -154,7 +154,7 @@ async function main() {
   `;
 
   console.log("Hosted Postgres datastore initialized.");
-  console.log("Admin: demo@northstar.local / DemoPass123!");
+  console.log("Admin: demo@nexusrentals.local / DemoPass123!");
   await sql.end();
 }
 

@@ -397,7 +397,7 @@ export async function createTenantAction(formData: FormData) {
 export async function createLeaseAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
-  const parsed = leaseSchema.parse({
+  const result = leaseSchema.safeParse({
     unitId: getString(formData, "unitId"),
     tenantId: getString(formData, "tenantId"),
     startDate: getString(formData, "startDate"),
@@ -410,9 +410,14 @@ export async function createLeaseAction(formData: FormData) {
     notes: getOptionalString(formData, "notes"),
     status: getString(formData, "status")
   });
+  if (!result.success) {
+    redirect("/leases?error=invalid-lease");
+  }
+
+  const parsed = result.data;
 
   if (!hasId(portal.scope.units, parsed.unitId) || !hasId(portal.scope.tenants, parsed.tenantId)) {
-    redirect("/leases");
+    redirect("/leases?error=invalid-lease");
   }
 
   await db.lease.create({
@@ -528,7 +533,7 @@ export async function createExpenseAction(formData: FormData) {
 export async function createMaintenanceAction(formData: FormData) {
   const user = await requireUser();
   const portal = await getPortalContext(user);
-  const parsed = maintenanceSchema.parse({
+  const result = maintenanceSchema.safeParse({
     propertyId: getString(formData, "propertyId"),
     unitId: getOptionalString(formData, "unitId"),
     title: getString(formData, "title"),
@@ -540,12 +545,17 @@ export async function createMaintenanceAction(formData: FormData) {
     assignedTo: getOptionalString(formData, "assignedTo"),
     timeline: getOptionalString(formData, "timeline")
   });
+  if (!result.success) {
+    redirect("/maintenance?error=invalid-maintenance");
+  }
+
+  const parsed = result.data;
 
   if (!hasId(portal.scope.properties, parsed.propertyId) || (parsed.unitId && !hasId(portal.scope.units, parsed.unitId))) {
-    redirect("/maintenance");
+    redirect("/maintenance?error=invalid-maintenance");
   }
   if (parsed.unitId && portal.scope.units.find((unit) => unit.id === parsed.unitId)?.propertyId !== parsed.propertyId) {
-    redirect("/maintenance");
+    redirect("/maintenance?error=invalid-maintenance");
   }
 
   await db.maintenanceRequest.create({
