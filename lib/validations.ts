@@ -82,6 +82,7 @@ export const leaseSchema = z.object({
   recurringCharges: z.string().optional(),
   lateFeePolicy: z.string().optional(),
   notes: z.string().optional(),
+  documentPath: z.string().optional(),
   status: z.enum(["ACTIVE", "UPCOMING", "EXPIRED", "TERMINATED"])
 });
 
