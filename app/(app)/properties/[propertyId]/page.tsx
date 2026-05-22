@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { SingleUploadInput } from "@/components/upload-inputs";
+import { MultiUploadInput, SingleUploadInput } from "@/components/upload-inputs";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { createUnitAction } from "@/lib/actions";
+import { createUnitAction, deletePropertyAction, updatePropertyAction } from "@/lib/actions";
 import { requireRouteAccess } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatCurrency, parseTags } from "@/lib/utils";
@@ -74,6 +74,56 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
       </Card>
 
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-4">
+          <Card className="p-6">
+            <p className="text-sm uppercase tracking-[0.24em] text-[var(--brand)]">Edit property</p>
+            <h2 className="mt-2 text-2xl font-semibold">Update property details</h2>
+            <form action={updatePropertyAction} className="mt-6 space-y-4">
+              <input type="hidden" name="propertyId" value={property.id} />
+              <input name="name" defaultValue={property.name} placeholder="Property name" className="field" />
+              <input name="addressLine1" defaultValue={property.addressLine1} placeholder="Address line 1" className="field" />
+              <input name="addressLine2" defaultValue={property.addressLine2 ?? ""} placeholder="Address line 2" className="field" />
+              <div className="grid gap-4 md:grid-cols-3">
+                <input name="city" defaultValue={property.city} placeholder="City" className="field" />
+                <input name="state" defaultValue={property.state} placeholder="State" maxLength={2} className="field" />
+                <input name="postalCode" defaultValue={property.postalCode} placeholder="Zip" className="field" />
+              </div>
+              <textarea name="description" defaultValue={property.description ?? ""} placeholder="Asset summary" className="field min-h-24" />
+              <input name="amenities" defaultValue={property.amenities} placeholder="Amenities, comma separated" className="field" />
+              <textarea name="notes" defaultValue={property.notes ?? ""} placeholder="Internal notes" className="field min-h-24" />
+              {user.role === "ADMIN" ? (
+                <select name="managerId" defaultValue={property.managerId ?? ""} className="field">
+                  <option value="">Unassigned manager</option>
+                  {portal.managers.map((manager) => (
+                    <option key={manager.id} value={manager.id}>
+                      {manager.firstName} {manager.lastName}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              <MultiUploadInput name="imagePaths" label="Add property photos" accept="image/*" />
+              <SubmitButton>Save changes</SubmitButton>
+            </form>
+          </Card>
+
+          <Card className="p-6">
+            <p className="text-sm uppercase tracking-[0.24em] text-[var(--danger)]">Danger zone</p>
+            <h2 className="mt-2 text-2xl font-semibold">Delete this property</h2>
+            <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
+              This permanently removes the property and its units, leases, payments, expenses, maintenance, inspections, assessments, and uploaded files.
+            </p>
+            <form action={deletePropertyAction} className="mt-5 space-y-4">
+              <input type="hidden" name="propertyId" value={property.id} />
+              <label className="flex items-start gap-3 rounded-2xl border border-[var(--line)] bg-white/70 p-4 text-sm text-[var(--muted)]">
+                <input type="checkbox" name="confirmDelete" value="yes" required className="mt-1" />
+                <span>I understand this cannot be undone.</span>
+              </label>
+              <SubmitButton variant="danger" pendingLabel="Deleting...">Delete property</SubmitButton>
+            </form>
+          </Card>
+        </div>
+
+        <div className="space-y-4">
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -135,6 +185,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
             <SubmitButton>Create unit</SubmitButton>
           </form>
         </Card>
+        </div>
       </section>
     </div>
   );

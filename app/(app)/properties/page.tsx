@@ -123,10 +123,15 @@ export default async function PropertiesPage() {
                           {property.managerId ? `${portal.managers.find((manager) => manager.id === property.managerId)?.firstName ?? "Assigned"} manager assigned` : "No manager assigned"}
                         </p>
                       </div>
-                      <form action={archivePropertyAction}>
-                        <input type="hidden" name="propertyId" value={property.id} />
-                        <Button variant="ghost">Archive</Button>
-                      </form>
+                      <div className="flex items-center gap-2">
+                        <Link href={`/properties/${property.id}`} className="rounded-2xl border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition hover:bg-[var(--panel)]">
+                          Edit
+                        </Link>
+                        <form action={archivePropertyAction}>
+                          <input type="hidden" name="propertyId" value={property.id} />
+                          <Button variant="ghost">Archive</Button>
+                        </form>
+                      </div>
                     </div>
                     <form action={assignPropertyManagerAction} className="mt-3 flex gap-3">
                       <input type="hidden" name="propertyId" value={property.id} />

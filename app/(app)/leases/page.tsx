@@ -1,5 +1,9 @@
+import Link from "next/link";
+import { MoreHorizontal } from "lucide-react";
+
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { SingleUploadInput } from "@/components/upload-inputs";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createLeaseAction } from "@/lib/actions";
@@ -14,6 +18,18 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
   const canCreateLease = portal.scope.units.length > 0 && portal.scope.tenants.length > 0;
 
   if (user.role === "TENANT") {
+    const leaseDocuments = portal.currentLease?.documentPath
+      ? [
+          {
+            id: `${portal.currentLease.id}-agreement`,
+            label: "Lease agreement",
+            kind: "LEASE_DOCUMENT",
+            path: portal.currentLease.documentPath
+          }
+        ]
+      : [];
+    const documents = [...leaseDocuments, ...portal.documents];
+
     return (
       <div className="space-y-4">
         <PageHeader
@@ -55,10 +71,12 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
             <Card className="p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Documents and contacts</p>
               <div className="mt-4 space-y-3">
-                {portal.documents.length ? portal.documents.map((file) => (
+                {documents.length ? documents.map((file) => (
                   <div key={file.id} className="panel-muted rounded-[24px] p-4">
                     <p className="font-semibold">{file.label || file.kind}</p>
-                    <p className="mt-1 text-sm text-[var(--muted)]">{file.path}</p>
+                    <a href={file.path} target="_blank" rel="noreferrer" className="mt-1 block truncate text-sm font-medium text-[var(--brand)]">
+                      Open document
+                    </a>
                   </div>
                 )) : <EmptyState title="No lease documents uploaded" description="Documents can be added later by management without changing the resident experience." />}
               </div>
@@ -86,7 +104,20 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
               const tenants = portal.scope.tenants.filter((tenant) => lease.tenantIds.includes(tenant.id));
 
               return (
-                <div key={lease.id} className="panel-muted rounded-[24px] p-4">
+                <div key={lease.id} className="panel-muted relative rounded-[24px] p-4 pr-14">
+                  <details className="absolute right-3 top-3">
+                    <summary
+                      aria-label="Lease actions"
+                      className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-[var(--line)] bg-white text-[var(--muted)] transition hover:text-[var(--text)] [&::-webkit-details-marker]:hidden"
+                    >
+                      <MoreHorizontal className="h-5 w-5" />
+                    </summary>
+                    <div className="absolute right-0 z-10 mt-2 w-44 rounded-2xl border border-[var(--line)] bg-white p-1 shadow-[0_18px_45px_rgba(15,23,42,0.12)]">
+                      <Link href={`/leases/${lease.id}`} className="block rounded-xl px-3 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--panel)]">
+                        Manage lease
+                      </Link>
+                    </div>
+                  </details>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-semibold">{property?.name} {unit?.unitNumber}</p>
@@ -98,6 +129,11 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
                     </div>
                   </div>
                   <p className="mt-3 text-sm text-[var(--muted)]">{formatDate(lease.startDate)} - {formatDate(lease.endDate)}</p>
+                  {lease.documentPath ? (
+                    <a href={lease.documentPath} target="_blank" rel="noreferrer" className="mt-3 block truncate text-sm font-medium text-[var(--brand)]">
+                      View lease agreement
+                    </a>
+                  ) : null}
                 </div>
               );
             })}
@@ -136,6 +172,7 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
               </div>
               <textarea name="recurringCharges" placeholder="Recurring charges" className="field min-h-24" />
               <input name="lateFeePolicy" placeholder="Late fee policy" className="field" />
+              <SingleUploadInput name="documentPath" label="Upload lease agreement" accept=".pdf,.doc,.docx,image/*" />
               <select name="status" className="field" required defaultValue="ACTIVE">
                 <option value="ACTIVE">Active</option>
                 <option value="UPCOMING">Upcoming</option>

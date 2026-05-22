@@ -9,7 +9,7 @@ import { clearSession, createSession, requireRoles, requireUser } from "@/lib/au
 import { db } from "@/lib/db";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { hashPassword, verifyPassword } from "@/lib/password";
-import { FileKind, UserRole } from "@/lib/store";
+import { FileKind, UserRole, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
 import {
   damageAssessmentSchema,
   expenseSchema,
@@ -39,6 +39,22 @@ function getOptionalString(formData: FormData, key: string) {
 
 function hasId(items: Array<{ id: string }>, id?: string | null) {
   return Boolean(id && items.some((item) => item.id === id));
+}
+
+function getLeaseReturnPath(formData: FormData) {
+  const returnTo = getOptionalString(formData, "returnTo");
+  return returnTo?.startsWith("/leases/") ? returnTo : "/leases";
+}
+
+function invalidLeasePath(returnTo: string) {
+  return returnTo === "/leases" ? "/leases?error=invalid-lease" : `${returnTo}?error=invalid-lease`;
+}
+
+function leaseDrivenUnitState(leases: Array<{ status: LeaseStatus }>): { leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus } {
+  if (leases.some((lease) => lease.status === "ACTIVE")) return { leaseStatus: "ACTIVE", occupancyStatus: "OCCUPIED" };
+  if (leases.some((lease) => lease.status === "UPCOMING")) return { leaseStatus: "UPCOMING", occupancyStatus: "VACANT" };
+  if (leases.some((lease) => lease.status === "TERMINATED")) return { leaseStatus: "TERMINATED", occupancyStatus: "VACANT" };
+  return { leaseStatus: "EXPIRED", occupancyStatus: "VACANT" };
 }
 
 function hashResetToken(token: string) {
@@ -295,6 +311,66 @@ export async function createPropertyAction(formData: FormData) {
   redirect("/properties");
 }
 
+export async function updatePropertyAction(formData: FormData) {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
+  const propertyId = getString(formData, "propertyId");
+  const property = portal.scope.properties.find((item) => item.id === propertyId);
+
+  if (!property) {
+    redirect("/properties");
+  }
+
+  const parsed = propertySchema.parse({
+    name: getString(formData, "name"),
+    addressLine1: getString(formData, "addressLine1"),
+    city: getString(formData, "city"),
+    state: getString(formData, "state"),
+    postalCode: getString(formData, "postalCode"),
+    addressLine2: getOptionalString(formData, "addressLine2"),
+    description: getOptionalString(formData, "description"),
+    amenities: getOptionalString(formData, "amenities"),
+    notes: getOptionalString(formData, "notes"),
+    managerId: getOptionalString(formData, "managerId")
+  });
+  const imagePaths = formData.getAll("imagePaths").map(String).filter(Boolean);
+  const fallbackImagePath = getOptionalString(formData, "imagePath");
+  const uploadedPaths = imagePaths.length ? imagePaths : fallbackImagePath ? [fallbackImagePath] : [];
+
+  await db.property.update({
+    where: { id: propertyId },
+    data: {
+      name: parsed.name,
+      addressLine1: parsed.addressLine1,
+      addressLine2: parsed.addressLine2,
+      city: parsed.city,
+      state: parsed.state,
+      postalCode: parsed.postalCode,
+      description: parsed.description,
+      amenities: parsed.amenities ?? "",
+      notes: parsed.notes,
+      ...(user.role === UserRole.ADMIN ? { managerId: parsed.managerId || undefined } : {})
+    }
+  });
+
+  for (const path of uploadedPaths) {
+    await db.uploadedFile.create({
+      data: {
+        propertyId,
+        kind: FileKind.PROPERTY_IMAGE,
+        label: "Uploaded property photo",
+        path,
+        mimeType: "image/*"
+      }
+    });
+  }
+
+  revalidatePath("/properties");
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/dashboard");
+  redirect(`/properties/${propertyId}`);
+}
+
 export async function assignPropertyManagerAction(formData: FormData) {
   await requireRoles([UserRole.ADMIN]);
   const propertyId = getString(formData, "propertyId");
@@ -320,6 +396,49 @@ export async function archivePropertyAction(formData: FormData) {
 
   revalidatePath("/properties");
   revalidatePath("/dashboard");
+}
+
+export async function deletePropertyAction(formData: FormData) {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
+  const propertyId = getString(formData, "propertyId");
+  const confirmed = getString(formData, "confirmDelete") === "yes";
+  const property = portal.scope.properties.find((item) => item.id === propertyId);
+
+  if (!property || !confirmed) {
+    redirect(property ? `/properties/${propertyId}` : "/properties");
+  }
+
+  await updateStore((store) => {
+    const unitIds = store.units.filter((unit) => unit.propertyId === propertyId).map((unit) => unit.id);
+    const leaseIds = store.leases.filter((lease) => unitIds.includes(lease.unitId)).map((lease) => lease.id);
+    const inspectionIds = store.inspections.filter((inspection) => unitIds.includes(inspection.unitId)).map((inspection) => inspection.id);
+    const assessmentIds = store.damageAssessments.filter((assessment) => inspectionIds.includes(assessment.inspectionId)).map((assessment) => assessment.id);
+
+    return {
+      ...store,
+      properties: store.properties.filter((item) => item.id !== propertyId),
+      units: store.units.filter((unit) => unit.propertyId !== propertyId),
+      leases: store.leases.filter((lease) => !leaseIds.includes(lease.id)),
+      payments: store.payments.filter((payment) => !unitIds.includes(payment.unitId) && (!payment.leaseId || !leaseIds.includes(payment.leaseId))),
+      expenses: store.expenses.filter((expense) => expense.propertyId !== propertyId && (!expense.unitId || !unitIds.includes(expense.unitId))),
+      maintenanceRequests: store.maintenanceRequests.filter((request) => request.propertyId !== propertyId && (!request.unitId || !unitIds.includes(request.unitId))),
+      inspections: store.inspections.filter((inspection) => !inspectionIds.includes(inspection.id)),
+      damageAssessments: store.damageAssessments.filter((assessment) => !assessmentIds.includes(assessment.id)),
+      uploadedFiles: store.uploadedFiles.filter((file) => {
+        if (file.propertyId === propertyId) return false;
+        if (file.unitId && unitIds.includes(file.unitId)) return false;
+        if (file.inspectionId && inspectionIds.includes(file.inspectionId)) return false;
+        if (file.assessmentId && assessmentIds.includes(file.assessmentId)) return false;
+        return true;
+      })
+    };
+  });
+
+  revalidatePath("/properties");
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/dashboard");
+  redirect("/properties");
 }
 
 export async function createUnitAction(formData: FormData) {
@@ -408,6 +527,7 @@ export async function createLeaseAction(formData: FormData) {
     recurringCharges: getOptionalString(formData, "recurringCharges"),
     lateFeePolicy: getOptionalString(formData, "lateFeePolicy"),
     notes: getOptionalString(formData, "notes"),
+    documentPath: getOptionalString(formData, "documentPath"),
     status: getString(formData, "status")
   });
   if (!result.success) {
@@ -431,6 +551,7 @@ export async function createLeaseAction(formData: FormData) {
       recurringCharges: parsed.recurringCharges ?? "",
       lateFeePolicy: parsed.lateFeePolicy,
       notes: parsed.notes,
+      documentPath: parsed.documentPath,
       status: parsed.status,
       tenants: {
         create: { tenantId: parsed.tenantId }
@@ -447,6 +568,121 @@ export async function createLeaseAction(formData: FormData) {
   });
 
   revalidatePath("/leases");
+  revalidatePath("/dashboard");
+  redirect("/leases");
+}
+
+export async function updateLeaseAction(formData: FormData) {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
+  const leaseId = getString(formData, "leaseId");
+  const returnTo = getLeaseReturnPath(formData);
+  const existingLease = portal.scope.leases.find((lease) => lease.id === leaseId);
+  const result = leaseSchema.safeParse({
+    unitId: getString(formData, "unitId"),
+    tenantId: getString(formData, "tenantId"),
+    startDate: getString(formData, "startDate"),
+    endDate: getString(formData, "endDate"),
+    monthlyRent: getString(formData, "monthlyRent"),
+    dueDay: getString(formData, "dueDay"),
+    securityDeposit: getString(formData, "securityDeposit"),
+    recurringCharges: getOptionalString(formData, "recurringCharges"),
+    lateFeePolicy: getOptionalString(formData, "lateFeePolicy"),
+    notes: getOptionalString(formData, "notes"),
+    documentPath: getOptionalString(formData, "documentPath") ?? getOptionalString(formData, "existingDocumentPath"),
+    status: getString(formData, "status")
+  });
+
+  if (!existingLease || !result.success) {
+    redirect(invalidLeasePath(returnTo));
+  }
+
+  const parsed = result.data;
+
+  if (!hasId(portal.scope.units, parsed.unitId) || !hasId(portal.scope.tenants, parsed.tenantId)) {
+    redirect(invalidLeasePath(returnTo));
+  }
+
+  await updateStore((store) => {
+    const updatedAt = new Date().toISOString();
+    const affectedUnitIds = new Set([existingLease.unitId, parsed.unitId]);
+    const leases = store.leases.map((lease) =>
+      lease.id === leaseId
+        ? {
+            ...lease,
+            unitId: parsed.unitId,
+            tenantIds: [parsed.tenantId],
+            startDate: new Date(parsed.startDate).toISOString(),
+            endDate: new Date(parsed.endDate).toISOString(),
+            monthlyRent: parsed.monthlyRent,
+            dueDay: parsed.dueDay,
+            securityDeposit: parsed.securityDeposit,
+            recurringCharges: parsed.recurringCharges ?? "",
+            lateFeePolicy: parsed.lateFeePolicy,
+            notes: parsed.notes,
+            documentPath: parsed.documentPath,
+            status: parsed.status,
+            updatedAt
+          }
+        : lease
+    );
+
+    return {
+      ...store,
+      leases,
+      units: store.units.map((unit) => {
+        if (!affectedUnitIds.has(unit.id)) return unit;
+        return {
+          ...unit,
+          ...leaseDrivenUnitState(leases.filter((lease) => lease.unitId === unit.id)),
+          updatedAt
+        };
+      }),
+      payments: store.payments.map((payment) => (payment.leaseId === leaseId ? { ...payment, unitId: parsed.unitId, updatedAt } : payment)),
+      inspections: store.inspections.map((inspection) => (inspection.leaseId === leaseId ? { ...inspection, unitId: parsed.unitId, updatedAt } : inspection))
+    };
+  });
+
+  revalidatePath("/leases");
+  revalidatePath(returnTo);
+  revalidatePath("/dashboard");
+  redirect(returnTo);
+}
+
+export async function deleteLeaseAction(formData: FormData) {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
+  const leaseId = getString(formData, "leaseId");
+  const returnTo = getLeaseReturnPath(formData);
+  const confirmed = getString(formData, "confirmDelete") === "yes";
+  const existingLease = portal.scope.leases.find((lease) => lease.id === leaseId);
+
+  if (!existingLease || !confirmed) {
+    redirect(returnTo);
+  }
+
+  await updateStore((store) => {
+    const updatedAt = new Date().toISOString();
+    const leases = store.leases.filter((lease) => lease.id !== leaseId);
+
+    return {
+      ...store,
+      leases,
+      units: store.units.map((unit) => {
+        if (unit.id !== existingLease.unitId) return unit;
+        return {
+          ...unit,
+          ...leaseDrivenUnitState(leases.filter((lease) => lease.unitId === unit.id)),
+          updatedAt
+        };
+      }),
+      payments: store.payments.map((payment) => (payment.leaseId === leaseId ? { ...payment, leaseId: undefined, updatedAt } : payment)),
+      inspections: store.inspections.map((inspection) => (inspection.leaseId === leaseId ? { ...inspection, leaseId: undefined, updatedAt } : inspection))
+    };
+  });
+
+  revalidatePath("/leases");
+  revalidatePath(returnTo);
   revalidatePath("/dashboard");
   redirect("/leases");
 }
