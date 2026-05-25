@@ -94,7 +94,7 @@ APP_URL="http://localhost:3000"
 BLOB_READ_WRITE_TOKEN=""
 ```
 
-`DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `BLOB_READ_WRITE_TOKEN` is optional for local development, but should be configured in production if uploads need to persist.
+`DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `BLOB_READ_WRITE_TOKEN` is optional for local development, where uploads fall back to `public/uploads`, but it is required in Vercel production for persistent photos and documents.
 
 ## Setup
 
@@ -145,7 +145,7 @@ AUTH_SECRET
 APP_URL
 ```
 
-Optional Vercel environment variable:
+Required Vercel environment variable for uploads:
 
 ```text
 BLOB_READ_WRITE_TOKEN
@@ -157,7 +157,7 @@ Recommended setup:
 2. Add the database connection string to Vercel as `DATABASE_URL`.
 3. Set `AUTH_SECRET` to a long random string.
 4. Set `APP_URL` to the deployed Vercel URL.
-5. Optional: attach Vercel Blob and add `BLOB_READ_WRITE_TOKEN` if uploads should persist.
+5. Attach Vercel Blob and add `BLOB_READ_WRITE_TOKEN` so production uploads persist.
 6. Run `npm run db:migrate` against the production database to create the table.
 7. Run `npm run db:setup` once if you want the seeded demo accounts and data in production.
 8. Deploy normally with Vercel. The project declares Node `22.x` in `package.json`.
