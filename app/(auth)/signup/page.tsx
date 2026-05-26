@@ -21,9 +21,9 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
               ? "An account with that email already exists."
               : params.error === "reserved-admin"
                 ? "That admin email is reserved. Use the manually provisioned admin account to sign in."
-              : params.error === "server"
-                ? "Signup could not reach the hosted database. Check DATABASE_URL in .env.local and Vercel."
-                : "Please complete all required fields before creating a workspace."}
+                : params.error === "server"
+                  ? "Signup could not reach the hosted database. Check DATABASE_URL in .env.local and Vercel."
+                  : "Please complete all required fields and make sure both passwords match."}
           </div>
         ) : null}
         <form action={signupAction} className="mt-8 grid gap-4 md:grid-cols-2">
@@ -61,6 +61,7 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
             <input name="email" type="email" required className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
           </label>
           <PasswordField name="password" required minLength={8} label="Password" />
+          <PasswordField name="confirmPassword" required minLength={8} label="Confirm password" />
           <label className="block">
             <span className="mb-2 block text-sm font-medium">Phone</span>
             <input name="phone" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />

@@ -86,6 +86,7 @@ export async function signupAction(formData: FormData) {
     lastName: getString(formData, "lastName"),
     email: getString(formData, "email"),
     password: getString(formData, "password"),
+    confirmPassword: getString(formData, "confirmPassword"),
     phone: getOptionalString(formData, "phone"),
     mailingAddress: getOptionalString(formData, "mailingAddress")
   });
