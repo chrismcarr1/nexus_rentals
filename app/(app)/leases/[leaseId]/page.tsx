@@ -12,8 +12,13 @@ import { UserRole } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
-function toDateInputValue(value: string | Date) {
+function toDateInputValue(value?: string | Date | null) {
+  if (!value) return "";
   return new Date(value).toISOString().slice(0, 10);
+}
+
+function formatDateOrUnset(value?: string | Date | null) {
+  return value ? formatDate(value) : "Not set";
 }
 
 export default async function ManageLeasePage({
@@ -32,7 +37,7 @@ export default async function ManageLeasePage({
   if (!lease) notFound();
 
   const unit = portal.scope.units.find((item) => item.id === lease.unitId);
-  const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) : null;
+  const property = portal.scope.properties.find((item) => item.id === (lease.propertyId ?? unit?.propertyId)) ?? null;
   const tenants = portal.scope.tenants.filter((tenant) => lease.tenantIds.includes(tenant.id));
   const returnTo = `/leases/${lease.id}`;
 
@@ -60,14 +65,14 @@ export default async function ManageLeasePage({
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Lease record</p>
-              <h2 className="mt-2 text-2xl font-semibold">{tenants.map((tenant) => `${tenant.firstName} ${tenant.lastName}`).join(", ") || "Unassigned tenant"}</h2>
+              <h2 className="mt-2 text-2xl font-semibold">{tenants.map((tenant) => `${tenant.firstName} ${tenant.lastName}`).join(", ") || lease.tenantEmail || "Unassigned tenant"}</h2>
             </div>
             <Badge>{lease.status}</Badge>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <div className="panel-muted rounded-[24px] p-4">
               <p className="text-sm text-[var(--muted)]">Term</p>
-              <p className="mt-2 font-semibold">{formatDate(lease.startDate)} to {formatDate(lease.endDate)}</p>
+              <p className="mt-2 font-semibold">{formatDateOrUnset(lease.startDate)} to {formatDateOrUnset(lease.endDate)}</p>
             </div>
             <div className="panel-muted rounded-[24px] p-4">
               <p className="text-sm text-[var(--muted)]">Monthly rent</p>
@@ -95,7 +100,8 @@ export default async function ManageLeasePage({
             <input type="hidden" name="leaseId" value={lease.id} />
             <input type="hidden" name="returnTo" value={returnTo} />
             <input type="hidden" name="existingDocumentPath" value={lease.documentPath ?? ""} />
-            <select name="unitId" className="field" required defaultValue={lease.unitId}>
+            <select name="unitId" className="field" required defaultValue={lease.unitId ?? ""}>
+              <option value="" disabled>Select unit</option>
               {portal.scope.units.map((unit) => {
                 const property = portal.scope.properties.find((item) => item.id === unit.propertyId);
                 return <option key={unit.id} value={unit.id}>{property?.name} {unit.unitNumber}</option>;

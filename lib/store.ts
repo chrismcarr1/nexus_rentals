@@ -5,7 +5,8 @@ import { ensureAppStoreTable, getSql } from "@/lib/database";
 export type UserRole = "ADMIN" | "MANAGER" | "TENANT";
 export type PropertyStatus = "ACTIVE" | "ARCHIVED";
 export type UnitOccupancyStatus = "OCCUPIED" | "VACANT" | "NOTICE" | "TURNOVER";
-export type LeaseStatus = "ACTIVE" | "UPCOMING" | "EXPIRED" | "TERMINATED";
+export type LeaseStatus = "ACTIVE" | "UPCOMING" | "EXPIRED" | "TERMINATED" | "draft" | "invited" | "active" | "ended" | "cancelled";
+export type TenantInviteStatus = "pending" | "accepted" | "expired" | "revoked";
 export type PaymentStatus = "PENDING" | "PAID" | "PARTIAL" | "LATE";
 export type ExpenseCategory = "MAINTENANCE" | "REPAIR" | "UTILITIES" | "INSURANCE" | "TAX" | "CLEANING" | "MARKETING" | "OTHER";
 export type MaintenanceStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
@@ -35,7 +36,39 @@ export type User = { id: string; organizationId: string; email: string; password
 export type Property = { id: string; organizationId: string; name: string; addressLine1: string; addressLine2?: string; city: string; state: string; postalCode: string; status: PropertyStatus; description?: string; amenities: string; notes?: string; managerId?: string; createdAt: string; updatedAt: string };
 export type Unit = { id: string; propertyId: string; unitNumber: string; nickname?: string; addressOverride?: string; unitType: string; bedrooms: number; bathrooms: number; squareFeet?: number; monthlyRent: number; depositAmount: number; leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus; amenities: string; notes?: string; createdAt: string; updatedAt: string };
 export type Tenant = { id: string; organizationId: string; firstName: string; lastName: string; email?: string; phone?: string; employer?: string; emergencyName?: string; emergencyPhone?: string; notes?: string; createdAt: string; updatedAt: string };
-export type Lease = { id: string; unitId: string; tenantIds: string[]; startDate: string; endDate: string; monthlyRent: number; dueDay: number; securityDeposit: number; recurringCharges: string; lateFeePolicy?: string; notes?: string; status: LeaseStatus; documentPath?: string; createdAt: string; updatedAt: string };
+export type Lease = {
+  id: string;
+  managerUserId?: string;
+  tenantUserId?: string;
+  tenantEmail?: string;
+  propertyId?: string;
+  unitId?: string;
+  tenantIds: string[];
+  startDate?: string;
+  endDate?: string;
+  monthlyRent: number;
+  dueDay: number;
+  securityDeposit: number;
+  recurringCharges: string;
+  lateFeePolicy?: string;
+  notes?: string;
+  status: LeaseStatus;
+  documentPath?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type TenantInvite = {
+  id: string;
+  leaseId: string;
+  managerUserId: string;
+  tenantEmail: string;
+  tokenHash: string;
+  status: TenantInviteStatus;
+  expiresAt: string;
+  acceptedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
 export type Payment = { id: string; unitId: string; leaseId?: string; description: string; amount: number; dueDate: string; paidDate?: string; status: PaymentStatus; lateFeeAmount: number; balanceDue: number; categoryTag?: string; createdAt: string; updatedAt: string };
 export type Expense = { id: string; propertyId: string; unitId?: string; title: string; description?: string; amount: number; incurredAt: string; category: ExpenseCategory; tags: string; vendor?: string; createdAt: string; updatedAt: string };
 export type MaintenanceRequest = { id: string; propertyId: string; unitId?: string; title: string; description: string; status: MaintenanceStatus; priority: MaintenancePriority; estimatedCost?: number; actualCost?: number; assignedTo?: string; requestedAt: string; resolvedAt?: string; timeline: string; createdAt: string; updatedAt: string };
@@ -52,6 +85,7 @@ export type AppStore = {
   units: Unit[];
   tenants: Tenant[];
   leases: Lease[];
+  tenantInvites: TenantInvite[];
   payments: Payment[];
   expenses: Expense[];
   maintenanceRequests: MaintenanceRequest[];
@@ -72,6 +106,7 @@ function emptyStore(): AppStore {
     units: [],
     tenants: [],
     leases: [],
+    tenantInvites: [],
     payments: [],
     expenses: [],
     maintenanceRequests: [],
@@ -95,11 +130,38 @@ export async function readStore(): Promise<AppStore> {
   try {
     await ensureAppStoreTable();
     const rows = await getSql()`select data from app_store where id = ${STORE_ID} limit 1`;
-    return (rows[0]?.data as AppStore | undefined) ?? emptyStore();
+    return normalizeStore((rows[0]?.data as AppStore | undefined) ?? emptyStore());
   } catch (error) {
     console.error("[store] Failed to read hosted Postgres datastore", error);
     throw error;
   }
+}
+
+function normalizeStore(store: AppStore): AppStore {
+  return {
+    ...emptyStore(),
+    ...store,
+    tenantInvites: store.tenantInvites ?? [],
+    leases: (store.leases ?? []).map((lease) => {
+      const unit = lease.unitId ? store.units?.find((item) => item.id === lease.unitId) : null;
+      const property = lease.propertyId
+        ? store.properties?.find((item) => item.id === lease.propertyId)
+        : unit
+          ? store.properties?.find((item) => item.id === unit.propertyId)
+          : null;
+
+      return {
+        ...lease,
+        propertyId: lease.propertyId ?? unit?.propertyId,
+        managerUserId: lease.managerUserId ?? property?.managerId,
+        tenantIds: lease.tenantIds ?? [],
+        monthlyRent: lease.monthlyRent ?? 0,
+        dueDay: lease.dueDay ?? 1,
+        securityDeposit: lease.securityDeposit ?? 0,
+        recurringCharges: lease.recurringCharges ?? ""
+      };
+    })
+  };
 }
 
 export async function writeStore(store: AppStore) {
@@ -170,7 +232,9 @@ export async function getOrganizationSnapshot(organizationId: string) {
     tenants: store.tenants.filter((tenant) => tenant.organizationId === organizationId),
     leases: store.leases.filter((lease) => {
       const unit = store.units.find((candidate) => candidate.id === lease.unitId);
-      const property = store.properties.find((candidate) => candidate.id === unit?.propertyId);
+      const property = lease.propertyId
+        ? store.properties.find((candidate) => candidate.id === lease.propertyId)
+        : store.properties.find((candidate) => candidate.id === unit?.propertyId);
       return property?.organizationId === organizationId;
     }),
     payments: store.payments.filter((payment) => {

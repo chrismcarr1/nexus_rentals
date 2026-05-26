@@ -4,7 +4,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { hashPassword, verifyPassword } from "@/lib/password";
+import { getEffectiveUserRole, isSystemAdminEmail } from "@/lib/admin";
 import { getOrganizationById, getUserById, type UserRole } from "@/lib/store";
 import { canAccessPath } from "@/lib/rbac";
 
@@ -68,9 +68,10 @@ export async function getCurrentUser() {
   try {
     const user = await getUserById(session.sub);
     if (!user) return null;
+    if (user.isActive === false) return null;
     const organization = await getOrganizationById(user.organizationId);
     if (!organization) return null;
-    return { ...user, organization };
+    return { ...user, role: getEffectiveUserRole(user.role, user.email), organization };
   } catch (error) {
     console.error("[auth] Failed to load current user from database", error);
     return null;
@@ -88,6 +89,14 @@ export async function requireUser() {
 export async function requireRoles(roles: UserRole[]) {
   const user = await requireUser();
   if (!roles.includes(user.role)) {
+    redirect("/dashboard");
+  }
+  return user;
+}
+
+export async function requireSystemAdmin() {
+  const user = await requireUser();
+  if (!isSystemAdminEmail(user.email)) {
     redirect("/dashboard");
   }
   return user;

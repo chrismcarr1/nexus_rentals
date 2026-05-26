@@ -45,6 +45,7 @@ const sections = [
 
 export default async function LoginPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const params = (await searchParams) ?? {};
+  const inviteToken = params.invite;
 
   return (
     <main className="min-h-screen bg-[#080f0d] text-white">
@@ -65,7 +66,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
             <a href="#login" className="rounded-full px-4 py-2 text-sm font-semibold text-white/[0.72] transition hover:bg-white/[0.08] hover:text-white">
               Login
             </a>
-            <Link href="/signup" className="rounded-full bg-white px-4 py-2 text-sm font-semibold !text-black transition hover:bg-[#f4efe6]">
+            <Link href={inviteToken ? `/signup?invite=${encodeURIComponent(inviteToken)}` : "/signup"} className="rounded-full bg-white px-4 py-2 text-sm font-semibold !text-black transition hover:bg-[#f4efe6]">
               Create account
             </Link>
           </div>
@@ -111,6 +112,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
             )}
 
             <form action={loginAction} className="mt-7 space-y-4">
+              {inviteToken ? <input type="hidden" name="inviteToken" value={inviteToken} /> : null}
               <label className="block">
                 <span className="mb-2 block text-sm font-medium">Email</span>
                 <input
@@ -141,7 +143,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
               <Link href="/forgot-password" className="transition hover:text-[var(--text)]">
                 Forgot password?
               </Link>
-              <Link href="/signup" className="font-semibold text-[var(--brand)] transition hover:text-[#184c45]">
+              <Link href={inviteToken ? `/signup?invite=${encodeURIComponent(inviteToken)}` : "/signup"} className="font-semibold text-[var(--brand)] transition hover:text-[#184c45]">
                 Create account
               </Link>
             </div>

@@ -1,3 +1,4 @@
+import { getEffectiveUserRole } from "@/lib/admin";
 import { readStore, updateStore, createId, nowIso, type AppStore, type DamageAssessment, type Inspection, type UploadedFile } from "@/lib/store";
 
 function toDateFields<T extends Record<string, any>>(item: T, keys: string[]) {
@@ -20,9 +21,19 @@ function takeItems<T>(items: T[], take?: number) {
   return typeof take === "number" ? items.slice(0, take) : items;
 }
 
-function findPropertyForUnit(store: AppStore, unitId: string) {
+function withEffectiveUserRole<T extends { role: any; email: string }>(user: T) {
+  return { ...user, role: getEffectiveUserRole(user.role ?? "MANAGER", user.email) };
+}
+
+function findPropertyForUnit(store: AppStore, unitId?: string) {
+  if (!unitId) return undefined;
   const unit = store.units.find((item) => item.id === unitId);
   return store.properties.find((item) => item.id === unit?.propertyId);
+}
+
+function findPropertyForLease(store: AppStore, lease: any) {
+  if (lease.propertyId) return store.properties.find((item) => item.id === lease.propertyId);
+  return findPropertyForUnit(store, lease.unitId);
 }
 
 function hydrateProperty(store: AppStore, property: any) {
@@ -50,11 +61,16 @@ function hydrateUnit(store: AppStore, unit: any) {
 }
 
 function hydrateLease(store: AppStore, lease: any) {
-  const unit = store.units.find((item) => item.id === lease.unitId)!;
+  const unit = lease.unitId ? store.units.find((item) => item.id === lease.unitId) : null;
+  const property = findPropertyForLease(store, lease);
   return {
     ...toDateFields(lease, ["startDate", "endDate", "createdAt", "updatedAt"]),
-    unit: hydrateUnitBare(store, unit),
-    tenants: lease.tenantIds.map((tenantId: string) => ({ tenant: toDateFields(store.tenants.find((item) => item.id === tenantId)!, ["createdAt", "updatedAt"]) }))
+    unit: unit ? hydrateUnitBare(store, unit) : null,
+    property: property ? toDateFields(property, ["createdAt", "updatedAt"]) : null,
+    tenants: (lease.tenantIds ?? [])
+      .map((tenantId: string) => store.tenants.find((item) => item.id === tenantId))
+      .filter(Boolean)
+      .map((tenant) => ({ tenant: toDateFields(tenant!, ["createdAt", "updatedAt"]) }))
   };
 }
 
@@ -138,20 +154,34 @@ export const db: any = {
   user: {
     async findMany({ where, orderBy, include }: any = {}) {
       const store = await readStore();
-      let items = store.users.filter((user) => (!where?.organizationId || user.organizationId === where.organizationId) && (!where?.role || user.role === where.role));
+      let items = store.users
+        .map(withEffectiveUserRole)
+        .filter((user) => (!where?.organizationId || user.organizationId === where.organizationId) && (!where?.role || user.role === where.role));
       items = sortItems(items, orderBy);
-      return items.map((user) =>
-        include?.organization ? { ...toDateFields(user, ["createdAt", "updatedAt"]), organization: store.organizations.find((item) => item.id === user.organizationId) } : toDateFields(user, ["createdAt", "updatedAt"])
-      );
+      return items.map((user) => {
+        return include?.organization
+          ? { ...toDateFields(user, ["createdAt", "updatedAt"]), organization: store.organizations.find((item) => item.id === user.organizationId) }
+          : toDateFields(user, ["createdAt", "updatedAt"]);
+      });
     },
     async findUnique({ where, include }: any) {
       const store = await readStore();
       const user = where.id ? store.users.find((item) => item.id === where.id) : store.users.find((item) => item.email === where.email);
       if (!user) return null;
-      return include?.organization ? { ...toDateFields(user, ["createdAt", "updatedAt"]), organization: store.organizations.find((item) => item.id === user.organizationId) } : toDateFields(user, ["createdAt", "updatedAt"]);
+      const effectiveUser = withEffectiveUserRole(user);
+      return include?.organization
+        ? { ...toDateFields(effectiveUser, ["createdAt", "updatedAt"]), organization: store.organizations.find((item) => item.id === user.organizationId) }
+        : toDateFields(effectiveUser, ["createdAt", "updatedAt"]);
     },
     async create({ data }: any) {
-      const user = { id: createId("user"), isActive: true, createdAt: nowIso(), updatedAt: nowIso(), ...data };
+      const user = {
+        id: createId("user"),
+        isActive: true,
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+        ...data,
+        role: getEffectiveUserRole(data.role ?? "MANAGER", data.email)
+      };
       await updateStore((store) => ({ ...store, users: [...store.users, user] }));
       return toDateFields(user, ["createdAt", "updatedAt"]);
     },
@@ -161,7 +191,8 @@ export const db: any = {
         ...store,
         users: store.users.map((item) => {
           if (item.id !== where.id) return item;
-          updated = { ...item, ...data, updatedAt: nowIso() };
+          const next = { ...item, ...data, updatedAt: nowIso() };
+          updated = { ...next, role: getEffectiveUserRole(next.role ?? "MANAGER", next.email) };
           return updated;
         })
       }));
@@ -352,7 +383,7 @@ export const db: any = {
     async findMany({ where, include, orderBy }: any) {
       const store = await readStore();
       let items = store.leases.filter((lease) => {
-        const property = findPropertyForUnit(store, lease.unitId);
+        const property = findPropertyForLease(store, lease);
         if (where?.unit?.property?.organizationId && property?.organizationId !== where.unit.property.organizationId) return false;
         return true;
       });

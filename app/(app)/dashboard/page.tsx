@@ -72,7 +72,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                 <Button variant="secondary">Review work orders</Button>
               </Link>
               <Link href="/leases">
-                <Button>Renewal queue</Button>
+                <Button>Create lease</Button>
               </Link>
             </>
           ) : (
@@ -141,7 +141,16 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           <>
             <MetricCard label="Rent due" value={formatCurrency(portal.nextPayment?.balanceDue ?? portal.nextPayment?.amount ?? 0)} hint={portal.nextPayment ? `Due ${formatDate(portal.nextPayment.dueDate)}` : "No outstanding payment currently due"} accent="warning" />
             <MetricCard label="Next payment" value={portal.nextPayment ? formatDate(portal.nextPayment.dueDate) : "Paid up"} hint="Your next resident billing milestone" accent="brand" />
-            <MetricCard label="Lease status" value={portal.currentLease?.status ?? "No active lease"} hint={portal.currentLease ? `${formatDate(portal.currentLease.startDate)} to ${formatDate(portal.currentLease.endDate)}` : "Contact management for assistance"} accent="success" />
+            <MetricCard
+              label="Lease status"
+              value={portal.currentLease?.status ?? "No active lease"}
+              hint={
+                portal.currentLease
+                  ? `${portal.currentLease.startDate ? formatDate(portal.currentLease.startDate) : "Not set"} to ${portal.currentLease.endDate ? formatDate(portal.currentLease.endDate) : "Not set"}`
+                  : "Contact management for assistance"
+              }
+              accent="success"
+            />
             <MetricCard label="Maintenance" value={String(portal.scope.maintenance.length)} hint="Requests currently tied to your unit" />
           </>
         )}

@@ -10,6 +10,10 @@ import { db } from "@/lib/db";
 import { formatCurrency, formatDate, parseTags } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
+function formatDateOrUnset(value?: string | Date | null) {
+  return value ? formatDate(value) : "Not set";
+}
+
 export default async function UnitDetailPage({ params }: { params: Promise<{ unitId: string }> }) {
   const { unitId } = await params;
   const user = await requireRouteAccess("/units");
@@ -82,7 +86,7 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="font-semibold">{lease.tenants.map((row) => `${row.tenant.firstName} ${row.tenant.lastName}`).join(", ") || "Unassigned"}</p>
-                      <p className="text-sm text-stone-500">{formatDate(lease.startDate)} - {formatDate(lease.endDate)}</p>
+                      <p className="text-sm text-stone-500">{formatDateOrUnset(lease.startDate)} - {formatDateOrUnset(lease.endDate)}</p>
                     </div>
                     <Badge>{lease.status}</Badge>
                   </div>

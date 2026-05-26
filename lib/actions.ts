@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { getEffectiveUserRole, isSystemAdminEmail } from "@/lib/admin";
 import { clearSession, createSession, requireRoles, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sendPasswordResetEmail } from "@/lib/email";
@@ -46,13 +47,18 @@ function getLeaseReturnPath(formData: FormData) {
   return returnTo?.startsWith("/leases/") ? returnTo : "/leases";
 }
 
+function getInviteRedirect(formData: FormData) {
+  const inviteToken = getOptionalString(formData, "inviteToken");
+  return inviteToken ? `/invite/${encodeURIComponent(inviteToken)}` : null;
+}
+
 function invalidLeasePath(returnTo: string) {
   return returnTo === "/leases" ? "/leases?error=invalid-lease" : `${returnTo}?error=invalid-lease`;
 }
 
 function leaseDrivenUnitState(leases: Array<{ status: LeaseStatus }>): { leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus } {
-  if (leases.some((lease) => lease.status === "ACTIVE")) return { leaseStatus: "ACTIVE", occupancyStatus: "OCCUPIED" };
-  if (leases.some((lease) => lease.status === "UPCOMING")) return { leaseStatus: "UPCOMING", occupancyStatus: "VACANT" };
+  if (leases.some((lease) => lease.status === "ACTIVE" || lease.status === "active")) return { leaseStatus: "ACTIVE", occupancyStatus: "OCCUPIED" };
+  if (leases.some((lease) => lease.status === "UPCOMING" || lease.status === "invited")) return { leaseStatus: "UPCOMING", occupancyStatus: "VACANT" };
   if (leases.some((lease) => lease.status === "TERMINATED")) return { leaseStatus: "TERMINATED", occupancyStatus: "VACANT" };
   return { leaseStatus: "EXPIRED", occupancyStatus: "VACANT" };
 }
@@ -75,7 +81,7 @@ async function getAppOrigin() {
 export async function signupAction(formData: FormData) {
   const result = signupSchema.safeParse({
     businessName: getString(formData, "businessName"),
-    role: getString(formData, "role"),
+    role: getOptionalString(formData, "inviteToken") ? "TENANT" : getString(formData, "role"),
     firstName: getString(formData, "firstName"),
     lastName: getString(formData, "lastName"),
     email: getString(formData, "email"),
@@ -88,6 +94,10 @@ export async function signupAction(formData: FormData) {
   }
 
   const parsed = result.data;
+
+  if (isSystemAdminEmail(parsed.email)) {
+    redirect("/signup?error=reserved-admin");
+  }
 
   let existingUser;
   try {
@@ -137,9 +147,14 @@ export async function signupAction(formData: FormData) {
   await createSession({
     sub: user.id,
     organizationId: organization.id,
-    role: user.role,
+    role: getEffectiveUserRole(user.role, user.email),
     email: user.email
   });
+
+  const inviteRedirect = getInviteRedirect(formData);
+  if (inviteRedirect) {
+    redirect(inviteRedirect);
+  }
 
   redirect("/dashboard");
 }
@@ -163,16 +178,25 @@ export async function loginAction(formData: FormData) {
     redirect("/login?error=server");
   }
 
-  if (!user || !(await verifyPassword(parsed.password, user.passwordHash))) {
+  if (!user || user.isActive === false || !(await verifyPassword(parsed.password, user.passwordHash))) {
     redirect("/login?error=invalid-credentials");
   }
 
   await createSession({
     sub: user.id,
     organizationId: user.organizationId,
-    role: user.role,
+    role: getEffectiveUserRole(user.role, user.email),
     email: user.email
   });
+
+  if (isSystemAdminEmail(user.email)) {
+    redirect("/admin");
+  }
+
+  const inviteRedirect = getInviteRedirect(formData);
+  if (inviteRedirect) {
+    redirect(inviteRedirect);
+  }
 
   redirect("/dashboard");
 }
@@ -411,7 +435,9 @@ export async function deletePropertyAction(formData: FormData) {
 
   await updateStore((store) => {
     const unitIds = store.units.filter((unit) => unit.propertyId === propertyId).map((unit) => unit.id);
-    const leaseIds = store.leases.filter((lease) => unitIds.includes(lease.unitId)).map((lease) => lease.id);
+    const leaseIds = store.leases
+      .filter((lease) => lease.propertyId === propertyId || (lease.unitId ? unitIds.includes(lease.unitId) : false))
+      .map((lease) => lease.id);
     const inspectionIds = store.inspections.filter((inspection) => unitIds.includes(inspection.unitId)).map((inspection) => inspection.id);
     const assessmentIds = store.damageAssessments.filter((assessment) => inspectionIds.includes(assessment.inspectionId)).map((assessment) => assessment.id);
 
@@ -420,6 +446,7 @@ export async function deletePropertyAction(formData: FormData) {
       properties: store.properties.filter((item) => item.id !== propertyId),
       units: store.units.filter((unit) => unit.propertyId !== propertyId),
       leases: store.leases.filter((lease) => !leaseIds.includes(lease.id)),
+      tenantInvites: store.tenantInvites.filter((invite) => !leaseIds.includes(invite.leaseId)),
       payments: store.payments.filter((payment) => !unitIds.includes(payment.unitId) && (!payment.leaseId || !leaseIds.includes(payment.leaseId))),
       expenses: store.expenses.filter((expense) => expense.propertyId !== propertyId && (!expense.unitId || !unitIds.includes(expense.unitId))),
       maintenanceRequests: store.maintenanceRequests.filter((request) => request.propertyId !== propertyId && (!request.unitId || !unitIds.includes(request.unitId))),

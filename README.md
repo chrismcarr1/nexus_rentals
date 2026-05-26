@@ -54,11 +54,13 @@ Primary entities:
 - `UploadedFile`
 - `Notification`
 - `PasswordResetToken`
+- `TenantInvite`
 
 Relationship highlights:
 
 - `Organization -> Properties -> Units`
 - `Units -> Leases -> Tenants`
+- `Managers -> Leases -> TenantInvites -> Tenant accounts`
 - `Properties/Units -> Payments, Expenses, Maintenance`
 - `Units -> Inspections -> DamageAssessments`
 - `UploadedFile` links local assets to properties, units, inspections, and assessments
@@ -74,9 +76,10 @@ The damage workflow is intentionally modular.
 
 ## Demo Credentials
 
-- Admin: `demo@nexusrentals.local` / `DemoPass123!`
 - Manager: `manager@nexusrentals.local` / `ManagerPass123!`
 - Tenant: `tenant@nexusrentals.local` / `TenantPass123!`
+
+System admin access is reserved for `chriscarr4433@gmail.com` and should be provisioned manually without storing a plaintext password.
 
 ## Password Reset Demo
 
@@ -92,9 +95,13 @@ DATABASE_URL="postgresql://user:password@host/db?sslmode=require"
 AUTH_SECRET="change-this-to-a-long-random-string"
 APP_URL="http://localhost:3000"
 BLOB_READ_WRITE_TOKEN=""
+RESEND_API_KEY=""
+RESET_EMAIL_FROM="Nexus Rentals <no-reply@yourdomain.com>"
 ```
 
 `DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `BLOB_READ_WRITE_TOKEN` is optional for local development, where uploads fall back to `public/uploads`, but it is required in Vercel production for persistent photos and documents.
+
+Tenant invite emails require `RESEND_API_KEY` and `RESET_EMAIL_FROM`. Invite tokens are stored only as SHA-256 hashes in the hosted datastore; the raw token appears only in the tenant email link.
 
 ## Setup
 
@@ -151,6 +158,13 @@ Required Vercel environment variable for uploads:
 BLOB_READ_WRITE_TOKEN
 ```
 
+Required Vercel environment variables for tenant invite emails:
+
+```text
+RESEND_API_KEY
+RESET_EMAIL_FROM
+```
+
 Recommended setup:
 
 1. Create or attach a hosted Postgres database, such as Vercel Postgres or Neon.
@@ -158,9 +172,10 @@ Recommended setup:
 3. Set `AUTH_SECRET` to a long random string.
 4. Set `APP_URL` to the deployed Vercel URL.
 5. Attach Vercel Blob and add `BLOB_READ_WRITE_TOKEN` so production uploads persist.
-6. Run `npm run db:migrate` against the production database to create the table.
-7. Run `npm run db:setup` once if you want the seeded demo accounts and data in production.
-8. Deploy normally with Vercel. The project declares Node `22.x` in `package.json`.
+6. Configure Resend and add `RESEND_API_KEY` plus `RESET_EMAIL_FROM` so tenant invites can be delivered.
+7. Run `npm run db:migrate` against the production database to create the table.
+8. Run `npm run db:setup` once if you want the seeded demo accounts and data in production.
+9. Deploy normally with Vercel. The project declares Node `22.x` in `package.json`.
 
 ## Key Pages
 
@@ -169,6 +184,7 @@ Recommended setup:
 - `/signup`
 - `/forgot-password`
 - `/reset-password`
+- `/invite/[token]`
 - `/dashboard`
 - `/properties`
 - `/properties/[propertyId]`

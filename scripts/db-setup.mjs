@@ -63,7 +63,7 @@ async function main() {
   const store = {
     organizations: [{ id: "org_nexus", name: "Nexus Rentals", email: "contact@nexusrentals.local", phone: "(415) 555-0190", mailingAddress: "240 Valencia Street, Suite 500, San Francisco, CA 94103", logoPath: "/demo/logo-mark.svg", createdAt: iso(now), updatedAt: iso(now) }],
     users: [
-      { id: "user_admin", organizationId: "org_nexus", email: "demo@nexusrentals.local", passwordHash: await bcrypt.hash("DemoPass123!", 12), firstName: "Avery", lastName: "Stone", role: "ADMIN", isActive: true, title: "Principal Operator", phone: "(415) 555-0132", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "user_admin", organizationId: "org_nexus", email: "demo@nexusrentals.local", passwordHash: await bcrypt.hash("DemoPass123!", 12), firstName: "Avery", lastName: "Stone", role: "MANAGER", isActive: true, title: "Principal Operator", phone: "(415) 555-0132", createdAt: iso(now), updatedAt: iso(now) },
       { id: "user_manager", organizationId: "org_nexus", email: "manager@nexusrentals.local", passwordHash: await bcrypt.hash("ManagerPass123!", 12), firstName: "Jordan", lastName: "Lee", role: "MANAGER", isActive: true, title: "Property Manager", phone: "(415) 555-0177", createdAt: iso(now), updatedAt: iso(now) },
       { id: "user_tenant", organizationId: "org_nexus", email: "tenant@nexusrentals.local", passwordHash: await bcrypt.hash("TenantPass123!", 12), firstName: "Sam", lastName: "Carter", role: "TENANT", isActive: true, title: "Resident", createdAt: iso(now), updatedAt: iso(now) }
     ],
@@ -94,6 +94,7 @@ async function main() {
       { id: "lease_1d", unitId: "unit_1d", tenantIds: ["tenant_elena"], startDate: iso(shiftMonths(now, -3)), endDate: iso(shiftMonths(now, 9)), monthlyRent: 2795, dueDay: 1, securityDeposit: 2700, recurringCharges: "Internet 60", status: "ACTIVE", createdAt: iso(now), updatedAt: iso(now) },
       { id: "lease_15", unitId: "unit_15", tenantIds: [], startDate: iso(shiftMonths(now, -16)), endDate: iso(shiftDays(now, -8)), monthlyRent: 3495, dueDay: 1, securityDeposit: 3400, recurringCharges: "Parking 125", status: "EXPIRED", notes: "Former tenant moved out; awaiting full turn invoice.", createdAt: iso(now), updatedAt: iso(now) }
     ],
+    tenantInvites: [],
     payments: [
       { id: "pay_1", unitId: "unit_3a", leaseId: "lease_3a", description: "April rent", amount: 4250, dueDate: iso(shiftDays(now, -17)), paidDate: iso(shiftDays(now, -16)), status: "PAID", lateFeeAmount: 0, balanceDue: 0, categoryTag: "Rent", createdAt: iso(now), updatedAt: iso(now) },
       { id: "pay_2", unitId: "unit_5c", leaseId: "lease_5c", description: "April rent", amount: 3395, dueDate: iso(shiftDays(now, -17)), status: "LATE", lateFeeAmount: 95, balanceDue: 3490, categoryTag: "Rent", createdAt: iso(now), updatedAt: iso(now) },
@@ -154,7 +155,7 @@ async function main() {
   `;
 
   console.log("Hosted Postgres datastore initialized.");
-  console.log("Admin: demo@nexusrentals.local / DemoPass123!");
+  console.log("Operator: demo@nexusrentals.local / DemoPass123!");
   await sql.end();
 }
 
