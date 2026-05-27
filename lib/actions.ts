@@ -6,8 +6,16 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getEffectiveUserRole, isSystemAdminEmail } from "@/lib/admin";
+import {
+  MAILING_ADDRESS_FORM_FIELDS,
+  STANDARD_ADDRESS_FORM_FIELDS,
+  readAddressFormData,
+  validateAddress,
+  validateOptionalAddress
+} from "@/lib/address";
 import { clearSession, createSession, requireRoles, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { sendDiscussionMessage } from "@/lib/discussions";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { FileKind, UserRole, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
@@ -79,6 +87,11 @@ async function getAppOrigin() {
 }
 
 export async function signupAction(formData: FormData) {
+  const mailingAddressResult = validateOptionalAddress(readAddressFormData(formData, MAILING_ADDRESS_FORM_FIELDS, "mailingAddress"));
+  if (!mailingAddressResult.success) {
+    redirect("/signup?error=invalid-address");
+  }
+
   const result = signupSchema.safeParse({
     businessName: getString(formData, "businessName"),
     role: getOptionalString(formData, "inviteToken") ? "TENANT" : getString(formData, "role"),
@@ -87,8 +100,7 @@ export async function signupAction(formData: FormData) {
     email: getString(formData, "email"),
     password: getString(formData, "password"),
     confirmPassword: getString(formData, "confirmPassword"),
-    phone: getOptionalString(formData, "phone"),
-    mailingAddress: getOptionalString(formData, "mailingAddress")
+    phone: getOptionalString(formData, "phone")
   });
   if (!result.success) {
     redirect("/signup?error=invalid-form");
@@ -117,7 +129,7 @@ export async function signupAction(formData: FormData) {
       name: parsed.businessName,
       email: parsed.email,
       phone: parsed.phone,
-      mailingAddress: parsed.mailingAddress
+      mailingAddress: mailingAddressResult.formattedAddress
     }
   });
 
@@ -296,18 +308,24 @@ export async function resetPasswordAction(formData: FormData) {
 
 export async function createPropertyAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
-  const parsed = propertySchema.parse({
+  const addressResult = validateAddress(readAddressFormData(formData, STANDARD_ADDRESS_FORM_FIELDS));
+  if (!addressResult.success) {
+    redirect("/properties?error=invalid-address");
+  }
+
+  const result = propertySchema.safeParse({
     name: getString(formData, "name"),
-    addressLine1: getString(formData, "addressLine1"),
-    city: getString(formData, "city"),
-    state: getString(formData, "state"),
-    postalCode: getString(formData, "postalCode"),
-    addressLine2: getOptionalString(formData, "addressLine2"),
     description: getOptionalString(formData, "description"),
     amenities: getOptionalString(formData, "amenities"),
     notes: getOptionalString(formData, "notes"),
     managerId: getOptionalString(formData, "managerId")
   });
+  if (!result.success) {
+    redirect("/properties?error=invalid-property");
+  }
+
+  const parsed = result.data;
+  const address = addressResult.address;
   const imagePaths = formData.getAll("imagePaths").map(String).filter(Boolean);
   const fallbackImagePath = getOptionalString(formData, "imagePath");
   const uploadedPaths = imagePaths.length ? imagePaths : fallbackImagePath ? [fallbackImagePath] : [];
@@ -316,6 +334,7 @@ export async function createPropertyAction(formData: FormData) {
     data: {
       organizationId: user.organizationId,
       ...parsed,
+      ...address,
       managerId: user.role === UserRole.MANAGER ? user.id : parsed.managerId,
       amenities: parsed.amenities ?? "",
       files: uploadedPaths.length
@@ -346,18 +365,24 @@ export async function updatePropertyAction(formData: FormData) {
     redirect("/properties");
   }
 
-  const parsed = propertySchema.parse({
+  const addressResult = validateAddress(readAddressFormData(formData, STANDARD_ADDRESS_FORM_FIELDS));
+  if (!addressResult.success) {
+    redirect(`/properties/${propertyId}?error=invalid-address`);
+  }
+
+  const result = propertySchema.safeParse({
     name: getString(formData, "name"),
-    addressLine1: getString(formData, "addressLine1"),
-    city: getString(formData, "city"),
-    state: getString(formData, "state"),
-    postalCode: getString(formData, "postalCode"),
-    addressLine2: getOptionalString(formData, "addressLine2"),
     description: getOptionalString(formData, "description"),
     amenities: getOptionalString(formData, "amenities"),
     notes: getOptionalString(formData, "notes"),
     managerId: getOptionalString(formData, "managerId")
   });
+  if (!result.success) {
+    redirect(`/properties/${propertyId}?error=invalid-property`);
+  }
+
+  const parsed = result.data;
+  const address = addressResult.address;
   const imagePaths = formData.getAll("imagePaths").map(String).filter(Boolean);
   const fallbackImagePath = getOptionalString(formData, "imagePath");
   const uploadedPaths = imagePaths.length ? imagePaths : fallbackImagePath ? [fallbackImagePath] : [];
@@ -366,11 +391,12 @@ export async function updatePropertyAction(formData: FormData) {
     where: { id: propertyId },
     data: {
       name: parsed.name,
-      addressLine1: parsed.addressLine1,
-      addressLine2: parsed.addressLine2,
-      city: parsed.city,
-      state: parsed.state,
-      postalCode: parsed.postalCode,
+      addressLine1: address.addressLine1,
+      addressLine2: address.addressLine2,
+      city: address.city,
+      state: address.state,
+      postalCode: address.postalCode,
+      country: address.country,
       description: parsed.description,
       amenities: parsed.amenities ?? "",
       notes: parsed.notes,
@@ -441,6 +467,9 @@ export async function deletePropertyAction(formData: FormData) {
       .map((lease) => lease.id);
     const inspectionIds = store.inspections.filter((inspection) => unitIds.includes(inspection.unitId)).map((inspection) => inspection.id);
     const assessmentIds = store.damageAssessments.filter((assessment) => inspectionIds.includes(assessment.inspectionId)).map((assessment) => assessment.id);
+    const discussionThreadIds = store.discussionThreads
+      .filter((thread) => thread.propertyId === propertyId || leaseIds.includes(thread.leaseId))
+      .map((thread) => thread.id);
 
     return {
       ...store,
@@ -453,6 +482,8 @@ export async function deletePropertyAction(formData: FormData) {
       maintenanceRequests: store.maintenanceRequests.filter((request) => request.propertyId !== propertyId && (!request.unitId || !unitIds.includes(request.unitId))),
       inspections: store.inspections.filter((inspection) => !inspectionIds.includes(inspection.id)),
       damageAssessments: store.damageAssessments.filter((assessment) => !assessmentIds.includes(assessment.id)),
+      discussionThreads: store.discussionThreads.filter((thread) => !discussionThreadIds.includes(thread.id)),
+      discussionMessages: store.discussionMessages.filter((message) => !discussionThreadIds.includes(message.threadId)),
       uploadedFiles: store.uploadedFiles.filter((file) => {
         if (file.propertyId === propertyId) return false;
         if (file.unitId && unitIds.includes(file.unitId)) return false;
@@ -634,6 +665,11 @@ export async function updateLeaseAction(formData: FormData) {
   await updateStore((store) => {
     const updatedAt = new Date().toISOString();
     const affectedUnitIds = new Set([existingLease.unitId, parsed.unitId]);
+    const updatedUnit = store.units.find((unit) => unit.id === parsed.unitId);
+    const updatedProperty = store.properties.find((property) => property.id === updatedUnit?.propertyId);
+    const discussionThreadIdsToRemove = store.discussionThreads
+      .filter((thread) => thread.leaseId === leaseId && thread.tenantId !== parsed.tenantId)
+      .map((thread) => thread.id);
     const leases = store.leases.map((lease) =>
       lease.id === leaseId
         ? {
@@ -667,7 +703,20 @@ export async function updateLeaseAction(formData: FormData) {
         };
       }),
       payments: store.payments.map((payment) => (payment.leaseId === leaseId ? { ...payment, unitId: parsed.unitId, updatedAt } : payment)),
-      inspections: store.inspections.map((inspection) => (inspection.leaseId === leaseId ? { ...inspection, unitId: parsed.unitId, updatedAt } : inspection))
+      inspections: store.inspections.map((inspection) => (inspection.leaseId === leaseId ? { ...inspection, unitId: parsed.unitId, updatedAt } : inspection)),
+      discussionThreads: store.discussionThreads
+        .filter((thread) => !discussionThreadIdsToRemove.includes(thread.id))
+        .map((thread) =>
+          thread.leaseId === leaseId
+            ? {
+                ...thread,
+                propertyId: updatedProperty?.id ?? thread.propertyId,
+                unitId: updatedUnit?.id,
+                updatedAt
+              }
+            : thread
+        ),
+      discussionMessages: store.discussionMessages.filter((message) => !discussionThreadIdsToRemove.includes(message.threadId))
     };
   });
 
@@ -692,6 +741,7 @@ export async function deleteLeaseAction(formData: FormData) {
   await updateStore((store) => {
     const updatedAt = new Date().toISOString();
     const leases = store.leases.filter((lease) => lease.id !== leaseId);
+    const discussionThreadIds = store.discussionThreads.filter((thread) => thread.leaseId === leaseId).map((thread) => thread.id);
 
     return {
       ...store,
@@ -705,7 +755,9 @@ export async function deleteLeaseAction(formData: FormData) {
         };
       }),
       payments: store.payments.map((payment) => (payment.leaseId === leaseId ? { ...payment, leaseId: undefined, updatedAt } : payment)),
-      inspections: store.inspections.map((inspection) => (inspection.leaseId === leaseId ? { ...inspection, leaseId: undefined, updatedAt } : inspection))
+      inspections: store.inspections.map((inspection) => (inspection.leaseId === leaseId ? { ...inspection, leaseId: undefined, updatedAt } : inspection)),
+      discussionThreads: store.discussionThreads.filter((thread) => !discussionThreadIds.includes(thread.id)),
+      discussionMessages: store.discussionMessages.filter((message) => !discussionThreadIds.includes(message.threadId))
     };
   });
 
@@ -842,12 +894,21 @@ export async function createMaintenanceAction(formData: FormData) {
 
 export async function updateSettingsAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN]);
-  const parsed = settingsSchema.parse({
+  const mailingAddressResult = validateOptionalAddress(readAddressFormData(formData, MAILING_ADDRESS_FORM_FIELDS, "mailingAddress"));
+  if (!mailingAddressResult.success) {
+    redirect("/settings?error=invalid-address");
+  }
+
+  const result = settingsSchema.safeParse({
     name: getString(formData, "name"),
     email: getString(formData, "email"),
-    phone: getOptionalString(formData, "phone"),
-    mailingAddress: getOptionalString(formData, "mailingAddress")
+    phone: getOptionalString(formData, "phone")
   });
+  if (!result.success) {
+    redirect("/settings?error=invalid-settings");
+  }
+
+  const parsed = result.data;
 
   await db.organization.update({
     where: { id: user.organizationId },
@@ -855,7 +916,7 @@ export async function updateSettingsAction(formData: FormData) {
       name: parsed.name,
       email: parsed.email,
       phone: parsed.phone,
-      mailingAddress: parsed.mailingAddress
+      mailingAddress: mailingAddressResult.formattedAddress
     }
   });
 
@@ -1020,4 +1081,25 @@ export async function createDamageAssessmentAction(formData: FormData) {
   revalidatePath("/ai-assessments");
   revalidatePath("/dashboard");
   redirect("/ai-assessments");
+}
+
+export async function sendDiscussionMessageAction(formData: FormData) {
+  const user = await requireRoles([UserRole.MANAGER, UserRole.TENANT]);
+  const leaseId = getString(formData, "leaseId");
+  const tenantId = getString(formData, "tenantId");
+  const conversationKey = getString(formData, "conversationKey");
+  const body = getString(formData, "body");
+  let result: Awaited<ReturnType<typeof sendDiscussionMessage>>;
+
+  try {
+    result = await sendDiscussionMessage({ user, leaseId, tenantId, body });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not send message.";
+    const suffix = conversationKey ? `&conversation=${encodeURIComponent(conversationKey)}` : "";
+    redirect(`/messages?error=${encodeURIComponent(message)}${suffix}`);
+  }
+
+  revalidatePath("/messages");
+  revalidatePath("/dashboard");
+  redirect(`/messages?conversation=${encodeURIComponent(result.conversationKey)}`);
 }

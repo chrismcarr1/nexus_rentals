@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getEffectiveUserRole, SYSTEM_ADMIN_EMAIL } from "@/lib/admin";
+import { formatAddress } from "@/lib/address";
 import { readStore, type AppStore, type UserRole } from "@/lib/store";
 
 type SafeAccount = {
@@ -40,6 +41,7 @@ type SafeProperty = {
   status: string;
   city: string;
   state: string;
+  formattedAddress: string;
   unitCount: number;
   occupiedUnits: number;
   activeLeases: number;
@@ -193,6 +195,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
         status: property.status,
         city: property.city,
         state: property.state,
+        formattedAddress: formatAddress(property),
         unitCount: propertyUnits.length,
         occupiedUnits: propertyUnits.filter((unit) => unit.occupancyStatus === "OCCUPIED").length,
         activeLeases: propertyLeases.filter((lease) => leaseIsActive(lease.status)).length,

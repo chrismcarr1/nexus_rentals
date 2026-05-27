@@ -2,9 +2,10 @@ import { headers } from "next/headers";
 import { z } from "zod";
 
 import { createTenantInvite, getLeaseProperty, getLeaseUnit } from "@/lib/lease-connections";
+import { formatUnitAddress } from "@/lib/address";
 import { getCurrentUser } from "@/lib/auth";
 import { sendTenantInviteEmail } from "@/lib/email";
-import { nowIso, readStore, updateStore, UserRole } from "@/lib/store";
+import { readStore, UserRole } from "@/lib/store";
 import { formatDate } from "@/lib/utils";
 
 const sendInviteSchema = z.object({
@@ -34,40 +35,37 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing lease ID." }, { status: 400 });
   }
 
-  if (!process.env.RESEND_API_KEY || !process.env.RESET_EMAIL_FROM) {
-    return Response.json(
-      { error: "Tenant invite email is not configured. Set RESEND_API_KEY and RESET_EMAIL_FROM before sending invites." },
-      { status: 500 }
-    );
-  }
-
   try {
     const { rawToken, invite, lease } = await createTenantInvite(result.data.leaseId, user);
     const store = await readStore();
     const property = getLeaseProperty(store, lease);
     const unit = getLeaseUnit(store, lease);
-    const propertyLabel = [property?.name, unit?.unitNumber ? `Unit ${unit.unitNumber}` : null].filter(Boolean).join(" ");
+    const propertyLabel = property
+      ? [property.name, unit?.unitNumber ? `Unit ${unit.unitNumber}` : null, formatUnitAddress(property, unit)].filter(Boolean).join(", ")
+      : "your lease";
     const origin = await getAppOrigin();
     const inviteUrl = `${origin}/invite/${encodeURIComponent(rawToken)}`;
-    const emailResult = await sendTenantInviteEmail({
-      to: invite.tenantEmail,
-      managerName: `${user.firstName} ${user.lastName}`.trim() || user.email,
-      managerEmail: user.email,
-      propertyLabel: propertyLabel || "your lease",
-      inviteUrl,
-      expiresAt: formatDate(invite.expiresAt)
-    });
+    let emailSent = false;
+    let emailError: string | undefined;
 
-    if (!emailResult.sent) {
-      const now = nowIso();
-      await updateStore((currentStore) => ({
-        ...currentStore,
-        tenantInvites: currentStore.tenantInvites.map((item) =>
-          item.id === invite.id ? { ...item, status: "revoked", updatedAt: now } : item
-        ),
-        leases: currentStore.leases.map((item) => (item.id === lease.id ? { ...item, status: "draft", updatedAt: now } : item))
-      }));
-      return Response.json({ error: emailResult.error ?? "Tenant invite email is not configured." }, { status: 500 });
+    if (process.env.RESEND_API_KEY && process.env.RESET_EMAIL_FROM) {
+      try {
+        const emailResult = await sendTenantInviteEmail({
+          to: invite.tenantEmail,
+          managerName: `${user.firstName} ${user.lastName}`.trim() || user.email,
+          managerEmail: user.email,
+          propertyLabel: propertyLabel || "your lease",
+          inviteUrl,
+          expiresAt: formatDate(invite.expiresAt)
+        });
+
+        emailSent = emailResult.sent;
+        emailError = emailResult.error;
+      } catch (error) {
+        emailError = error instanceof Error ? error.message : "Tenant invite email failed.";
+      }
+    } else {
+      emailError = "Tenant invite email is not configured.";
     }
 
     return Response.json({
@@ -77,7 +75,10 @@ export async function POST(request: Request) {
         tenantEmail: invite.tenantEmail,
         status: invite.status,
         expiresAt: invite.expiresAt
-      }
+      },
+      inviteUrl,
+      emailSent,
+      emailError
     });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "Could not send invite." }, { status: 400 });

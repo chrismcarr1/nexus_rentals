@@ -3,6 +3,7 @@ import "server-only";
 import { createHash, randomBytes } from "crypto";
 
 import { normalizeEmail } from "@/lib/admin";
+import { formatAddress, formatUnitAddress } from "@/lib/address";
 import { createId, nowIso, readStore, updateStore, type AppStore, type Lease, type TenantInvite, type User } from "@/lib/store";
 
 export const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
@@ -68,12 +69,16 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
           id: property.id,
           name: property.name,
           addressLine1: property.addressLine1,
+          addressLine2: property.addressLine2,
           city: property.city,
           state: property.state,
-          postalCode: property.postalCode
+          postalCode: property.postalCode,
+          country: property.country,
+          formattedAddress: formatAddress(property)
         }
       : null,
     unit: unit ? { id: unit.id, unitNumber: unit.unitNumber } : null,
+    formattedAddress: property ? formatUnitAddress(property, unit) : "Address unavailable",
     manager: manager
       ? {
           id: manager.id,

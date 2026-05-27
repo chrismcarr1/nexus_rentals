@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AddressFields, MAILING_ADDRESS_FORM_FIELDS } from "@/components/address-fields";
 import { PasswordField } from "@/components/password-field";
 import { signupAction } from "@/lib/actions";
 
@@ -23,6 +24,8 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
                 ? "That admin email is reserved. Use the manually provisioned admin account to sign in."
                 : params.error === "server"
                   ? "Signup could not reach the hosted database. Check DATABASE_URL in .env.local and Vercel."
+                  : params.error === "invalid-address"
+                    ? "Enter a complete mailing address with street, city, state, ZIP or postal code, and country."
                   : "Please complete all required fields and make sure both passwords match."}
           </div>
         ) : null}
@@ -66,10 +69,12 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
             <span className="mb-2 block text-sm font-medium">Phone</span>
             <input name="phone" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
           </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium">Mailing address</span>
-            <input name="mailingAddress" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
-          </label>
+          <AddressFields
+            fieldNames={MAILING_ADDRESS_FORM_FIELDS}
+            required={false}
+            className="space-y-4 md:col-span-2"
+            inputClassName="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3"
+          />
           <button type="submit" className="mt-2 rounded-2xl bg-[var(--brand)] px-4 py-3 font-semibold text-white md:col-span-2">
             Create account
           </button>

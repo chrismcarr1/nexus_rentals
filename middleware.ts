@@ -15,6 +15,7 @@ const protectedPaths = [
   "/transactions",
   "/expenses",
   "/maintenance",
+  "/messages",
   "/ai-assessments",
   "/reports",
   "/settings",

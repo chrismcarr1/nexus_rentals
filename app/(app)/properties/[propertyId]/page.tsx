@@ -1,18 +1,27 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AddressFields } from "@/components/address-fields";
 import { MultiUploadInput, SingleUploadInput } from "@/components/upload-inputs";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createUnitAction, deletePropertyAction, updatePropertyAction } from "@/lib/actions";
+import { formatAddress } from "@/lib/address";
 import { requireRouteAccess } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatCurrency, parseTags } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
-export default async function PropertyDetailPage({ params }: { params: Promise<{ propertyId: string }> }) {
+export default async function PropertyDetailPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ propertyId: string }>;
+  searchParams?: Promise<Record<string, string>>;
+}) {
   const { propertyId } = await params;
+  const query = (await searchParams) ?? {};
   const user = await requireRouteAccess("/properties");
   const portal = await getPortalContext(user);
   const property = await db.property.findFirst({
@@ -57,7 +66,7 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
             </div>
           </div>
           <div className="rounded-[28px] bg-stone-900/5 p-5">
-            <p className="text-sm text-stone-500">{property.addressLine1}, {property.city}, {property.state} {property.postalCode}</p>
+            <p className="text-sm text-stone-500">{formatAddress(property)}</p>
             <p className="mt-6 text-4xl font-semibold">{property.units.length}</p>
             <p className="text-sm text-stone-500">units in this asset</p>
             <p className="mt-6 text-xl font-semibold">{formatCurrency(property.units.reduce((sum, unit) => sum + unit.monthlyRent, 0))}/month</p>
@@ -78,16 +87,17 @@ export default async function PropertyDetailPage({ params }: { params: Promise<{
           <Card className="p-6">
             <p className="text-sm uppercase tracking-[0.24em] text-[var(--brand)]">Edit property</p>
             <h2 className="mt-2 text-2xl font-semibold">Update property details</h2>
+            {query.error ? (
+              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {query.error === "invalid-address"
+                  ? "Enter a complete property address with street, city, state, ZIP or postal code, and country."
+                  : "Review the property details and try again."}
+              </div>
+            ) : null}
             <form action={updatePropertyAction} className="mt-6 space-y-4">
               <input type="hidden" name="propertyId" value={property.id} />
               <input name="name" defaultValue={property.name} placeholder="Property name" className="field" />
-              <input name="addressLine1" defaultValue={property.addressLine1} placeholder="Address line 1" className="field" />
-              <input name="addressLine2" defaultValue={property.addressLine2 ?? ""} placeholder="Address line 2" className="field" />
-              <div className="grid gap-4 md:grid-cols-3">
-                <input name="city" defaultValue={property.city} placeholder="City" className="field" />
-                <input name="state" defaultValue={property.state} placeholder="State" maxLength={2} className="field" />
-                <input name="postalCode" defaultValue={property.postalCode} placeholder="Zip" className="field" />
-              </div>
+              <AddressFields defaultValue={property} />
               <textarea name="description" defaultValue={property.description ?? ""} placeholder="Asset summary" className="field min-h-24" />
               <input name="amenities" defaultValue={property.amenities} placeholder="Amenities, comma separated" className="field" />
               <textarea name="notes" defaultValue={property.notes ?? ""} placeholder="Internal notes" className="field min-h-24" />

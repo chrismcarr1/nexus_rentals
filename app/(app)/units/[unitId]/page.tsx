@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { addUnitAssetAction } from "@/lib/actions";
+import { formatUnitAddress } from "@/lib/address";
 import { requireRouteAccess } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { formatCurrency, formatDate, parseTags } from "@/lib/utils";
@@ -42,6 +43,7 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
             <h1 className="mt-3 font-[var(--font-display)] text-5xl">
               {unit.property.name} <span className="text-[var(--brand)]">{unit.unitNumber}</span>
             </h1>
+            <p className="mt-3 text-sm text-stone-600">{formatUnitAddress(unit.property, unit)}</p>
             <p className="mt-4 text-sm text-stone-600">{unit.nickname || unit.unitType} - {unit.bedrooms} bd / {unit.bathrooms} ba / {unit.squareFeet ?? "n/a"} sf</p>
             <div className="mt-4 flex flex-wrap gap-2">
               {parseTags(unit.amenities).map((tag) => <Badge key={tag}>{tag}</Badge>)}

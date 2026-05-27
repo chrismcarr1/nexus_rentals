@@ -58,6 +58,7 @@ type SafeProperty = {
   status: string;
   city: string;
   state: string;
+  formattedAddress: string;
   unitCount: number;
   occupiedUnits: number;
   activeLeases: number;
@@ -493,7 +494,7 @@ export function AdminDashboardClient() {
             <tr key={property.id} className="table-row">
               <td className="py-4 pr-4">
                 <p className="font-semibold">{property.name}</p>
-                <p className="mt-1 text-xs text-[var(--muted)]">{property.organizationName} / {property.city}, {property.state}</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">{property.organizationName} / {property.formattedAddress}</p>
               </td>
               <td className="py-4 pr-4">
                 <Badge tone={statusTone(property.status)}>{property.status}</Badge>

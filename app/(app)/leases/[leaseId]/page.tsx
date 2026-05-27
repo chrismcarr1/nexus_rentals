@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { deleteLeaseAction, updateLeaseAction } from "@/lib/actions";
+import { formatUnitAddress } from "@/lib/address";
 import { requireRoles } from "@/lib/auth";
 import { UserRole } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -66,6 +67,7 @@ export default async function ManageLeasePage({
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Lease record</p>
               <h2 className="mt-2 text-2xl font-semibold">{tenants.map((tenant) => `${tenant.firstName} ${tenant.lastName}`).join(", ") || lease.tenantEmail || "Unassigned tenant"}</h2>
+              {property ? <p className="mt-2 text-sm text-[var(--muted)]">{formatUnitAddress(property, unit)}</p> : null}
             </div>
             <Badge>{lease.status}</Badge>
           </div>

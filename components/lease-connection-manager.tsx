@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, Mail, Plus, RefreshCw } from "lucide-react";
+import { Ban, Copy, Mail, Plus, RefreshCw } from "lucide-react";
 import type { FormEvent } from "react";
 import { useMemo, useState } from "react";
 
@@ -13,9 +13,12 @@ type PropertyOption = {
   id: string;
   name: string;
   addressLine1: string;
+  addressLine2?: string | null;
   city: string;
   state: string;
   postalCode: string;
+  country?: string | null;
+  formattedAddress: string;
 };
 
 type UnitOption = {
@@ -30,6 +33,7 @@ type LeaseRow = {
   tenantConnected: boolean;
   property: PropertyOption | null;
   unit: { id: string; unitNumber: string } | null;
+  formattedAddress: string;
   status: string;
   inviteStatus: string;
   startDate: string | null;
@@ -87,9 +91,11 @@ export function LeaseConnectionManager({
   });
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [manualInviteUrl, setManualInviteUrl] = useState("");
   const [pendingAction, setPendingAction] = useState("");
 
   const propertyUnits = useMemo(() => units.filter((unit) => unit.propertyId === selectedPropertyId), [selectedPropertyId, units]);
+  const selectedProperty = useMemo(() => properties.find((property) => property.id === selectedPropertyId) ?? null, [properties, selectedPropertyId]);
 
   async function refreshLeases() {
     const response = await fetch("/api/leases/manager", { cache: "no-store" });
@@ -102,6 +108,7 @@ export function LeaseConnectionManager({
     event.preventDefault();
     setError("");
     setMessage("");
+    setManualInviteUrl("");
     setPendingAction("create");
 
     try {
@@ -134,6 +141,7 @@ export function LeaseConnectionManager({
   async function sendInvite(leaseId: string) {
     setError("");
     setMessage("");
+    setManualInviteUrl("");
     setPendingAction(`send-${leaseId}`);
 
     try {
@@ -146,7 +154,12 @@ export function LeaseConnectionManager({
       if (!response.ok) throw new Error(payload.error || "Could not send invite.");
 
       await refreshLeases();
-      setMessage("Tenant invite sent.");
+      if (payload.inviteUrl && !payload.emailSent) {
+        setManualInviteUrl(payload.inviteUrl);
+        setMessage("Email delivery is unavailable, but the tenant invite link is ready to share.");
+      } else {
+        setMessage("Tenant invite sent.");
+      }
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Could not send invite.");
     } finally {
@@ -157,6 +170,7 @@ export function LeaseConnectionManager({
   async function revokeInvite(leaseId: string) {
     setError("");
     setMessage("");
+    setManualInviteUrl("");
     setPendingAction(`revoke-${leaseId}`);
 
     try {
@@ -177,16 +191,43 @@ export function LeaseConnectionManager({
     }
   }
 
+  async function copyManualInviteLink() {
+    if (!manualInviteUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(manualInviteUrl);
+      setMessage("Invite link copied. Send it to the tenant from your email, text, or messaging app.");
+    } catch {
+      setError("Could not copy the invite link automatically. Select and copy it manually.");
+    }
+  }
+
   return (
     <div className="grid gap-4 xl:grid-cols-[0.86fr_1.14fr]">
+      {error || message || manualInviteUrl ? (
+        <div className="space-y-3 xl:col-span-2">
+          {error ? <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
+          {message ? <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{message}</p> : null}
+          {manualInviteUrl ? (
+            <div className="rounded-2xl border border-[var(--line)] bg-white p-4">
+              <p className="text-sm font-semibold">Manual invite link</p>
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                <input readOnly value={manualInviteUrl} className="field font-mono text-xs" />
+                <Button type="button" variant="secondary" className="gap-2" onClick={() => void copyManualInviteLink()}>
+                  <Copy className="h-4 w-4" />
+                  Copy
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <Card className="p-6">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Create lease</p>
         {!properties.length ? (
           <EmptyState title="Add a property first" description="Create or assign a property to your manager account before inviting tenants." />
         ) : (
           <form onSubmit={(event) => void createLease(event)} className="mt-6 space-y-4">
-            {error ? <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
-            {message ? <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{message}</p> : null}
             <label className="block">
               <span className="mb-2 block text-sm font-medium">Property</span>
               <select
@@ -204,6 +245,7 @@ export function LeaseConnectionManager({
                   </option>
                 ))}
               </select>
+              {selectedProperty ? <span className="mt-2 block text-xs text-[var(--muted)]">{selectedProperty.formattedAddress}</span> : null}
             </label>
             <label className="block">
               <span className="mb-2 block text-sm font-medium">Unit</span>
@@ -310,6 +352,7 @@ export function LeaseConnectionManager({
                       <td className="py-4 pr-4">
                         <p className="font-semibold">{lease.property?.name ?? "Property"}</p>
                         <p className="mt-1 text-xs text-[var(--muted)]">{lease.unit?.unitNumber ? `Unit ${lease.unit.unitNumber}` : "No unit assigned"}</p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">{lease.formattedAddress}</p>
                       </td>
                       <td className="py-4 pr-4">
                         <div className="flex flex-wrap gap-2">

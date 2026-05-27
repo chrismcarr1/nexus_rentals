@@ -1,5 +1,6 @@
 import "server-only";
 
+import { DEFAULT_COUNTRY, type StoredAddress } from "@/lib/address";
 import { ensureAppStoreTable, getSql } from "@/lib/database";
 
 export type UserRole = "ADMIN" | "MANAGER" | "TENANT";
@@ -33,7 +34,7 @@ export const FileKind = {
 
 export type Organization = { id: string; name: string; email: string; phone?: string; mailingAddress?: string; logoPath?: string; createdAt: string; updatedAt: string };
 export type User = { id: string; organizationId: string; email: string; passwordHash: string; firstName: string; lastName: string; role: UserRole; isActive: boolean; avatarPath?: string; title?: string; phone?: string; createdAt: string; updatedAt: string };
-export type Property = { id: string; organizationId: string; name: string; addressLine1: string; addressLine2?: string; city: string; state: string; postalCode: string; status: PropertyStatus; description?: string; amenities: string; notes?: string; managerId?: string; createdAt: string; updatedAt: string };
+export type Property = StoredAddress & { id: string; organizationId: string; name: string; status: PropertyStatus; description?: string; amenities: string; notes?: string; managerId?: string; createdAt: string; updatedAt: string };
 export type Unit = { id: string; propertyId: string; unitNumber: string; nickname?: string; addressOverride?: string; unitType: string; bedrooms: number; bathrooms: number; squareFeet?: number; monthlyRent: number; depositAmount: number; leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus; amenities: string; notes?: string; createdAt: string; updatedAt: string };
 export type Tenant = { id: string; organizationId: string; firstName: string; lastName: string; email?: string; phone?: string; employer?: string; emergencyName?: string; emergencyPhone?: string; notes?: string; createdAt: string; updatedAt: string };
 export type Lease = {
@@ -75,7 +76,9 @@ export type MaintenanceRequest = { id: string; propertyId: string; unitId?: stri
 export type Inspection = { id: string; unitId: string; leaseId?: string; inspectionDate: string; type: string; notes?: string; createdAt: string; updatedAt: string };
 export type DamageAssessment = { id: string; inspectionId: string; createdById: string; summary: string; damageCategories: string; severity: AssessmentSeverity; confidenceScore: number; estimatedLow: number; estimatedHigh: number; wearAndTear: boolean; explanation: string; recommendedNext: string; createdAt: string; updatedAt: string };
 export type UploadedFile = { id: string; propertyId?: string; unitId?: string; inspectionId?: string; assessmentId?: string; kind: FileKind; label?: string; path: string; mimeType: string; createdAt: string };
-export type Notification = { id: string; organizationId: string; userId?: string; type: NotificationType; title: string; body: string; isRead: boolean; createdAt: string };
+export type DiscussionThread = { id: string; organizationId: string; managerUserId: string; tenantId: string; tenantUserId?: string; leaseId: string; propertyId?: string; unitId?: string; subject: string; createdAt: string; updatedAt: string };
+export type DiscussionMessage = { id: string; threadId: string; organizationId: string; senderUserId: string; body: string; createdAt: string };
+export type Notification = { id: string; organizationId: string; userId?: string; type: NotificationType; title: string; body: string; href?: string; isRead: boolean; createdAt: string };
 export type PasswordResetToken = { id: string; userId: string; token: string; expiresAt: string; usedAt?: string; createdAt: string };
 
 export type AppStore = {
@@ -92,6 +95,8 @@ export type AppStore = {
   inspections: Inspection[];
   damageAssessments: DamageAssessment[];
   uploadedFiles: UploadedFile[];
+  discussionThreads: DiscussionThread[];
+  discussionMessages: DiscussionMessage[];
   notifications: Notification[];
   passwordResetTokens: PasswordResetToken[];
 };
@@ -113,6 +118,8 @@ function emptyStore(): AppStore {
     inspections: [],
     damageAssessments: [],
     uploadedFiles: [],
+    discussionThreads: [],
+    discussionMessages: [],
     notifications: [],
     passwordResetTokens: []
   };
@@ -141,6 +148,12 @@ function normalizeStore(store: AppStore): AppStore {
   return {
     ...emptyStore(),
     ...store,
+    properties: (store.properties ?? []).map((property) => ({
+      ...property,
+      country: property.country ?? DEFAULT_COUNTRY
+    })),
+    discussionThreads: store.discussionThreads ?? [],
+    discussionMessages: store.discussionMessages ?? [],
     tenantInvites: store.tenantInvites ?? [],
     leases: (store.leases ?? []).map((lease) => {
       const unit = lease.unitId ? store.units?.find((item) => item.id === lease.unitId) : null;
@@ -261,6 +274,8 @@ export async function getOrganizationSnapshot(organizationId: string) {
       const property = store.properties.find((candidate) => candidate.id === unit?.propertyId);
       return property?.organizationId === organizationId;
     }),
+    discussionThreads: store.discussionThreads.filter((thread) => thread.organizationId === organizationId),
+    discussionMessages: store.discussionMessages.filter((message) => message.organizationId === organizationId),
     uploadedFiles: store.uploadedFiles.filter((file) => {
       if (file.propertyId) return store.properties.find((property) => property.id === file.propertyId)?.organizationId === organizationId;
       if (file.unitId) {

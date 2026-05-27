@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AddressFields } from "@/components/address-fields";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { MultiUploadInput } from "@/components/upload-inputs";
@@ -8,13 +9,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { archivePropertyAction, assignPropertyManagerAction, createPropertyAction } from "@/lib/actions";
+import { formatAddress } from "@/lib/address";
 import { requireRouteAccess } from "@/lib/auth";
 import { formatCurrency, parseTags } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
-export default async function PropertiesPage() {
+export default async function PropertiesPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireRouteAccess("/properties");
   const portal = await getPortalContext(user);
+  const params = (await searchParams) ?? {};
   const propertyCoverImages = new Map<string, string>();
 
   for (const file of portal.scope.files
@@ -57,7 +60,7 @@ export default async function PropertiesPage() {
                     <div>
                       <p className="text-sm uppercase tracking-[0.22em] text-white/64">Property</p>
                       <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em]">{property.name}</h2>
-                      <p className="mt-3 text-sm text-white/78">{property.city}, {property.state}</p>
+                      <p className="mt-3 text-sm text-white/78">{formatAddress(property)}</p>
                     </div>
                     <Badge tone={property.status === "ARCHIVED" ? "warning" : "success"}>{property.status}</Badge>
                   </div>
@@ -86,14 +89,16 @@ export default async function PropertiesPage() {
           <Card className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">{user.role === "ADMIN" ? "Property creation" : "Add assigned asset"}</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{user.role === "ADMIN" ? "Create a new portfolio asset" : "Create a property in your operating scope"}</h2>
+            {params.error ? (
+              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {params.error === "invalid-address"
+                  ? "Enter a complete property address with street, city, state, ZIP or postal code, and country."
+                  : "Review the property details and try again."}
+              </div>
+            ) : null}
             <form action={createPropertyAction} className="mt-6 space-y-4">
               <input name="name" placeholder="Property name" className="field" />
-              <input name="addressLine1" placeholder="Address line 1" className="field" />
-              <div className="grid gap-4 md:grid-cols-3">
-                <input name="city" placeholder="City" className="field" />
-                <input name="state" placeholder="State" maxLength={2} className="field" />
-                <input name="postalCode" placeholder="Zip" className="field" />
-              </div>
+              <AddressFields />
               <textarea name="description" placeholder="Asset summary" className="field min-h-24" />
               <input name="amenities" placeholder="Amenities, comma separated" className="field" />
               {user.role === "ADMIN" ? (

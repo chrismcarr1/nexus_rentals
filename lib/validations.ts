@@ -9,8 +9,7 @@ export const signupSchema = z
     email: z.string().email(),
     password: z.string().min(8),
     confirmPassword: z.string().min(8),
-    phone: z.string().optional(),
-    mailingAddress: z.string().optional()
+    phone: z.string().optional()
   })
   .refine((value) => value.password === value.confirmPassword, {
     message: "Passwords do not match",
@@ -39,11 +38,6 @@ export const resetPasswordSchema = z
 
 export const propertySchema = z.object({
   name: z.string().min(2),
-  addressLine1: z.string().min(3),
-  city: z.string().min(2),
-  state: z.string().min(2).max(2),
-  postalCode: z.string().min(4),
-  addressLine2: z.string().optional(),
   description: z.string().optional(),
   amenities: z.string().optional(),
   notes: z.string().optional(),
@@ -133,8 +127,7 @@ export const maintenanceSchema = z.object({
 export const settingsSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
-  phone: z.string().optional(),
-  mailingAddress: z.string().optional()
+  phone: z.string().optional()
 });
 
 export const damageAssessmentSchema = z.object({

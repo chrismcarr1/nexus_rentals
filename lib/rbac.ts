@@ -6,6 +6,7 @@ import {
   FileCheck2,
   Gauge,
   Home,
+  MessageSquare,
   Receipt,
   Settings,
   ShieldCheck,
@@ -22,6 +23,7 @@ export const navIconNames = {
   fileCheck2: FileCheck2.displayName ?? "FileCheck2",
   gauge: Gauge.displayName ?? "Gauge",
   home: Home.displayName ?? "Home",
+  messageSquare: MessageSquare.displayName ?? "MessageSquare",
   receipt: Receipt.displayName ?? "Receipt",
   settings: Settings.displayName ?? "Settings",
   shieldCheck: ShieldCheck.displayName ?? "ShieldCheck",
@@ -76,10 +78,11 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/transactions", label: "Payments", icon: "creditCard", description: "Overdue rent and rent status" },
       { href: "/expenses", label: "Expenses", icon: "receipt", description: "Spend entries for assigned properties" },
       { href: "/maintenance", label: "Maintenance", icon: "clipboardList", description: "Open issues and vendor progress" },
+      { href: "/messages", label: "Messages", icon: "messageSquare", description: "Resident discussions and follow-up" },
       { href: "/ai-assessments", label: "Inspections", icon: "fileCheck2", description: "Damage review and turnover support" },
       { href: "/settings", label: "Profile", icon: "settings", description: "Profile and assigned property context" }
     ],
-    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/expenses", "/maintenance", "/units", "/ai-assessments", "/settings", "/manager-guide"]
+    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/expenses", "/maintenance", "/messages", "/units", "/ai-assessments", "/settings", "/manager-guide"]
   },
   TENANT: {
     label: "Tenant",
@@ -90,10 +93,11 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/leases", label: "My Lease", icon: "home", description: "Lease terms, documents, and contacts" },
       { href: "/transactions", label: "Payments", icon: "creditCard", description: "Balance, history, and rent actions" },
       { href: "/maintenance", label: "Maintenance", icon: "clipboardList", description: "Submit and track requests" },
+      { href: "/messages", label: "Messages", icon: "messageSquare", description: "Discussion with your manager" },
       { href: "/settings", label: "Profile", icon: "settings", description: "Account details and preferences" },
-      { href: "/dashboard#announcements", label: "Messages", icon: "bellRing", description: "Recent notices and building updates" }
+      { href: "/dashboard#announcements", label: "Notices", icon: "bellRing", description: "Recent building updates" }
     ],
-    routes: ["/dashboard", "/leases", "/transactions", "/maintenance", "/settings", "/renter-guide"]
+    routes: ["/dashboard", "/leases", "/transactions", "/maintenance", "/messages", "/settings", "/renter-guide"]
   }
 };
 

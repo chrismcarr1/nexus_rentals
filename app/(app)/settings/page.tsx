@@ -1,13 +1,16 @@
+import { AddressFields, MAILING_ADDRESS_FORM_FIELDS } from "@/components/address-fields";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { updateProfileAction, updateSettingsAction } from "@/lib/actions";
+import { formatAddress, parseAddressText } from "@/lib/address";
 import { requireUser } from "@/lib/auth";
 import { getPortalContext } from "@/services/portal";
 
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireUser();
   const portal = await getPortalContext(user);
+  const params = (await searchParams) ?? {};
 
   return (
     <div className="space-y-4">
@@ -33,11 +36,22 @@ export default async function SettingsPage() {
           <Card className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Organization settings</p>
             <h1 className="mt-2 text-3xl font-semibold">Account and business profile</h1>
+            {params.error ? (
+              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {params.error === "invalid-address"
+                  ? "Enter a complete mailing address with street, city, state, ZIP or postal code, and country."
+                  : "Review the organization settings and try again."}
+              </div>
+            ) : null}
             <form action={updateSettingsAction} className="mt-6 space-y-4">
               <input name="name" defaultValue={user.organization.name} className="field" />
               <input name="email" defaultValue={user.organization.email} className="field" />
               <input name="phone" defaultValue={user.organization.phone ?? ""} className="field" />
-              <textarea name="mailingAddress" defaultValue={user.organization.mailingAddress ?? ""} className="field min-h-24" />
+              <AddressFields
+                fieldNames={MAILING_ADDRESS_FORM_FIELDS}
+                defaultValue={parseAddressText(user.organization.mailingAddress)}
+                required={false}
+              />
               <SubmitButton>Update settings</SubmitButton>
             </form>
           </Card>
@@ -76,7 +90,7 @@ export default async function SettingsPage() {
               portal.scope.properties.map((property) => (
                 <div key={property.id} className="panel-muted rounded-[24px] p-4">
                   <p className="font-semibold">{property.name}</p>
-                  <p className="mt-1 text-sm text-[var(--muted)]">{property.city}, {property.state}</p>
+                  <p className="mt-1 text-sm text-[var(--muted)]">{formatAddress(property)}</p>
                 </div>
               ))
             ) : (

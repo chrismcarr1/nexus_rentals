@@ -2,6 +2,7 @@ import { config } from "dotenv";
 
 import bcrypt from "bcryptjs";
 import postgres from "postgres";
+import { formatAddress, normalizeAddress } from "../lib/address.ts";
 
 config({ path: ".env.local" });
 config();
@@ -59,18 +60,47 @@ function shiftMonths(date, amount) {
 
 async function main() {
   const now = new Date();
+  const organizationMailingAddress = normalizeAddress({
+    addressLine1: "240 Valencia Street",
+    addressLine2: "Suite 500",
+    city: "San Francisco",
+    state: "CA",
+    postalCode: "94103",
+    country: "US"
+  });
+  const harborAddress = normalizeAddress({
+    addressLine1: "880 Mission Bay Blvd",
+    city: "San Francisco",
+    state: "CA",
+    postalCode: "94158",
+    country: "US"
+  });
+  const mapleAddress = normalizeAddress({
+    addressLine1: "1416 Maple Terrace",
+    city: "Oakland",
+    state: "CA",
+    postalCode: "94612",
+    country: "US"
+  });
+  const cedarAddress = normalizeAddress({
+    addressLine1: "522 Cedar Street",
+    city: "Berkeley",
+    state: "CA",
+    postalCode: "94709",
+    country: "US"
+  });
 
   const store = {
-    organizations: [{ id: "org_nexus", name: "Nexus Rentals", email: "contact@nexusrentals.local", phone: "(415) 555-0190", mailingAddress: "240 Valencia Street, Suite 500, San Francisco, CA 94103", logoPath: "/demo/logo-mark.svg", createdAt: iso(now), updatedAt: iso(now) }],
+    organizations: [{ id: "org_nexus", name: "Nexus Rentals", email: "contact@nexusrentals.local", phone: "(415) 555-0190", mailingAddress: formatAddress(organizationMailingAddress), logoPath: "/demo/logo-mark.svg", createdAt: iso(now), updatedAt: iso(now) }],
     users: [
       { id: "user_admin", organizationId: "org_nexus", email: "demo@nexusrentals.local", passwordHash: await bcrypt.hash("DemoPass123!", 12), firstName: "Avery", lastName: "Stone", role: "MANAGER", isActive: true, title: "Principal Operator", phone: "(415) 555-0132", createdAt: iso(now), updatedAt: iso(now) },
       { id: "user_manager", organizationId: "org_nexus", email: "manager@nexusrentals.local", passwordHash: await bcrypt.hash("ManagerPass123!", 12), firstName: "Jordan", lastName: "Lee", role: "MANAGER", isActive: true, title: "Property Manager", phone: "(415) 555-0177", createdAt: iso(now), updatedAt: iso(now) },
       { id: "user_tenant", organizationId: "org_nexus", email: "tenant@nexusrentals.local", passwordHash: await bcrypt.hash("TenantPass123!", 12), firstName: "Sam", lastName: "Carter", role: "TENANT", isActive: true, title: "Resident", createdAt: iso(now), updatedAt: iso(now) }
     ],
     properties: [
-      { id: "prop_harbor", organizationId: "org_nexus", managerId: "user_manager", name: "Harbor Point Residences", addressLine1: "880 Mission Bay Blvd", city: "San Francisco", state: "CA", postalCode: "94158", status: "ACTIVE", description: "A mixed-use mid-rise asset with renovated interiors and strong waterfront demand.", amenities: "Fitness studio, secure package room, rooftop lounge, EV charging", notes: "Premium Class A demo property with high occupancy.", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "prop_maple", organizationId: "org_nexus", managerId: "user_manager", name: "Maple Terrace Townhomes", addressLine1: "1416 Maple Terrace", city: "Oakland", state: "CA", postalCode: "94612", status: "ACTIVE", description: "Townhome cluster with stable long-term residents and lower turnover.", amenities: "Private garages, dog run, community patio", notes: "Strong family occupancy, maintenance-heavy landscaping.", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "prop_cedar", organizationId: "org_nexus", name: "Cedar Heights Flats", addressLine1: "522 Cedar Street", city: "Berkeley", state: "CA", postalCode: "94709", status: "ACTIVE", description: "Small-format student and graduate housing with high lease velocity.", amenities: "Bike storage, parcel lockers, study lounge", notes: "Targeted to graduate students and faculty.", createdAt: iso(now), updatedAt: iso(now) }
+      { id: "prop_harbor", organizationId: "org_nexus", managerId: "user_manager", name: "Harbor Point Residences", ...harborAddress, status: "ACTIVE", description: "A mixed-use mid-rise asset with renovated interiors and strong waterfront demand.", amenities: "Fitness studio, secure package room, rooftop lounge, EV charging", notes: "Premium Class A demo property with high occupancy.", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "prop_maple", organizationId: "org_nexus", managerId: "user_manager", name: "Maple Terrace Townhomes", ...mapleAddress, status: "ACTIVE", description: "Townhome cluster with stable long-term residents and lower turnover.", amenities: "Private garages, dog run, community patio", notes: "Strong family occupancy, maintenance-heavy landscaping.", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "prop_cedar", organizationId: "org_nexus", name: "Cedar Heights Flats", ...cedarAddress, status: "ACTIVE", description: "Small-format student and graduate housing with high lease velocity.", amenities: "Bike storage, parcel lockers, study lounge", notes: "Targeted to graduate students and faculty.", createdAt: iso(now), updatedAt: iso(now) }
     ],
     units: [
       { id: "unit_3a", propertyId: "prop_harbor", unitNumber: "3A", nickname: "Bay View", unitType: "Apartment", bedrooms: 2, bathrooms: 2, squareFeet: 1040, monthlyRent: 4250, depositAmount: 4250, occupancyStatus: "OCCUPIED", leaseStatus: "ACTIVE", amenities: "Water view, balcony, quartz kitchen", createdAt: iso(now), updatedAt: iso(now) },
@@ -115,6 +145,8 @@ async function main() {
     ],
     inspections: [{ id: "insp_15", unitId: "unit_15", leaseId: "lease_15", inspectionDate: iso(shiftDays(now, -5)), type: "Move-out", notes: "Flooring gouges, wall patching, and entry door frame damage observed.", createdAt: iso(now), updatedAt: iso(now) }],
     damageAssessments: [{ id: "assess_15", inspectionId: "insp_15", createdById: "user_manager", summary: "High-severity turnover assessment with likely flooring damage, wall damage, and door/window damage impacts.", damageCategories: "flooring damage, wall damage, door/window damage", severity: "HIGH", confidenceScore: 0.88, estimatedLow: 1850, estimatedHigh: 4200, wearAndTear: false, explanation: "Observed issues exceed routine wear thresholds and likely require localized framing repair, patch/paint, and plank replacement in a visible traffic zone. Estimate is directional and should be validated by contractor bids.", recommendedNext: "Obtain two contractor estimates, preserve photo documentation, and reconcile against security deposit schedule before issuing the final accounting.", createdAt: iso(now), updatedAt: iso(now) }],
+    discussionThreads: [],
+    discussionMessages: [],
     uploadedFiles: [
       { id: "file_prop_cover_1", propertyId: "prop_harbor", kind: "PROPERTY_IMAGE", label: "Cover image", path: "/demo/property-cover.svg", mimeType: "image/svg+xml", createdAt: iso(now) },
       { id: "file_prop_cover_2", propertyId: "prop_maple", kind: "PROPERTY_IMAGE", label: "Cover image", path: "/demo/property-cover.svg", mimeType: "image/svg+xml", createdAt: iso(now) },

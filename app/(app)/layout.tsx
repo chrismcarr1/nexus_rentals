@@ -39,6 +39,7 @@ export default async function ProtectedLayout({ children }: Readonly<{ children:
     id: notification.id,
     title: notification.title,
     body: notification.body,
+    href: notification.href,
     label: "Alert"
   }));
   const alerts = [...maintenanceAlerts, ...notificationAlerts].slice(0, 6);

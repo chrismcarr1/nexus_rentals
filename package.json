@@ -17,8 +17,8 @@
     "db:generate": "node -e \"console.log('No generation step required for hosted JSON document store.')\"",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:push": "node scripts/db-migrate.mjs",
-    "db:seed": "node scripts/db-setup.mjs",
-    "db:setup": "node scripts/db-setup.mjs",
+    "db:seed": "tsx scripts/db-setup.mjs",
+    "db:setup": "tsx scripts/db-setup.mjs",
     "test": "vitest run --pool=threads --maxWorkers=1"
   },
   "dependencies": {

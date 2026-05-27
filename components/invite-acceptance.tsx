@@ -10,8 +10,11 @@ type InviteDetails = {
   tenantEmail: string;
   expiresAt: string;
   lease: {
-    property: { name: string; addressLine1: string; city: string; state: string; postalCode: string } | null;
+    property:
+      | { name: string; addressLine1: string; addressLine2?: string | null; city: string; state: string; postalCode: string; country?: string | null; formattedAddress: string }
+      | null;
     unit: { unitNumber: string } | null;
+    formattedAddress: string;
     manager: { name: string; email: string; phone: string | null } | null;
     startDate: string | null;
     endDate: string | null;
@@ -81,6 +84,7 @@ export function InviteAcceptance({
         <p><span className="font-semibold">Tenant email:</span> {invite.tenantEmail}</p>
         <p><span className="font-semibold">Manager:</span> {invite.lease.manager?.name ?? "Manager"} ({invite.lease.manager?.email ?? "No email"})</p>
         <p><span className="font-semibold">Property:</span> {invite.lease.property?.name ?? "Property"} {invite.lease.unit?.unitNumber ? `Unit ${invite.lease.unit.unitNumber}` : ""}</p>
+        <p><span className="font-semibold">Address:</span> {invite.lease.formattedAddress}</p>
         <p><span className="font-semibold">Lease dates:</span> {formatDate(invite.lease.startDate)} to {formatDate(invite.lease.endDate)}</p>
         <p><span className="font-semibold">Rent:</span> {formatCurrency(invite.lease.monthlyRent)} / <span className="font-semibold">Deposit:</span> {formatCurrency(invite.lease.securityDeposit)}</p>
         <p><span className="font-semibold">Expires:</span> {formatDate(invite.expiresAt)}</p>

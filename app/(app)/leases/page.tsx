@@ -2,6 +2,7 @@ import { EmptyState } from "@/components/empty-state";
 import { LeaseConnectionManager } from "@/components/lease-connection-manager";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
+import { formatAddress, formatUnitAddress } from "@/lib/address";
 import { requireUser } from "@/lib/auth";
 import { getManagerLeaseRows } from "@/lib/lease-connections";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -53,6 +54,7 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
                 {portal.currentProperty.name}
                 {portal.currentUnit?.unitNumber ? ` ${portal.currentUnit.unitNumber}` : ""}
               </h2>
+              <p className="mt-2 text-sm text-[var(--muted)]">{formatUnitAddress(portal.currentProperty, portal.currentUnit)}</p>
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 <div className="panel-muted rounded-[24px] p-4">
                   <p className="text-sm text-[var(--muted)]">Term</p>
@@ -120,9 +122,12 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
           id: property.id,
           name: property.name,
           addressLine1: property.addressLine1,
+          addressLine2: property.addressLine2,
           city: property.city,
           state: property.state,
-          postalCode: property.postalCode
+          postalCode: property.postalCode,
+          country: property.country,
+          formattedAddress: formatAddress(property)
         }))}
         units={portal.scope.units.map((unit) => ({
           id: unit.id,
