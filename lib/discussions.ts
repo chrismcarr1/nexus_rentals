@@ -17,6 +17,7 @@ export type DiscussionConversation = {
   lastMessageAt?: string;
   lastMessageBody?: string;
   messageCount: number;
+  hasUnread: boolean;
 };
 
 export type DiscussionMessageView = DiscussionMessage & {
@@ -124,9 +125,14 @@ function getDiscussionCandidates(store: AppStore, user: User) {
         const threadMessages = thread ? store.discussionMessages.filter((message) => message.threadId === thread.id) : [];
         const lastMessage = [...threadMessages].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
         const subject = `${tenantName(tenant)} at ${property.name}${unit?.unitNumber ? ` Unit ${unit.unitNumber}` : ""}`;
+        const key = getConversationKey(lease.id, tenant.id);
+        const href = `/messages?conversation=${encodeURIComponent(key)}`;
+        const hasUnread = store.notifications.some(
+          (notification) => notification.userId === user.id && notification.href === href && notification.isRead !== true
+        );
 
         return {
-          key: getConversationKey(lease.id, tenant.id),
+          key,
           leaseId: lease.id,
           tenantId: tenant.id,
           threadId: thread?.id,
@@ -140,6 +146,7 @@ function getDiscussionCandidates(store: AppStore, user: User) {
           lastMessageAt: lastMessage?.createdAt ?? thread?.updatedAt,
           lastMessageBody: lastMessage?.body,
           messageCount: threadMessages.length,
+          hasUnread,
           managerUserId: manager.id,
           tenantUserId: tenantUser?.id,
           propertyId: property.id,
@@ -164,7 +171,8 @@ function toPublicConversation(candidate: ReturnType<typeof getDiscussionCandidat
     tenantEmail: candidate.tenantEmail,
     lastMessageAt: candidate.lastMessageAt,
     lastMessageBody: candidate.lastMessageBody,
-    messageCount: candidate.messageCount
+    messageCount: candidate.messageCount,
+    hasUnread: candidate.hasUnread
   };
 }
 

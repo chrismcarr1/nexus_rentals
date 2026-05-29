@@ -10,8 +10,8 @@ export function DataTable({
   className?: string;
 }) {
   return (
-    <div className={cn("overflow-x-auto", className)}>
-      <table className="w-full min-w-[760px] text-left text-sm">
+    <div className={cn("data-table-scroll", className)}>
+      <table className="responsive-table text-left text-sm">
         <thead className="border-b border-[var(--line)] text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
           <tr>
             {columns.map((column) => (

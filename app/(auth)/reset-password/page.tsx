@@ -9,7 +9,7 @@ export default async function ResetPasswordPage({ searchParams }: { searchParams
 
   return (
     <main className="grid-bg flex min-h-screen items-center justify-center p-6">
-      <div className="glass card-shadow w-full max-w-xl rounded-[32px] border border-white/60 p-8">
+      <div className="glass card-shadow w-full max-w-xl rounded-2xl border border-white/60 p-6 sm:p-8">
         <p className="text-sm uppercase tracking-[0.28em] text-[var(--brand)]">Reset Password</p>
         <h1 className="mt-3 font-[var(--font-display)] text-4xl">Set a new password</h1>
         {params.error ? (
@@ -22,7 +22,7 @@ export default async function ResetPasswordPage({ searchParams }: { searchParams
             <input name="token" type="hidden" value={token} readOnly />
             <PasswordField name="password" required minLength={8} label="New password" placeholder="New password" />
             <PasswordField name="confirmPassword" required minLength={8} label="Confirm new password" placeholder="Confirm new password" />
-            <button type="submit" className="w-full rounded-2xl bg-[var(--brand)] px-4 py-3 font-semibold text-white">
+            <button type="submit" className="w-full rounded-xl bg-[var(--brand)] px-4 py-3 font-semibold text-white">
               Save password
             </button>
           </form>

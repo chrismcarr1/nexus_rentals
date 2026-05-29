@@ -28,7 +28,7 @@ export default async function TenantsPage() {
             : "Stay focused on the residents, lease placements, and contact information tied to the properties you manage."
         }
       />
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="content-split">
         <Card className="p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Tenant directory</p>
           <DataTable columns={["Name", "Contact", "Employer", "Current unit"]} className="mt-5">
@@ -46,7 +46,7 @@ export default async function TenantsPage() {
           <Card className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Add tenant</p>
             <form action={createTenantAction} className="mt-6 space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="form-grid-2">
                 <input name="firstName" placeholder="First name" className="field" />
                 <input name="lastName" placeholder="Last name" className="field" />
               </div>
@@ -62,7 +62,7 @@ export default async function TenantsPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Manager overview</p>
               <div className="mt-4 space-y-3">
                 {portal.managers.map((manager) => (
-                  <div key={manager.id} className="panel-muted rounded-[24px] p-4">
+                  <div key={manager.id} className="panel-muted p-4">
                     <p className="font-semibold">{manager.firstName} {manager.lastName}</p>
                     <p className="mt-1 text-sm text-[var(--muted)]">{manager.title || "Property Manager"}</p>
                     <p className="mt-2 text-sm text-[var(--muted)]">

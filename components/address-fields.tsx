@@ -224,7 +224,7 @@ export function AddressFields({
           className={inputClassName}
         />
       </label>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="form-grid-2">
         <label className="block">
           <span className="mb-2 block text-sm font-medium">City</span>
           <input
@@ -251,7 +251,7 @@ export function AddressFields({
           />
         </label>
       </div>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="form-grid-2">
         <label className="block">
           <span className="mb-2 block text-sm font-medium">ZIP or postal code</span>
           <input

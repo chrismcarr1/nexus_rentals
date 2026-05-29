@@ -17,8 +17,11 @@ import { clearSession, createSession, requireRoles, requireUser } from "@/lib/au
 import { db } from "@/lib/db";
 import { sendDiscussionMessage } from "@/lib/discussions";
 import { sendPasswordResetEmail } from "@/lib/email";
+import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { FileKind, UserRole, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
+import { getStripe } from "@/lib/stripe";
+import { createStripeExpressAccount, isStripeConnectReady, syncStripeConnectedAccount } from "@/lib/stripe-connect";
 import {
   damageAssessmentSchema,
   expenseSchema,
@@ -80,10 +83,110 @@ async function getAppOrigin() {
   const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
   const proto = headerStore.get("x-forwarded-proto") ?? "http";
   const headerOrigin = host ? `${proto}://${host}` : null;
-  const configuredOrigin = process.env.APP_URL?.replace(/\/$/, "");
+  const configuredOrigin = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL)?.replace(/\/$/, "");
 
   if (process.env.NODE_ENV === "production" && configuredOrigin) return configuredOrigin;
   return headerOrigin ?? configuredOrigin ?? "http://localhost:3000";
+}
+
+function getPaymentMonth(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 7);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function getLeaseManager(portal: Awaited<ReturnType<typeof getPortalContext>>, lease: any, payment?: { unitId?: string }) {
+  const unit = lease?.unitId
+    ? portal.scope.units.find((item) => item.id === lease.unitId)
+    : payment?.unitId
+      ? portal.scope.units.find((item) => item.id === payment.unitId)
+      : null;
+  const property = lease?.propertyId
+    ? portal.scope.properties.find((item) => item.id === lease.propertyId)
+    : unit
+      ? portal.scope.properties.find((item) => item.id === unit.propertyId)
+      : null;
+  const managerId = lease?.managerUserId ?? property?.managerId;
+  const candidates = [...portal.users, ...portal.managers];
+  return candidates.find((candidate) => candidate.id === managerId) ?? candidates.find((candidate) => candidate.role === UserRole.MANAGER) ?? null;
+}
+
+export async function connectStripeAccountAction() {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const appUrl = await getAppOrigin();
+  let accountId = user.stripeConnectedAccountId;
+  let accountLinkUrl: string | null = null;
+
+  try {
+    if (accountId) {
+      await syncStripeConnectedAccount(user);
+    } else {
+      const account = await createStripeExpressAccount(user);
+      accountId = account.id;
+    }
+
+    const accountLink = await getStripe().accountLinks.create({
+      account: accountId,
+      refresh_url: `${appUrl}/transactions?stripe=connect-refresh`,
+      return_url: `${appUrl}/api/stripe/connect/return`,
+      type: "account_onboarding"
+    });
+    accountLinkUrl = accountLink.url;
+  } catch (error) {
+    console.error("[stripe] Failed to start manager Connect onboarding", error);
+    redirect("/transactions?stripe=connect-error");
+  }
+
+  if (!accountLinkUrl) {
+    redirect("/transactions?stripe=connect-error");
+  }
+
+  redirect(accountLinkUrl);
+}
+
+export async function refreshStripeConnectStatusAction() {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  let status = "connect-refreshed";
+
+  try {
+    if (!user.stripeConnectedAccountId) {
+      status = "connect-required";
+    } else {
+      const updatedUser = await syncStripeConnectedAccount(user);
+      status = isStripeConnectReady(updatedUser) ? "connect-ready" : "connect-incomplete";
+    }
+  } catch (error) {
+    console.error("[stripe] Failed to refresh manager Connect status", error);
+    status = "connect-error";
+  }
+
+  revalidatePath("/transactions");
+  revalidatePath("/dashboard");
+  redirect(`/transactions?stripe=${status}`);
+}
+
+export async function openStripeDashboardAction() {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  let loginUrl: string | null = null;
+
+  if (!user.stripeConnectedAccountId) {
+    redirect("/transactions?stripe=connect-required");
+  }
+
+  try {
+    await syncStripeConnectedAccount(user);
+    const loginLink = await getStripe().accounts.createLoginLink(user.stripeConnectedAccountId);
+    loginUrl = loginLink.url;
+  } catch (error) {
+    console.error("[stripe] Failed to open manager Stripe dashboard", error);
+    redirect("/transactions?stripe=connect-error");
+  }
+
+  if (!loginUrl) {
+    redirect("/transactions?stripe=connect-error");
+  }
+
+  redirect(loginUrl);
 }
 
 export async function signupAction(formData: FormData) {
@@ -599,8 +702,18 @@ export async function createLeaseAction(formData: FormData) {
     redirect("/leases?error=invalid-lease");
   }
 
+  const unit = portal.scope.units.find((item) => item.id === parsed.unitId);
+  const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) : null;
+  const tenant = portal.scope.tenants.find((item) => item.id === parsed.tenantId);
+  const tenantUser = tenant?.email ? portal.users.find((item) => item.email.toLowerCase() === tenant.email?.toLowerCase()) : null;
+
   await db.lease.create({
     data: {
+      nexusLeaseId: `NXR-${Date.now().toString(36).toUpperCase()}`,
+      propertyId: property?.id,
+      managerUserId: property?.managerId ?? (user.role === UserRole.MANAGER ? user.id : undefined),
+      tenantUserId: tenantUser?.id,
+      tenantEmail: tenant?.email,
       unitId: parsed.unitId,
       startDate: new Date(parsed.startDate),
       endDate: new Date(parsed.endDate),
@@ -667,6 +780,10 @@ export async function updateLeaseAction(formData: FormData) {
     const affectedUnitIds = new Set([existingLease.unitId, parsed.unitId]);
     const updatedUnit = store.units.find((unit) => unit.id === parsed.unitId);
     const updatedProperty = store.properties.find((property) => property.id === updatedUnit?.propertyId);
+    const updatedTenant = store.tenants.find((tenant) => tenant.id === parsed.tenantId);
+    const updatedTenantUser = updatedTenant?.email
+      ? store.users.find((candidate) => candidate.organizationId === user.organizationId && candidate.email.toLowerCase() === updatedTenant.email?.toLowerCase())
+      : null;
     const discussionThreadIdsToRemove = store.discussionThreads
       .filter((thread) => thread.leaseId === leaseId && thread.tenantId !== parsed.tenantId)
       .map((thread) => thread.id);
@@ -674,6 +791,10 @@ export async function updateLeaseAction(formData: FormData) {
       lease.id === leaseId
         ? {
             ...lease,
+            propertyId: updatedProperty?.id ?? lease.propertyId,
+            managerUserId: lease.managerUserId ?? updatedProperty?.managerId ?? (user.role === UserRole.MANAGER ? user.id : undefined),
+            tenantUserId: updatedTenantUser?.id ?? lease.tenantUserId,
+            tenantEmail: updatedTenant?.email ?? lease.tenantEmail,
             unitId: parsed.unitId,
             tenantIds: [parsed.tenantId],
             startDate: new Date(parsed.startDate).toISOString(),
@@ -783,17 +904,23 @@ export async function createPaymentAction(formData: FormData) {
     categoryTag: getOptionalString(formData, "categoryTag")
   });
 
-  if (!hasId(portal.scope.units, parsed.unitId) || (parsed.leaseId && !hasId(portal.scope.leases, parsed.leaseId))) {
-    redirect("/transactions");
-  }
-  if (parsed.leaseId && portal.scope.leases.find((lease) => lease.id === parsed.leaseId)?.unitId !== parsed.unitId) {
+  const selectedLease = parsed.leaseId ? portal.scope.leases.find((lease) => lease.id === parsed.leaseId) : null;
+  const paymentUnitId = selectedLease?.unitId ?? parsed.unitId;
+
+  if (!hasId(portal.scope.units, paymentUnitId) || (parsed.leaseId && !selectedLease)) {
     redirect("/transactions");
   }
 
+  const inferredLease = selectedLease
+    ? selectedLease
+    : portal.scope.leases
+        .filter((lease) => lease.unitId === paymentUnitId && ["ACTIVE", "UPCOMING", "active", "invited"].includes(lease.status))
+        .sort((a, b) => (b.startDate ?? b.createdAt ?? "").localeCompare(a.startDate ?? a.createdAt ?? ""))[0];
+
   await db.payment.create({
     data: {
-      unitId: parsed.unitId,
-      leaseId: parsed.leaseId,
+      unitId: paymentUnitId,
+      leaseId: inferredLease?.id,
       description: parsed.description,
       amount: parsed.amount,
       dueDate: new Date(parsed.dueDate),
@@ -805,9 +932,32 @@ export async function createPaymentAction(formData: FormData) {
     }
   });
 
+  if (inferredLease?.tenantUserId && parsed.status !== "PAID") {
+    await db.notification.create({
+      data: {
+        organizationId: user.organizationId,
+        userId: inferredLease.tenantUserId,
+        type: "RENT_DUE",
+        title: "Rent payment requested",
+        body: `${parsed.description} for $${parsed.amount.toFixed(2)} is ready to pay online.`,
+        href: "/transactions"
+      }
+    });
+  }
+
   revalidatePath("/transactions");
   revalidatePath("/dashboard");
-  redirect("/transactions");
+  redirect(inferredLease ? "/transactions?stripe=payment-linked" : "/transactions?stripe=payment-unlinked");
+}
+
+export async function linkRentPaymentsToLeasesAction() {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  await ensureLeaseConnectionIntegrity(user.organizationId);
+
+  revalidatePath("/transactions");
+  revalidatePath("/dashboard");
+  revalidatePath("/leases");
+  redirect("/transactions?stripe=payments-linked");
 }
 
 export async function createExpenseAction(formData: FormData) {
@@ -973,6 +1123,130 @@ export async function payRentAction(formData: FormData) {
   revalidatePath("/transactions");
   revalidatePath("/dashboard");
   redirect("/transactions");
+}
+
+export async function createStripeCheckoutAction(formData: FormData) {
+  const user = await requireRoles([UserRole.TENANT]);
+  const paymentId = getString(formData, "paymentId");
+  const portal = await getPortalContext(user);
+  const payment = portal.scope.payments.find((item) => item.id === paymentId);
+
+  if (!payment) {
+    redirect("/transactions?stripe=invalid-payment");
+  }
+
+  if (payment.status === "PAID") {
+    redirect("/transactions?stripe=already-paid");
+  }
+
+  const lease =
+    payment.leaseId
+      ? portal.scope.leases.find((item) => item.id === payment.leaseId)
+      : portal.currentLease?.unitId === payment.unitId
+        ? portal.currentLease
+        : portal.scope.leases.find((item) =>
+            item.unitId === payment.unitId && ["ACTIVE", "UPCOMING", "active", "invited"].includes(item.status)
+          );
+  const leaseId = lease?.id;
+
+  if (!leaseId) {
+    redirect("/transactions?stripe=missing-lease");
+  }
+
+  const manager = getLeaseManager(portal, lease, payment);
+  if (!manager?.stripeConnectedAccountId) {
+    redirect("/transactions?stripe=manager-connect-required");
+  }
+
+  let connectedManager = manager;
+  try {
+    connectedManager = await syncStripeConnectedAccount(manager);
+  } catch (error) {
+    console.error("[stripe] Failed to verify manager Connect account before checkout", error);
+    redirect("/transactions?stripe=checkout-error");
+  }
+
+  if (!isStripeConnectReady(connectedManager)) {
+    redirect("/transactions?stripe=manager-connect-required");
+  }
+
+  const amountDue = payment.balanceDue || payment.amount;
+  const amountCents = Math.round(amountDue * 100);
+  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    redirect("/transactions?stripe=invalid-amount");
+  }
+
+  const paymentMonth = getPaymentMonth(payment.dueDate);
+  const appUrl = await getAppOrigin();
+
+  if (!payment.leaseId) {
+    await db.payment.update({
+      where: { id: payment.id },
+      data: { leaseId, stripeDestinationAccountId: connectedManager.stripeConnectedAccountId }
+    });
+  } else if (payment.stripeDestinationAccountId !== connectedManager.stripeConnectedAccountId) {
+    await db.payment.update({
+      where: { id: payment.id },
+      data: { stripeDestinationAccountId: connectedManager.stripeConnectedAccountId }
+    });
+  }
+
+  const metadata = {
+    source: "nexus_rent_payment",
+    organizationId: user.organizationId,
+    paymentId: payment.id,
+    userId: user.id,
+    tenantId: portal.currentTenant?.id ?? "",
+    managerUserId: connectedManager.id,
+    stripeDestinationAccountId: connectedManager.stripeConnectedAccountId ?? "",
+    leaseId,
+    unitId: payment.unitId,
+    paymentMonth,
+    amountCents: String(amountCents)
+  };
+
+  let sessionUrl: string | null = null;
+
+  try {
+    const session = await getStripe().checkout.sessions.create({
+      mode: "payment",
+      customer_email: user.email,
+      client_reference_id: payment.id,
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: amountCents,
+            product_data: {
+              name: payment.description || `Rent payment ${paymentMonth}`,
+              description: `Rent for unit ${payment.unitId} (${paymentMonth})`
+            }
+          }
+        }
+      ],
+      metadata,
+      payment_intent_data: {
+        metadata,
+        transfer_data: {
+          destination: connectedManager.stripeConnectedAccountId
+        }
+      },
+      success_url: `${appUrl}/transactions?stripe=success&payment=${encodeURIComponent(payment.id)}`,
+      cancel_url: `${appUrl}/transactions?stripe=cancelled&payment=${encodeURIComponent(payment.id)}`
+    });
+
+    sessionUrl = session.url;
+  } catch (error) {
+    console.error("[stripe] Failed to create checkout session", error);
+    redirect("/transactions?stripe=checkout-error");
+  }
+
+  if (!sessionUrl) {
+    redirect("/transactions?stripe=missing-session-url");
+  }
+
+  redirect(sessionUrl);
 }
 
 export async function addUnitAssetAction(formData: FormData) {

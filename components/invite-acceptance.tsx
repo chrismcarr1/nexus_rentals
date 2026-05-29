@@ -79,8 +79,8 @@ export function InviteAcceptance({
   return (
     <Card className="mx-auto max-w-2xl p-6 lg:p-8">
       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Tenant invite</p>
-      <h1 className="mt-3 text-3xl font-semibold tracking-[-0.03em]">Connect to your lease</h1>
-      <div className="mt-6 space-y-3 rounded-[24px] bg-stone-900/5 p-5 text-sm">
+      <h1 className="mt-3 text-3xl font-semibold">Connect to your lease</h1>
+      <div className="panel-muted mt-6 space-y-3 p-5 text-sm">
         <p><span className="font-semibold">Tenant email:</span> {invite.tenantEmail}</p>
         <p><span className="font-semibold">Manager:</span> {invite.lease.manager?.name ?? "Manager"} ({invite.lease.manager?.email ?? "No email"})</p>
         <p><span className="font-semibold">Property:</span> {invite.lease.property?.name ?? "Property"} {invite.lease.unit?.unitNumber ? `Unit ${invite.lease.unit.unitNumber}` : ""}</p>

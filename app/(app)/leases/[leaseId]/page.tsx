@@ -49,7 +49,7 @@ export default async function ManageLeasePage({
         title={`${property?.name ?? "Property"} ${unit?.unitNumber ?? ""}`.trim()}
         description="Update lease terms, tenant assignment, status, document storage, or remove the lease from the tracker."
         actions={
-          <Link href="/leases" className="rounded-2xl border border-[var(--line-strong)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)]/30">
+          <Link href="/leases" className="rounded-xl border border-[var(--line-strong)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)]/30">
             Back to leases
           </Link>
         }
@@ -61,7 +61,7 @@ export default async function ManageLeasePage({
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="content-split-tight">
         <Card className="p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -71,20 +71,20 @@ export default async function ManageLeasePage({
             </div>
             <Badge>{lease.status}</Badge>
           </div>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <div className="panel-muted rounded-[24px] p-4">
+          <div className="card-grid-compact mt-5">
+            <div className="panel-muted p-4">
               <p className="text-sm text-[var(--muted)]">Term</p>
               <p className="mt-2 font-semibold">{formatDateOrUnset(lease.startDate)} to {formatDateOrUnset(lease.endDate)}</p>
             </div>
-            <div className="panel-muted rounded-[24px] p-4">
+            <div className="panel-muted p-4">
               <p className="text-sm text-[var(--muted)]">Monthly rent</p>
               <p className="mt-2 font-semibold">{formatCurrency(lease.monthlyRent)}</p>
             </div>
-            <div className="panel-muted rounded-[24px] p-4">
+            <div className="panel-muted p-4">
               <p className="text-sm text-[var(--muted)]">Security deposit</p>
               <p className="mt-2 font-semibold">{formatCurrency(lease.securityDeposit)}</p>
             </div>
-            <div className="panel-muted rounded-[24px] p-4">
+            <div className="panel-muted p-4">
               <p className="text-sm text-[var(--muted)]">Due day</p>
               <p className="mt-2 font-semibold">Day {lease.dueDay}</p>
             </div>
@@ -113,11 +113,11 @@ export default async function ManageLeasePage({
               <option value="" disabled>Select tenant</option>
               {portal.scope.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.firstName} {tenant.lastName}</option>)}
             </select>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="form-grid-2">
               <input name="startDate" type="date" required defaultValue={toDateInputValue(lease.startDate)} className="field" />
               <input name="endDate" type="date" required defaultValue={toDateInputValue(lease.endDate)} className="field" />
             </div>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="form-grid-3">
               <input name="monthlyRent" type="number" min="0" step="0.01" required defaultValue={lease.monthlyRent} placeholder="Monthly rent" className="field" />
               <input name="dueDay" type="number" min="1" max="28" required defaultValue={lease.dueDay} placeholder="Due day" className="field" />
               <input name="securityDeposit" type="number" min="0" step="0.01" required defaultValue={lease.securityDeposit} placeholder="Deposit" className="field" />

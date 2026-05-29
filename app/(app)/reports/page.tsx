@@ -21,13 +21,13 @@ export default async function ReportsPage() {
         description="A higher-level reporting view for admins with portfolio summaries, export actions, recent operational activity, and document/compliance awareness."
         actions={<ReportExportMenu />}
       />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="metric-grid">
         <Card className="p-5"><p className="text-sm text-[var(--muted)]">Collected</p><p className="mt-3 text-3xl font-semibold">{formatCurrency(report.metrics.rentCollectedThisMonth)}</p></Card>
         <Card className="p-5"><p className="text-sm text-[var(--muted)]">Outstanding</p><p className="mt-3 text-3xl font-semibold">{formatCurrency(report.metrics.outstanding)}</p></Card>
         <Card className="p-5"><p className="text-sm text-[var(--muted)]">Expenses</p><p className="mt-3 text-3xl font-semibold">{formatCurrency(report.metrics.monthExpenses)}</p></Card>
         <Card className="p-5"><p className="text-sm text-[var(--muted)]">Net cash flow</p><p className="mt-3 text-3xl font-semibold">{formatCurrency(report.metrics.netOperatingCashFlow)}</p></Card>
       </div>
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="content-split">
         <Card className="p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">By property</p>
           <DataTable columns={["Property", "Units", "Occupancy", "Collected", "Expenses", "Net"]} className="mt-5">
@@ -48,7 +48,7 @@ export default async function ReportsPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Documents and compliance</p>
             <div className="mt-4 space-y-3">
               {portal.documents.map((file) => (
-                <div key={file.id} className="panel-muted rounded-[24px] p-4">
+                <div key={file.id} className="panel-muted p-4">
                   <p className="font-semibold">{file.label || file.kind}</p>
                   <p className="mt-1 text-sm text-[var(--muted)]">{file.path}</p>
                 </div>
@@ -59,7 +59,7 @@ export default async function ReportsPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Recent activity feed</p>
             <div className="mt-4 space-y-3">
               {portal.recentActivity.map((item) => (
-                <div key={item.id} className="panel-muted rounded-[24px] p-4">
+                <div key={item.id} className="panel-muted p-4">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-semibold">{item.title}</p>
                     <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{item.kind}</span>

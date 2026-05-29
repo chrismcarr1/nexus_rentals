@@ -20,7 +20,7 @@ export default async function ExpensesPage() {
         title={user.role === "ADMIN" ? "Operating spend across the full portfolio." : "Expense tracking for your assigned properties."}
         description="Record vendor costs, tag operating spend, and keep unit-level expenses connected to the same data used by reports and dashboards."
       />
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="content-split">
         <Card className="p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Expense register</p>
           <div className="mt-5 space-y-3">
@@ -30,16 +30,16 @@ export default async function ExpensesPage() {
               const unit = expense.unitId ? portal.scope.units.find((item) => item.id === expense.unitId) : null;
 
               return (
-                <div key={expense.id} className="rounded-[24px] border border-[var(--line)] bg-white/70 p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
+                <div key={expense.id} className="panel-muted p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
                       <p className="font-semibold">{expense.title}</p>
                       <p className="text-sm text-stone-500">
                         {property?.name}
                         {unit ? ` - ${unit.unitNumber}` : ""}
                       </p>
                     </div>
-                    <div className="text-right">
+                    <div className="shrink-0 text-left sm:text-right">
                       <p className="font-semibold">{formatCurrency(expense.amount)}</p>
                       <p className="text-sm text-stone-500">{formatDate(expense.incurredAt)}</p>
                     </div>
@@ -79,7 +79,7 @@ export default async function ExpensesPage() {
             </select>
             <input name="title" placeholder="Expense title" className="field" />
             <textarea name="description" placeholder="Description" className="field min-h-24" />
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="form-grid-2">
               <input name="amount" type="number" step="0.01" placeholder="Amount" className="field" />
               <input name="incurredAt" type="date" className="field" />
             </div>

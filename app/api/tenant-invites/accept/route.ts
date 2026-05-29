@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { normalizeEmail } from "@/lib/admin";
-import { getInviteByRawToken, getInviteStatus, toSafeLeaseRow } from "@/lib/lease-connections";
+import { ensureLeaseConnectionIntegrity, getInviteByRawToken, getInviteStatus, toSafeLeaseRow } from "@/lib/lease-connections";
 import { getCurrentUser } from "@/lib/auth";
 import { createId, nowIso, updateStore } from "@/lib/store";
 
@@ -46,7 +46,8 @@ export async function POST(request: Request) {
       if (!targetLease) throw new Error("Lease not found.");
       const property = targetLease.propertyId ? store.properties.find((item) => item.id === targetLease.propertyId) : null;
       const unit = targetLease.unitId ? store.units.find((item) => item.id === targetLease.unitId) : null;
-      const organizationId = property?.organizationId ?? (unit ? store.properties.find((item) => item.id === unit.propertyId)?.organizationId : null);
+      const unitProperty = unit ? store.properties.find((item) => item.id === unit.propertyId) : null;
+      const organizationId = property?.organizationId ?? unitProperty?.organizationId ?? null;
       if (!organizationId) throw new Error("Property organization not found.");
 
       const now = nowIso();
@@ -82,6 +83,8 @@ export async function POST(request: Request) {
           item.id === targetLease.id
             ? {
                 ...item,
+                propertyId: item.propertyId ?? unit?.propertyId,
+                managerUserId: item.managerUserId ?? property?.managerId ?? unitProperty?.managerId,
                 tenantUserId: user.id,
                 tenantEmail: normalizeEmail(user.email),
                 tenantIds,
@@ -96,6 +99,7 @@ export async function POST(request: Request) {
       };
     });
 
+    await ensureLeaseConnectionIntegrity();
     const { store, lease: acceptedLease } = await getInviteByRawToken(result.data.token);
     return Response.json({ lease: acceptedLease ? toSafeLeaseRow(store, acceptedLease) : null });
   } catch (error) {

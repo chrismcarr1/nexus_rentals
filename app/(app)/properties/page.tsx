@@ -43,8 +43,8 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
             : "See only the properties and unit inventory relevant to your operating scope, with direct visibility into occupancy and assigned rent."
         }
       />
-      <div className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
-        <div className="grid gap-4 md:grid-cols-2">
+      <div className="content-split">
+        <div className="card-grid">
           {properties.length === 0 ? <EmptyState title="No properties in scope" description="There are no properties available for this role right now." /> : null}
           {properties.map((property) => (
             <Link key={property.id} href={`/properties/${property.id}`}>
@@ -59,7 +59,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
                   <div className="relative flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm uppercase tracking-[0.22em] text-white/64">Property</p>
-                      <h2 className="mt-3 text-3xl font-semibold tracking-[-0.03em]">{property.name}</h2>
+                      <h2 className="mt-3 break-words text-3xl font-semibold">{property.name}</h2>
                       <p className="mt-3 text-sm text-white/78">{formatAddress(property)}</p>
                     </div>
                     <Badge tone={property.status === "ARCHIVED" ? "warning" : "success"}>{property.status}</Badge>
@@ -88,7 +88,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
         <div className="space-y-4">
           <Card className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">{user.role === "ADMIN" ? "Property creation" : "Add assigned asset"}</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{user.role === "ADMIN" ? "Create a new portfolio asset" : "Create a property in your operating scope"}</h2>
+            <h2 className="mt-2 text-2xl font-semibold">{user.role === "ADMIN" ? "Create a new portfolio asset" : "Create a property in your operating scope"}</h2>
             {params.error ? (
               <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 {params.error === "invalid-address"
@@ -120,7 +120,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Assignments and controls</p>
               <div className="mt-4 space-y-4">
                 {properties.map((property) => (
-                  <div key={property.id} className="panel-muted rounded-[24px] p-4">
+                  <div key={property.id} className="panel-muted p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="font-semibold">{property.name}</p>
@@ -138,7 +138,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
                         </form>
                       </div>
                     </div>
-                    <form action={assignPropertyManagerAction} className="mt-3 flex gap-3">
+                    <form action={assignPropertyManagerAction} className="mt-3 flex flex-col gap-3 sm:flex-row">
                       <input type="hidden" name="propertyId" value={property.id} />
                       <select name="managerId" defaultValue={property.managerId ?? ""} className="field">
                         <option value="">Unassigned</option>

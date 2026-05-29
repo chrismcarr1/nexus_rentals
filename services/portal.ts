@@ -4,6 +4,7 @@ import { addDays, differenceInCalendarDays, endOfMonth, isAfter, isBefore, start
 import { cache } from "react";
 
 import { getEffectiveUserRole } from "@/lib/admin";
+import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
 import { getOrganizationSnapshot, type Notification, type UserRole } from "@/lib/store";
 
 function leaseIsVisibleCurrent(status: string) {
@@ -24,6 +25,7 @@ type AppUser = {
 };
 
 export const getPortalContext = cache(async (user: AppUser) => {
+  await ensureLeaseConnectionIntegrity(user.organizationId);
   const snapshot = await getOrganizationSnapshot(user.organizationId);
   const effectiveUsers = snapshot.users.map((candidate) => ({
     ...candidate,

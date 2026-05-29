@@ -47,7 +47,7 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
         {!portal.currentLease || !portal.currentProperty ? (
           <EmptyState title="No active lease connected yet" description="Open your manager's invite link and accept it with this tenant account to connect your lease." />
         ) : (
-          <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="content-split-tight">
             <Card className="p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Lease summary</p>
               <h2 className="mt-2 text-2xl font-semibold">
@@ -55,25 +55,25 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
                 {portal.currentUnit?.unitNumber ? ` ${portal.currentUnit.unitNumber}` : ""}
               </h2>
               <p className="mt-2 text-sm text-[var(--muted)]">{formatUnitAddress(portal.currentProperty, portal.currentUnit)}</p>
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <div className="panel-muted rounded-[24px] p-4">
+              <div className="card-grid-compact mt-5">
+                <div className="panel-muted p-4">
                   <p className="text-sm text-[var(--muted)]">Term</p>
                   <p className="mt-2 font-semibold">{formatDateOrUnset(portal.currentLease.startDate)} to {formatDateOrUnset(portal.currentLease.endDate)}</p>
                 </div>
-                <div className="panel-muted rounded-[24px] p-4">
+                <div className="panel-muted p-4">
                   <p className="text-sm text-[var(--muted)]">Monthly rent</p>
                   <p className="mt-2 font-semibold">{formatCurrencyOrUnset(portal.currentLease.monthlyRent)}</p>
                 </div>
-                <div className="panel-muted rounded-[24px] p-4">
+                <div className="panel-muted p-4">
                   <p className="text-sm text-[var(--muted)]">Security deposit</p>
                   <p className="mt-2 font-semibold">{formatCurrencyOrUnset(portal.currentLease.securityDeposit)}</p>
                 </div>
-                <div className="panel-muted rounded-[24px] p-4">
+                <div className="panel-muted p-4">
                   <p className="text-sm text-[var(--muted)]">Due day</p>
                   <p className="mt-2 font-semibold">Day {portal.currentLease.dueDay} of each month</p>
                 </div>
               </div>
-              <div className="mt-5 rounded-[24px] border border-[var(--line)] p-4 text-sm leading-7 text-[var(--muted)]">
+              <div className="panel-muted mt-5 p-4 text-sm leading-7 text-[var(--muted)]">
                 <p>Recurring charges: {portal.currentLease.recurringCharges || "None listed"}</p>
                 <p>Late fee policy: {portal.currentLease.lateFeePolicy || "Refer to management for policy details"}</p>
                 <p>Current lease status: {portal.currentLease.status}</p>
@@ -82,13 +82,13 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
             <Card className="p-6">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Documents and contacts</p>
               <div className="mt-4 space-y-3">
-                <div className="panel-muted rounded-[24px] p-4">
+                <div className="panel-muted p-4">
                   <p className="font-semibold">{currentManager ? `${currentManager.firstName} ${currentManager.lastName}` : "Property manager"}</p>
                   <p className="mt-1 text-sm text-[var(--muted)]">{currentManager?.email ?? "Manager contact will appear after the invite is accepted."}</p>
                   {currentManager?.phone ? <p className="mt-1 text-sm text-[var(--muted)]">{currentManager.phone}</p> : null}
                 </div>
                 {documents.length ? documents.map((file) => (
-                  <div key={file.id} className="panel-muted rounded-[24px] p-4">
+                  <div key={file.id} className="panel-muted p-4">
                     <p className="font-semibold">{file.label || file.kind}</p>
                     <a href={file.path} target="_blank" rel="noreferrer" className="mt-1 block truncate text-sm font-medium text-[var(--brand)]">
                       Open document
@@ -109,11 +109,11 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
     <div className="space-y-4">
       <PageHeader
         eyebrow="Lease operations"
-        title="Create leases, invite tenants, and track connections."
-        description="Start a lease with a tenant email, send a secure invite, and see when the tenant account connects to the correct property or unit."
+        title="Leases"
+        description="Create leases, send secure tenant invites, and monitor connected resident accounts across your assigned portfolio."
       />
       {params.error === "invalid-lease" ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="rounded-md border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-200">
           Review the lease details before creating a tenant invite.
         </div>
       ) : null}

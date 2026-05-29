@@ -8,7 +8,7 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
 
   return (
     <main className="grid-bg flex min-h-screen items-center justify-center p-6">
-      <div className="glass card-shadow w-full max-w-xl rounded-[32px] border border-white/60 p-8">
+      <div className="glass card-shadow w-full max-w-xl rounded-2xl border border-white/60 p-6 sm:p-8">
         <p className="text-sm uppercase tracking-[0.28em] text-[var(--brand)]">Password Reset</p>
         <h1 className="mt-3 font-[var(--font-display)] text-4xl">Request a reset link</h1>
         <p className="mt-3 text-sm text-stone-500">Enter your account email and we will send a secure password reset link if the account exists.</p>
@@ -32,8 +32,8 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
           </div>
         ) : null}
         <form action={requestResetAction} className="mt-8 space-y-4">
-          <input name="email" type="email" required className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" placeholder="you@company.com" />
-          <button type="submit" className="w-full rounded-2xl bg-[var(--brand)] px-4 py-3 font-semibold text-white">
+          <input name="email" type="email" required className="field" placeholder="you@company.com" />
+          <button type="submit" className="w-full rounded-xl bg-[var(--brand)] px-4 py-3 font-semibold text-white">
             Send reset link
           </button>
         </form>

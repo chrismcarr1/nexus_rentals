@@ -32,7 +32,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
             : "See active service demand across your scope, prioritize urgent issues, and keep work order information in an operator-ready format."
         }
       />
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+      <div className="content-split">
         <Card className="p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">{user.role === "TENANT" ? "My active requests" : "Active work orders"}</p>
           <div className="mt-5 space-y-3">
@@ -41,14 +41,14 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
               const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;
 
               return (
-                <div key={item.id} className="panel-muted rounded-[24px] p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
+                <div key={item.id} className="panel-muted p-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
                       <p className="font-semibold">{item.title}</p>
                       <p className="text-sm text-[var(--muted)]">{property?.name}{unit ? ` - ${unit.unitNumber}` : ""} - Requested {formatDate(item.requestedAt)}</p>
                       <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{item.description}</p>
                     </div>
-                    <div className="text-right">
+                    <div className="shrink-0 text-left sm:text-right">
                       <Badge tone={badgeToneFromMaintenance(item.status)}>{item.status}</Badge>
                       <div className="mt-2">
                         <Badge tone={badgeToneFromPriority(item.priority)}>{item.priority}</Badge>
@@ -102,7 +102,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
               )}
               <input name="title" required minLength={2} placeholder="Issue title" className="field" />
               <textarea name="description" required minLength={4} placeholder="Description" className="field min-h-24" />
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="form-grid-2">
                 <select name="status" className="field" defaultValue="OPEN" required>
                   {["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"].map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
@@ -111,7 +111,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
                 </select>
               </div>
               {user.role === "TENANT" ? null : (
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="form-grid-2">
                   <input name="estimatedCost" type="number" min="0" step="0.01" placeholder="Estimated cost" className="field" />
                   <input name="assignedTo" placeholder="Assigned vendor" className="field" />
                 </div>
@@ -130,15 +130,15 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
           </div>
           <p className="text-sm text-[var(--muted)]">{pastMaintenance.length} saved</p>
         </div>
-        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+        <div className="card-grid-compact mt-5">
           {pastMaintenance.map((item) => {
             const property = portal.scope.properties.find((candidate) => candidate.id === item.propertyId);
             const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;
 
             return (
-              <div key={item.id} className="panel-muted rounded-[24px] p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
+              <div key={item.id} className="panel-muted p-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
                     <p className="font-semibold">{item.title}</p>
                     <p className="text-sm text-[var(--muted)]">{property?.name}{unit ? ` - ${unit.unitNumber}` : ""}</p>
                     <p className="mt-1 text-xs uppercase tracking-[0.18em] text-[var(--muted)]">

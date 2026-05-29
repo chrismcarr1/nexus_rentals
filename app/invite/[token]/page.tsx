@@ -11,7 +11,7 @@ function InviteError({ title, message }: { title: string; message: string }) {
     <main className="grid-bg flex min-h-screen items-center justify-center p-6">
       <Card className="mx-auto max-w-xl p-6 lg:p-8">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Tenant invite</p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-[-0.03em]">{title}</h1>
+        <h1 className="mt-3 text-3xl font-semibold">{title}</h1>
         <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{message}</p>
         <Link href="/login" className="mt-6 inline-block">
           <Button>Go to login</Button>

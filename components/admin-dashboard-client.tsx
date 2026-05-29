@@ -294,7 +294,7 @@ export function AdminDashboardClient() {
         description="See who is using Nexus, which organizations and properties exist, and how the whole platform is performing without exposing passwords, tokens, or environment secrets."
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="metric-grid">
         <MetricCard label="Total users" value={String(data.summary.totalUsers)} hint="All accounts across organizations." accent="brand" />
         <MetricCard label="Managers" value={String(data.summary.managers)} hint="Accounts with manager access." accent="warning" />
         <MetricCard label="Tenants" value={String(data.summary.tenants)} hint="Resident accounts in the app." accent="success" />
@@ -305,12 +305,12 @@ export function AdminDashboardClient() {
         <MetricCard label="Rent roll" value={formatCurrency(data.system.totalMonthlyRent)} hint="Scheduled monthly rent across all units." />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="content-split">
         <Card className="p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Accounts</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">All user accounts</h2>
+              <h2 className="mt-2 text-2xl font-semibold">All user accounts</h2>
             </div>
             <Badge tone="danger">Admin: {data.adminIdentity}</Badge>
           </div>
@@ -337,7 +337,7 @@ export function AdminDashboardClient() {
                   <button
                     type="button"
                     onClick={() => selectAccount(user)}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-[var(--line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--text)] transition hover:bg-[var(--panel)]"
+                    className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--text)] transition hover:bg-[var(--panel)]"
                   >
                     <Edit3 className="h-4 w-4" />
                     Edit
@@ -351,12 +351,12 @@ export function AdminDashboardClient() {
         <div className="space-y-4">
           <Card className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Account editor</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{selectedAccount ? selectedAccount.email : "Select an account"}</h2>
+            <h2 className="mt-2 text-2xl font-semibold">{selectedAccount ? selectedAccount.email : "Select an account"}</h2>
             {!selectedAccount || !accountForm ? (
               <p className="mt-4 text-sm leading-6 text-[var(--muted)]">Choose Edit from the accounts table to review and update account information.</p>
             ) : (
               <div className="mt-5 space-y-4">
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+                <div className="form-grid-2">
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium">First name</span>
                     <input
@@ -386,7 +386,7 @@ export function AdminDashboardClient() {
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium">Role</span>
                     {selectedAccountIsAdmin ? (
-                      <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">SYSTEM ADMIN</div>
+                      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">SYSTEM ADMIN</div>
                     ) : (
                       <select
                         value={accountForm.role}
@@ -415,7 +415,7 @@ export function AdminDashboardClient() {
                     />
                   </label>
                 </div>
-                <label className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-sm">
+                <label className="flex items-center justify-between gap-3 rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm">
                   <span>
                     <span className="block font-semibold">Active account</span>
                     <span className="mt-1 block text-xs text-[var(--muted)]">Disabled accounts cannot sign in or keep using an active session.</span>
@@ -428,7 +428,7 @@ export function AdminDashboardClient() {
                     className="h-5 w-5"
                   />
                 </label>
-                <div className="rounded-2xl bg-stone-900/5 px-4 py-3 text-sm text-[var(--muted)]">
+                <div className="panel-muted px-4 py-3 text-sm text-[var(--muted)]">
                   <p>Organization: {selectedAccount.organizationName}</p>
                   <p>Created: {formatDate(selectedAccount.createdAt)}</p>
                   <p>Updated: {formatDate(selectedAccount.updatedAt)}</p>
@@ -439,7 +439,7 @@ export function AdminDashboardClient() {
                   type="button"
                   onClick={() => void saveAccount()}
                   disabled={isSavingAccount}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-[var(--brand)] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#184c45] disabled:cursor-wait disabled:opacity-70"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand)] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#184c45] disabled:cursor-wait disabled:opacity-70"
                 >
                   <Save className="h-4 w-4" />
                   {isSavingAccount ? "Saving..." : "Save account changes"}
@@ -452,7 +452,7 @@ export function AdminDashboardClient() {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Recent signups</p>
             <div className="mt-4 space-y-3">
               {data.recentSignups.map((user) => (
-                <div key={user.id} className="panel-muted rounded-[24px] p-4">
+                <div key={user.id} className="panel-muted p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-semibold">{user.email}</p>
@@ -467,9 +467,9 @@ export function AdminDashboardClient() {
 
           <Card className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">System data</p>
-            <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="card-grid-compact mt-4">
               {systemRows.map(([label, value]) => (
-                <div key={label} className="rounded-2xl bg-stone-900/5 px-4 py-3">
+                <div key={label} className="panel-muted px-4 py-3">
                   <p className="text-xs text-[var(--muted)]">{label}</p>
                   <p className="mt-2 text-xl font-semibold">{value}</p>
                 </div>
@@ -485,7 +485,7 @@ export function AdminDashboardClient() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Properties</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">All properties in Nexus</h2>
+            <h2 className="mt-2 text-2xl font-semibold">All properties in Nexus</h2>
           </div>
           <Badge tone="default">{data.properties.length} properties</Badge>
         </div>
@@ -512,10 +512,10 @@ export function AdminDashboardClient() {
         </DataTable>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+      <div className="content-split">
         <Card className="p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Organizations</p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">Workspaces</h2>
+          <h2 className="mt-2 text-2xl font-semibold">Workspaces</h2>
           <DataTable columns={["Organization", "Users", "Properties", "Units", "Leases"]} className="mt-5">
             {data.organizations.map((organization) => (
               <tr key={organization.id} className="table-row">
@@ -538,7 +538,7 @@ export function AdminDashboardClient() {
 
         <Card className="p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Unit inventory</p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">All units</h2>
+          <h2 className="mt-2 text-2xl font-semibold">All units</h2>
           <DataTable columns={["Unit", "Occupancy", "Lease", "Tenants", "Rent", "Updated"]} className="mt-5">
             {data.units.map((unit) => (
               <tr key={unit.id} className="table-row">
@@ -561,9 +561,9 @@ export function AdminDashboardClient() {
 
       <Card className="p-6">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Recently added properties</p>
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="card-grid-3 mt-4">
           {data.recentProperties.map((property) => (
-            <div key={property.id} className="panel-muted rounded-[24px] p-4">
+            <div key={property.id} className="panel-muted p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{property.name}</p>
@@ -571,7 +571,7 @@ export function AdminDashboardClient() {
                 </div>
                 <Badge tone={statusTone(property.status)}>{property.status}</Badge>
               </div>
-              <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
+              <div className="form-grid-3 mt-4 text-sm">
                 <div>
                   <p className="text-xs text-[var(--muted)]">Units</p>
                   <p className="mt-1 font-semibold">{property.unitCount}</p>

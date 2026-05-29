@@ -10,7 +10,7 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
 
   return (
     <main className="grid-bg flex min-h-screen items-center justify-center p-6">
-      <div className="glass card-shadow w-full max-w-3xl rounded-[36px] border border-white/60 p-8 lg:p-10">
+      <div className="glass card-shadow w-full max-w-3xl rounded-2xl border border-white/60 p-6 sm:p-8 lg:p-10">
         <p className="text-sm uppercase tracking-[0.28em] text-[var(--brand)]">Create Account</p>
         <h1 className="mt-3 font-[var(--font-display)] text-4xl">Join Nexus Rentals</h1>
         <p className="mt-3 text-sm text-stone-500">
@@ -29,7 +29,7 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
                   : "Please complete all required fields and make sure both passwords match."}
           </div>
         ) : null}
-        <form action={signupAction} className="mt-8 grid gap-4 md:grid-cols-2">
+        <form action={signupAction} className="form-grid-2 mt-8">
           {inviteToken ? (
             <>
               <input type="hidden" name="inviteToken" value={inviteToken} />
@@ -40,11 +40,11 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
             <>
               <label className="block md:col-span-2">
                 <span className="mb-2 block text-sm font-medium">Organization or community name</span>
-                <input name="businessName" required minLength={2} className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
+                <input name="businessName" required minLength={2} className="field" />
               </label>
               <label className="block md:col-span-2">
                 <span className="mb-2 block text-sm font-medium">Account type</span>
-                <select name="role" required defaultValue="MANAGER" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3">
+                <select name="role" required defaultValue="MANAGER" className="field">
                   <option value="MANAGER">Manager</option>
                   <option value="TENANT">Tenant</option>
                 </select>
@@ -53,29 +53,29 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
           )}
           <label className="block">
             <span className="mb-2 block text-sm font-medium">First name</span>
-            <input name="firstName" required minLength={2} className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
+            <input name="firstName" required minLength={2} className="field" />
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium">Last name</span>
-            <input name="lastName" required minLength={2} className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
+            <input name="lastName" required minLength={2} className="field" />
           </label>
           <label className="block">
             <span className="mb-2 block text-sm font-medium">Email</span>
-            <input name="email" type="email" required className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
+            <input name="email" type="email" required className="field" />
           </label>
           <PasswordField name="password" required minLength={8} label="Password" />
           <PasswordField name="confirmPassword" required minLength={8} label="Confirm password" />
           <label className="block">
             <span className="mb-2 block text-sm font-medium">Phone</span>
-            <input name="phone" className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3" />
+            <input name="phone" className="field" />
           </label>
           <AddressFields
             fieldNames={MAILING_ADDRESS_FORM_FIELDS}
             required={false}
             className="space-y-4 md:col-span-2"
-            inputClassName="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3"
+            inputClassName="field"
           />
-          <button type="submit" className="mt-2 rounded-2xl bg-[var(--brand)] px-4 py-3 font-semibold text-white md:col-span-2">
+          <button type="submit" className="mt-2 rounded-xl bg-[var(--brand)] px-4 py-3 font-semibold text-white md:col-span-2">
             Create account
           </button>
         </form>

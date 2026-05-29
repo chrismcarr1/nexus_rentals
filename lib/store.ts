@@ -33,12 +33,33 @@ export const FileKind = {
 } as const;
 
 export type Organization = { id: string; name: string; email: string; phone?: string; mailingAddress?: string; logoPath?: string; createdAt: string; updatedAt: string };
-export type User = { id: string; organizationId: string; email: string; passwordHash: string; firstName: string; lastName: string; role: UserRole; isActive: boolean; avatarPath?: string; title?: string; phone?: string; createdAt: string; updatedAt: string };
+export type User = {
+  id: string;
+  organizationId: string;
+  email: string;
+  passwordHash: string;
+  firstName: string;
+  lastName: string;
+  role: UserRole;
+  isActive: boolean;
+  avatarPath?: string;
+  title?: string;
+  phone?: string;
+  stripeConnectedAccountId?: string;
+  stripeChargesEnabled?: boolean;
+  stripePayoutsEnabled?: boolean;
+  stripeDetailsSubmitted?: boolean;
+  stripeOnboardingComplete?: boolean;
+  stripeUpdatedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
 export type Property = StoredAddress & { id: string; organizationId: string; name: string; status: PropertyStatus; description?: string; amenities: string; notes?: string; managerId?: string; createdAt: string; updatedAt: string };
 export type Unit = { id: string; propertyId: string; unitNumber: string; nickname?: string; addressOverride?: string; unitType: string; bedrooms: number; bathrooms: number; squareFeet?: number; monthlyRent: number; depositAmount: number; leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus; amenities: string; notes?: string; createdAt: string; updatedAt: string };
 export type Tenant = { id: string; organizationId: string; firstName: string; lastName: string; email?: string; phone?: string; employer?: string; emergencyName?: string; emergencyPhone?: string; notes?: string; createdAt: string; updatedAt: string };
 export type Lease = {
   id: string;
+  nexusLeaseId?: string;
   managerUserId?: string;
   tenantUserId?: string;
   tenantEmail?: string;
@@ -70,7 +91,27 @@ export type TenantInvite = {
   createdAt: string;
   updatedAt: string;
 };
-export type Payment = { id: string; unitId: string; leaseId?: string; description: string; amount: number; dueDate: string; paidDate?: string; status: PaymentStatus; lateFeeAmount: number; balanceDue: number; categoryTag?: string; createdAt: string; updatedAt: string };
+export type Payment = {
+  id: string;
+  unitId: string;
+  leaseId?: string;
+  description: string;
+  amount: number;
+  dueDate: string;
+  paidDate?: string;
+  status: PaymentStatus;
+  lateFeeAmount: number;
+  balanceDue: number;
+  categoryTag?: string;
+  amountPaid?: number;
+  stripeCheckoutSessionId?: string;
+  stripePaymentIntentId?: string;
+  stripeDestinationAccountId?: string;
+  stripeAmountPaidCents?: number;
+  stripePaidAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
 export type Expense = { id: string; propertyId: string; unitId?: string; title: string; description?: string; amount: number; incurredAt: string; category: ExpenseCategory; tags: string; vendor?: string; createdAt: string; updatedAt: string };
 export type MaintenanceRequest = { id: string; propertyId: string; unitId?: string; title: string; description: string; status: MaintenanceStatus; priority: MaintenancePriority; estimatedCost?: number; actualCost?: number; assignedTo?: string; requestedAt: string; resolvedAt?: string; timeline: string; createdAt: string; updatedAt: string };
 export type Inspection = { id: string; unitId: string; leaseId?: string; inspectionDate: string; type: string; notes?: string; createdAt: string; updatedAt: string };
@@ -155,18 +196,25 @@ function normalizeStore(store: AppStore): AppStore {
     discussionThreads: store.discussionThreads ?? [],
     discussionMessages: store.discussionMessages ?? [],
     tenantInvites: store.tenantInvites ?? [],
-    leases: (store.leases ?? []).map((lease) => {
+    leases: (store.leases ?? []).map((lease, index) => {
       const unit = lease.unitId ? store.units?.find((item) => item.id === lease.unitId) : null;
       const property = lease.propertyId
         ? store.properties?.find((item) => item.id === lease.propertyId)
         : unit
           ? store.properties?.find((item) => item.id === unit.propertyId)
           : null;
+      const tenant = (lease.tenantIds ?? [])
+        .map((tenantId) => store.tenants?.find((item) => item.id === tenantId))
+        .find(Boolean);
+      const tenantUser = lease.tenantUserId ? store.users?.find((item) => item.id === lease.tenantUserId) : null;
 
       return {
         ...lease,
+        id: lease.id || createId("lease"),
+        nexusLeaseId: lease.nexusLeaseId ?? `NXR-${String(index + 1).padStart(5, "0")}`,
         propertyId: lease.propertyId ?? unit?.propertyId,
         managerUserId: lease.managerUserId ?? property?.managerId,
+        tenantEmail: lease.tenantEmail ?? tenantUser?.email ?? tenant?.email,
         tenantIds: lease.tenantIds ?? [],
         monthlyRent: lease.monthlyRent ?? 0,
         dueDay: lease.dueDay ?? 1,
@@ -195,7 +243,9 @@ export async function updateStore(updater: (store: AppStore) => AppStore | Promi
   try {
     const store = await readStore();
     const next = await updater(store);
-    await writeStore(next);
+    if (next !== store) {
+      await writeStore(next);
+    }
     return next;
   } catch (error) {
     console.error("[store] Failed to update hosted Postgres datastore", error);

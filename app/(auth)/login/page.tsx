@@ -75,28 +75,28 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
 
       <section id="login" className="relative overflow-hidden border-b border-white/10">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(35,103,93,0.34),transparent_34%),radial-gradient(circle_at_85%_20%,rgba(173,133,71,0.22),transparent_28%)]" />
-        <div className="relative mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl gap-10 px-5 py-16 sm:px-6 lg:grid-cols-[1.08fr_0.92fr] lg:items-center lg:px-8 lg:py-20">
+        <div className="marketing-split relative mx-auto min-h-[calc(100vh-4rem)] max-w-7xl px-5 py-16 sm:px-6 lg:px-8 lg:py-20">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white/70">
               <ShieldCheck className="h-4 w-4 text-[#d7b878]" />
               Secure property operations
             </div>
-            <h1 className="mt-8 max-w-4xl font-[var(--font-display)] text-5xl leading-[0.98] tracking-[-0.02em] text-white sm:text-6xl lg:text-7xl">
+            <h1 className="marketing-title mt-8 max-w-4xl font-[var(--font-display)] text-white">
               Rental management with less noise and more control.
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-8 text-white/[0.62] sm:text-lg">
               Nexus Rentals brings portfolio oversight, payments, maintenance, tenant records, and AI-assisted assessments into one focused workspace.
             </p>
-            <div className="mt-10 grid max-w-2xl gap-3 sm:grid-cols-3">
+            <div className="marketing-metric-grid mt-10 max-w-2xl">
               {["Portfolio view", "Financial reports", "AI assessments"].map((item) => (
-                <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.045] px-4 py-3 text-sm text-white/[0.74]">
+                <div key={item} className="rounded-xl border border-white/10 bg-white/[0.045] px-4 py-3 text-sm text-white/[0.74]">
                   {item}
                 </div>
               ))}
             </div>
           </div>
 
-          <section className="rounded-[28px] border border-white/[0.12] bg-[#f7f5ef] p-5 text-[var(--text)] shadow-[0_30px_90px_rgba(0,0,0,0.34)] sm:p-6">
+          <section className="rounded-2xl border border-white/[0.12] bg-[#f7f5ef] p-5 text-[var(--text)] shadow-[0_24px_70px_rgba(0,0,0,0.28)] sm:p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.26em] text-[var(--brand)]">Login</p>
             <h2 className="mt-3 font-[var(--font-display)] text-4xl leading-tight">Welcome back</h2>
             <p className="mt-3 text-sm leading-6 text-[var(--muted)]">Use a seeded demo account or your local organization account.</p>
@@ -119,7 +119,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
                   name="email"
                   type="email"
                   required
-                  className="w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3 outline-none transition focus:border-[var(--brand)]/40 focus:ring-4 focus:ring-[var(--brand)]/10"
+                  className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 outline-none transition focus:border-[var(--brand)]/40 focus:ring-4 focus:ring-[var(--brand)]/10"
                   placeholder="you@company.com"
                 />
               </label>
@@ -132,7 +132,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
               />
               <button
                 type="submit"
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(180deg,#23675d,#184c45)] px-4 py-3 font-semibold text-white shadow-[0_18px_36px_rgba(24,76,69,0.22)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_44px_rgba(24,76,69,0.28)]"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[linear-gradient(180deg,#23675d,#184c45)] px-4 py-3 font-semibold text-white shadow-[0_12px_26px_rgba(24,76,69,0.20)] transition hover:shadow-[0_15px_30px_rgba(24,76,69,0.24)]"
               >
                 Log in
                 <ArrowRight className="h-4 w-4" />
@@ -160,7 +160,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
       <section className="mx-auto max-w-7xl px-5 py-16 sm:px-6 lg:px-8 lg:py-24">
         <div className="max-w-3xl">
           <p className="text-sm font-semibold uppercase tracking-[0.26em] text-[#d7b878]">Platform</p>
-          <h2 className="mt-4 font-[var(--font-display)] text-4xl leading-tight text-white sm:text-5xl">
+          <h2 className="marketing-section-title mt-4 font-[var(--font-display)] text-white">
             Designed around the daily rhythm of rental operations.
           </h2>
         </div>
@@ -172,11 +172,11 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
               <section
                 key={section.id}
                 id={section.id}
-                className="scroll-mt-24 rounded-[30px] border border-white/10 bg-white/[0.035] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.18)] sm:p-6 lg:grid lg:grid-cols-[0.82fr_1.18fr] lg:gap-8 lg:p-8"
+                className="marketing-split scroll-mt-24 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-[0_20px_56px_rgba(0,0,0,0.16)] sm:p-6 lg:p-8"
               >
                 <div className="flex flex-col justify-between">
                   <div>
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-[#d7b878]">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-[#d7b878]">
                       <Icon className="h-5 w-5" />
                     </div>
                     <p className="mt-6 text-xs font-semibold uppercase tracking-[0.26em] text-white/40">{section.eyebrow}</p>
@@ -189,10 +189,10 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
                   </Link>
                 </div>
 
-                <div className="mt-8 rounded-[24px] border border-white/10 bg-[#0d1714] p-4 lg:mt-0">
-                  <div className="grid gap-3 sm:grid-cols-3">
+                <div className="mt-8 rounded-2xl border border-white/10 bg-[#0d1714] p-4 lg:mt-0">
+                  <div className="marketing-metric-grid">
                     {section.metrics.map((metric) => (
-                      <div key={metric} className="rounded-2xl border border-white/10 bg-white/[0.045] p-4">
+                      <div key={metric} className="rounded-xl border border-white/10 bg-white/[0.045] p-4">
                         <p className="text-xs uppercase tracking-[0.2em] text-white/[0.34]">Signal</p>
                         <p className="mt-3 text-lg font-semibold text-white">{metric}</p>
                       </div>
@@ -200,7 +200,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
                   </div>
                   <div className="mt-4 space-y-3">
                     {section.rows.map((row) => (
-                      <div key={row} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.035] px-4 py-3">
+                      <div key={row} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.035] px-4 py-3">
                         <div className="flex items-center gap-3">
                           <CheckCircle2 className="h-4 w-4 text-[#d7b878]" />
                           <span className="text-sm text-white/[0.76]">{row}</span>
@@ -217,13 +217,13 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
       </section>
 
       <section className="border-t border-white/10">
-        <div className="mx-auto grid max-w-7xl gap-6 px-5 py-14 sm:px-6 lg:grid-cols-3 lg:px-8">
+        <div className="marketing-feature-grid mx-auto max-w-7xl px-5 py-14 sm:px-6 lg:px-8">
           {[
             { title: "Role aware", body: "Manager, tenant, and admin paths stay separated.", Icon: ShieldCheck },
             { title: "Property centered", body: "Everything connects back to the unit and lease.", Icon: Home },
             { title: "AI assisted", body: "Assessment workflows help document damage faster.", Icon: Bot }
           ].map(({ title, body, Icon }) => (
-            <div key={title} className="rounded-3xl border border-white/10 bg-white/[0.035] p-6">
+            <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.035] p-6">
               <Icon className="h-5 w-5 text-[#d7b878]" />
               <h3 className="mt-5 text-lg font-semibold text-white">{title}</h3>
               <p className="mt-2 text-sm leading-6 text-white/[0.56]">{body}</p>

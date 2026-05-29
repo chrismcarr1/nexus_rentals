@@ -9,20 +9,28 @@ export function CashFlowChart({ data }: { data: Array<{ label: string; rent: num
         <AreaChart data={data}>
           <defs>
             <linearGradient id="rentColor" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="#184c45" stopOpacity={0.42} />
-              <stop offset="100%" stopColor="#184c45" stopOpacity={0} />
+              <stop offset="0%" stopColor="#0d8f7b" stopOpacity={0.3} />
+              <stop offset="100%" stopColor="#0d8f7b" stopOpacity={0} />
             </linearGradient>
             <linearGradient id="expenseColor" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="#b98b39" stopOpacity={0.38} />
-              <stop offset="100%" stopColor="#b98b39" stopOpacity={0} />
+              <stop offset="0%" stopColor="#315ccf" stopOpacity={0.22} />
+              <stop offset="100%" stopColor="#315ccf" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(24, 76, 69, 0.08)" />
-          <XAxis dataKey="label" stroke="#786f63" />
-          <YAxis stroke="#786f63" />
-          <Tooltip />
-          <Area type="monotone" dataKey="rent" stroke="#184c45" fill="url(#rentColor)" strokeWidth={2.5} />
-          <Area type="monotone" dataKey="expenses" stroke="#b98b39" fill="url(#expenseColor)" strokeWidth={2.5} />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(101, 117, 111, 0.16)" vertical={false} />
+          <XAxis dataKey="label" stroke="#65756f" tickLine={false} axisLine={false} />
+          <YAxis stroke="#65756f" tickLine={false} axisLine={false} width={42} />
+          <Tooltip
+            cursor={{ stroke: "rgba(13, 143, 123, 0.2)", strokeWidth: 1 }}
+            contentStyle={{
+              border: "1px solid #dde7e4",
+              borderRadius: 8,
+              boxShadow: "0 18px 38px rgba(20, 33, 30, 0.12)",
+              color: "#14211e"
+            }}
+          />
+          <Area type="monotone" dataKey="rent" stroke="#0d8f7b" fill="url(#rentColor)" strokeWidth={2.5} />
+          <Area type="monotone" dataKey="expenses" stroke="#315ccf" fill="url(#expenseColor)" strokeWidth={2.5} />
         </AreaChart>
       </ResponsiveContainer>
     </div>

@@ -48,6 +48,183 @@ export function getLeaseUnit(store: AppStore, lease: Lease) {
   return lease.unitId ? store.units.find((unit) => unit.id === lease.unitId) ?? null : null;
 }
 
+function getLeaseOrganizationId(store: AppStore, lease: Lease) {
+  const property = getLeaseProperty(store, lease);
+  return property?.organizationId ?? null;
+}
+
+function findTenantByEmail(store: AppStore, organizationId: string | null, email?: string | null) {
+  const normalized = normalizeEmail(email ?? "");
+  if (!normalized || !organizationId) return null;
+  return store.tenants.find((tenant) => tenant.organizationId === organizationId && normalizeEmail(tenant.email ?? "") === normalized) ?? null;
+}
+
+function findTenantUserByEmail(store: AppStore, organizationId: string | null, email?: string | null) {
+  const normalized = normalizeEmail(email ?? "");
+  if (!normalized || !organizationId) return null;
+  return store.users.find((user) => user.organizationId === organizationId && normalizeEmail(user.email) === normalized) ?? null;
+}
+
+function getCanonicalLeaseForUnit(store: AppStore, unitId?: string) {
+  if (!unitId) return null;
+  const candidates = store.leases
+    .filter((lease) => lease.unitId === unitId && isActiveLeaseStatus(lease.status))
+    .sort((a, b) => {
+      const aConnected = a.tenantUserId || a.tenantIds?.length ? 1 : 0;
+      const bConnected = b.tenantUserId || b.tenantIds?.length ? 1 : 0;
+      if (aConnected !== bConnected) return bConnected - aConnected;
+      return (b.startDate ?? b.createdAt ?? "").localeCompare(a.startDate ?? a.createdAt ?? "");
+    });
+  return candidates[0] ?? null;
+}
+
+export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
+  await updateStore((store) => {
+    const now = nowIso();
+    let changed = false;
+    const seenLeaseIds = new Set<string>();
+    const seenNexusIds = new Set<string>();
+    const leaseIdMap = new Map<string, string>();
+
+    const leases = store.leases.map((lease, index) => {
+      const originalId = lease.id;
+      let id = lease.id;
+      if (!id || seenLeaseIds.has(id)) {
+        id = createId("lease");
+        changed = true;
+      }
+      seenLeaseIds.add(id);
+      if (originalId && originalId !== id && !leaseIdMap.has(originalId)) {
+        leaseIdMap.set(originalId, id);
+      }
+
+      const unit = lease.unitId ? store.units.find((item) => item.id === lease.unitId) ?? null : null;
+      const property =
+        lease.propertyId
+          ? store.properties.find((item) => item.id === lease.propertyId) ?? null
+          : unit
+            ? store.properties.find((item) => item.id === unit.propertyId) ?? null
+            : null;
+
+      if (organizationId && property?.organizationId !== organizationId) {
+        return lease;
+      }
+
+      const tenantFromIds = (lease.tenantIds ?? [])
+        .map((tenantId) => store.tenants.find((tenant) => tenant.id === tenantId))
+        .find(Boolean) ?? null;
+      const tenantUser = lease.tenantUserId ? store.users.find((user) => user.id === lease.tenantUserId) ?? null : null;
+      const tenantEmail = normalizeEmail(lease.tenantEmail ?? tenantUser?.email ?? tenantFromIds?.email ?? "");
+      const organization = property?.organizationId ?? tenantFromIds?.organizationId ?? tenantUser?.organizationId ?? null;
+      const matchedTenant = findTenantByEmail(store, organization, tenantEmail);
+      const matchedTenantUser = findTenantUserByEmail(store, organization, tenantEmail);
+      const tenantIds = Array.from(new Set([...(lease.tenantIds ?? []), matchedTenant?.id].filter(Boolean) as string[]));
+
+      let nexusLeaseId = lease.nexusLeaseId;
+      if (!nexusLeaseId || seenNexusIds.has(nexusLeaseId)) {
+        nexusLeaseId = `NXR-${String(index + 1).padStart(5, "0")}`;
+        while (seenNexusIds.has(nexusLeaseId)) {
+          nexusLeaseId = `NXR-${String(seenNexusIds.size + 1).padStart(5, "0")}`;
+        }
+        changed = true;
+      }
+      seenNexusIds.add(nexusLeaseId);
+
+      const resolvedPropertyId = lease.propertyId ?? unit?.propertyId;
+      const resolvedManagerUserId = lease.managerUserId ?? property?.managerId;
+      const resolvedTenantUserId = lease.tenantUserId ?? matchedTenantUser?.id;
+      const resolvedTenantEmail = lease.tenantEmail ?? (tenantEmail || undefined);
+      const leaseChanged =
+        id !== lease.id ||
+        nexusLeaseId !== lease.nexusLeaseId ||
+        (lease.propertyId ?? undefined) !== resolvedPropertyId ||
+        (lease.managerUserId ?? undefined) !== resolvedManagerUserId ||
+        (lease.tenantUserId ?? undefined) !== resolvedTenantUserId ||
+        (lease.tenantEmail ?? undefined) !== resolvedTenantEmail ||
+        tenantIds.length !== (lease.tenantIds ?? []).length;
+
+      const next = {
+        ...lease,
+        id,
+        nexusLeaseId,
+        propertyId: resolvedPropertyId,
+        managerUserId: resolvedManagerUserId,
+        tenantUserId: resolvedTenantUserId,
+        tenantEmail: resolvedTenantEmail,
+        tenantIds,
+        updatedAt: leaseChanged ? now : lease.updatedAt
+      };
+
+      if (leaseChanged) changed = true;
+      return next;
+    });
+
+    const normalizedStore = { ...store, leases };
+
+    const properties = store.properties.map((property) => {
+      if (property.managerId) return property;
+      const lease = leases.find((item) => item.propertyId === property.id && item.managerUserId);
+      if (!lease?.managerUserId) return property;
+      changed = true;
+      return { ...property, managerId: lease.managerUserId, updatedAt: now };
+    });
+
+    const payments = store.payments.map((payment) => {
+      const mappedLeaseId = payment.leaseId ? leaseIdMap.get(payment.leaseId) ?? payment.leaseId : undefined;
+      const lease = mappedLeaseId ? leases.find((item) => item.id === mappedLeaseId) ?? null : getCanonicalLeaseForUnit(normalizedStore, payment.unitId);
+      if (!lease) return payment;
+      if (payment.leaseId === lease.id) return payment;
+      changed = true;
+      return { ...payment, leaseId: lease.id, updatedAt: now };
+    });
+
+    const inspections = store.inspections.map((inspection) => {
+      const mappedLeaseId = inspection.leaseId ? leaseIdMap.get(inspection.leaseId) ?? inspection.leaseId : undefined;
+      const lease = mappedLeaseId ? leases.find((item) => item.id === mappedLeaseId) ?? null : getCanonicalLeaseForUnit(normalizedStore, inspection.unitId);
+      if (!lease) return inspection;
+      if (inspection.leaseId === lease.id) return inspection;
+      changed = true;
+      return { ...inspection, leaseId: lease.id, updatedAt: now };
+    });
+
+    const tenantInvites = store.tenantInvites.map((invite) => {
+      const leaseId = leaseIdMap.get(invite.leaseId) ?? invite.leaseId;
+      const lease = leases.find((item) => item.id === leaseId);
+      const managerUserId = invite.managerUserId ?? lease?.managerUserId;
+      if (leaseId === invite.leaseId && managerUserId === invite.managerUserId) return invite;
+      changed = true;
+      return { ...invite, leaseId, managerUserId: managerUserId ?? invite.managerUserId, updatedAt: now };
+    });
+
+    const discussionThreads = store.discussionThreads.map((thread) => {
+      const leaseId = leaseIdMap.get(thread.leaseId) ?? thread.leaseId;
+      const lease = leases.find((item) => item.id === leaseId);
+      if (!lease) return thread;
+      const next = {
+        ...thread,
+        leaseId,
+        managerUserId: thread.managerUserId ?? lease.managerUserId,
+        tenantUserId: thread.tenantUserId ?? lease.tenantUserId,
+        propertyId: thread.propertyId ?? lease.propertyId,
+        unitId: thread.unitId ?? lease.unitId
+      };
+      if (
+        next.leaseId === thread.leaseId &&
+        next.managerUserId === thread.managerUserId &&
+        next.tenantUserId === thread.tenantUserId &&
+        next.propertyId === thread.propertyId &&
+        next.unitId === thread.unitId
+      ) {
+        return thread;
+      }
+      changed = true;
+      return { ...next, updatedAt: now };
+    });
+
+    return changed ? { ...store, properties, leases, payments, inspections, tenantInvites, discussionThreads } : store;
+  });
+}
+
 export function getLatestInviteForLease(store: AppStore, leaseId: string) {
   return [...store.tenantInvites]
     .filter((invite) => invite.leaseId === leaseId)
@@ -62,6 +239,7 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
 
   return {
     id: lease.id,
+    nexusLeaseId: lease.nexusLeaseId ?? lease.id,
     tenantEmail: lease.tenantEmail ?? "",
     tenantConnected: Boolean(lease.tenantUserId),
     property: property
@@ -99,12 +277,14 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
 }
 
 export async function getManagerLeaseRows(user: User) {
+  await ensureLeaseConnectionIntegrity(user.organizationId);
   const store = await readStore();
   const leases = store.leases.filter((lease) => userOwnsLease(store, user, lease));
   return leases.map((lease) => toSafeLeaseRow(store, lease)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function getTenantLeaseRows(user: User) {
+  await ensureLeaseConnectionIntegrity(user.organizationId);
   const store = await readStore();
   const leases = store.leases.filter((lease) => lease.tenantUserId === user.id);
   return leases.map((lease) => toSafeLeaseRow(store, lease)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -140,6 +320,7 @@ export async function createConnectedLease({
     const now = nowIso();
     lease = {
       id: createId("lease"),
+      nexusLeaseId: `NXR-${String(store.leases.length + 1).padStart(5, "0")}`,
       managerUserId: manager.id,
       tenantEmail: normalizeEmail(tenantEmail),
       propertyId,

@@ -88,8 +88,8 @@ export function FileUploader({
   }
 
   return (
-    <div className="rounded-[24px] border border-dashed border-[var(--line)] bg-white/50 p-4">
-      <label className="mb-3 flex cursor-pointer items-center justify-between rounded-2xl border border-[var(--line)] bg-white px-4 py-3 text-sm font-medium text-[var(--muted)]">
+    <div className="rounded-2xl border border-dashed border-[var(--line)] bg-white/50 p-4">
+      <label className="mb-3 flex cursor-pointer flex-col gap-2 rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm font-medium text-[var(--muted)] sm:flex-row sm:items-center sm:justify-between">
         <span className="inline-flex items-center gap-2">
           <Upload className="h-4 w-4" />
           {label}

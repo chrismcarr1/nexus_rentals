@@ -85,7 +85,7 @@ function hydrateUnitBare(store: AppStore, unit: any) {
 function hydratePayment(store: AppStore, payment: any) {
   const unit = store.units.find((item) => item.id === payment.unitId)!;
   return {
-    ...toDateFields(payment, ["dueDate", "paidDate", "createdAt", "updatedAt"]),
+    ...toDateFields(payment, ["dueDate", "paidDate", "stripePaidAt", "createdAt", "updatedAt"]),
     unit: hydrateUnitBare(store, unit),
     lease: payment.leaseId ? hydrateLease(store, store.leases.find((item) => item.id === payment.leaseId)!) : null
   };
@@ -393,6 +393,7 @@ export const db: any = {
     async create({ data }: any) {
       const lease = {
         id: createId("lease"),
+        nexusLeaseId: data.nexusLeaseId ?? createId("nxr").replace("nxr_", "NXR-"),
         tenantIds: data.tenants?.create ? [data.tenants.create.tenantId] : [],
         createdAt: nowIso(),
         updatedAt: nowIso(),
@@ -412,18 +413,18 @@ export const db: any = {
         return true;
       });
       items = sortItems(items, orderBy);
-      return items.map((item) => (include ? hydratePayment(store, item) : toDateFields(item, ["dueDate", "paidDate", "createdAt", "updatedAt"])));
+      return items.map((item) => (include ? hydratePayment(store, item) : toDateFields(item, ["dueDate", "paidDate", "stripePaidAt", "createdAt", "updatedAt"])));
     },
     async findFirst({ where, include }: any) {
       const store = await readStore();
       const item = store.payments.find((payment) => !where?.id || payment.id === where.id);
       if (!item) return null;
-      return include ? hydratePayment(store, item) : toDateFields(item, ["dueDate", "paidDate", "createdAt", "updatedAt"]);
+      return include ? hydratePayment(store, item) : toDateFields(item, ["dueDate", "paidDate", "stripePaidAt", "createdAt", "updatedAt"]);
     },
     async create({ data }: any) {
       const payment = { id: createId("payment"), createdAt: nowIso(), updatedAt: nowIso(), ...data };
       await updateStore((store) => ({ ...store, payments: [...store.payments, payment] }));
-      return toDateFields(payment, ["dueDate", "paidDate", "createdAt", "updatedAt"]);
+      return toDateFields(payment, ["dueDate", "paidDate", "stripePaidAt", "createdAt", "updatedAt"]);
     },
     async update({ where, data }: any) {
       let updated: any;
@@ -435,7 +436,7 @@ export const db: any = {
           return updated;
         })
       }));
-      return toDateFields(updated, ["dueDate", "paidDate", "createdAt", "updatedAt"]);
+      return toDateFields(updated, ["dueDate", "paidDate", "stripePaidAt", "createdAt", "updatedAt"]);
     }
   },
   expense: {
