@@ -1156,25 +1156,22 @@ export async function createStripeCheckoutAction(formData: FormData) {
           );
   const leaseId = lease?.id;
 
-  if (!leaseId) {
-    redirect("/transactions?stripe=missing-lease");
-  }
-
   const manager = getLeaseManager(portal, lease, payment);
-  if (!manager?.stripeConnectedAccountId) {
-    redirect("/transactions?stripe=manager-connect-required");
-  }
-
   let connectedManager = manager;
-  try {
-    connectedManager = await syncStripeConnectedAccount(manager);
-  } catch (error) {
-    console.error("[stripe] Failed to verify manager Connect account before checkout", error);
-    redirect("/transactions?stripe=checkout-error");
-  }
+  let stripeDestinationAccountId: string | undefined;
+  let applicationFeeAmountCents = 0;
 
-  if (!isStripeConnectReady(connectedManager)) {
-    redirect("/transactions?stripe=manager-connect-required");
+  if (manager?.stripeConnectedAccountId) {
+    try {
+      connectedManager = await syncStripeConnectedAccount(manager);
+    } catch (error) {
+      console.error("[stripe] Failed to verify manager Connect account before checkout; falling back to platform Checkout", error);
+    }
+
+    if (isStripeConnectReady(connectedManager)) {
+      stripeDestinationAccountId = connectedManager?.stripeConnectedAccountId;
+      applicationFeeAmountCents = NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS;
+    }
   }
 
   const amountDue = payment.balanceDue || payment.amount;
@@ -1182,31 +1179,24 @@ export async function createStripeCheckoutAction(formData: FormData) {
   if (!Number.isFinite(amountCents) || amountCents <= 0) {
     redirect("/transactions?stripe=invalid-amount");
   }
-  if (amountCents <= NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS) {
+  if (applicationFeeAmountCents > 0 && amountCents <= applicationFeeAmountCents) {
     redirect("/transactions?stripe=amount-below-platform-fee");
   }
 
   const paymentMonth = getPaymentMonth(payment.dueDate);
   const appUrl = await getAppOrigin();
 
-  if (!payment.leaseId) {
-    await db.payment.update({
-      where: { id: payment.id },
-      data: {
-        leaseId,
-        stripeDestinationAccountId: connectedManager.stripeConnectedAccountId,
-        stripeApplicationFeeAmountCents: NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS
-      }
-    });
-  } else if (
-    payment.stripeDestinationAccountId !== connectedManager.stripeConnectedAccountId ||
-    payment.stripeApplicationFeeAmountCents !== NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS
+  if (
+    (!payment.leaseId && leaseId) ||
+    payment.stripeDestinationAccountId !== stripeDestinationAccountId ||
+    payment.stripeApplicationFeeAmountCents !== applicationFeeAmountCents
   ) {
     await db.payment.update({
       where: { id: payment.id },
       data: {
-        stripeDestinationAccountId: connectedManager.stripeConnectedAccountId,
-        stripeApplicationFeeAmountCents: NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS
+        ...(!payment.leaseId && leaseId ? { leaseId } : {}),
+        stripeDestinationAccountId,
+        stripeApplicationFeeAmountCents: applicationFeeAmountCents
       }
     });
   }
@@ -1217,16 +1207,24 @@ export async function createStripeCheckoutAction(formData: FormData) {
     paymentId: payment.id,
     userId: user.id,
     tenantId: portal.currentTenant?.id ?? "",
-    managerUserId: connectedManager.id,
-    stripeDestinationAccountId: connectedManager.stripeConnectedAccountId ?? "",
-    applicationFeeAmountCents: String(NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS),
-    leaseId,
+    managerUserId: connectedManager?.id ?? "",
+    stripeDestinationAccountId: stripeDestinationAccountId ?? "",
+    applicationFeeAmountCents: String(applicationFeeAmountCents),
+    leaseId: leaseId ?? "",
     unitId: payment.unitId,
     paymentMonth,
     amountCents: String(amountCents)
   };
 
   let sessionUrl: string | null = null;
+  const paymentIntentData: any = { metadata };
+
+  if (stripeDestinationAccountId) {
+    paymentIntentData.application_fee_amount = applicationFeeAmountCents;
+    paymentIntentData.transfer_data = {
+      destination: stripeDestinationAccountId
+    };
+  }
 
   try {
     const session = await getStripe().checkout.sessions.create({
@@ -1247,13 +1245,7 @@ export async function createStripeCheckoutAction(formData: FormData) {
         }
       ],
       metadata,
-      payment_intent_data: {
-        application_fee_amount: NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS,
-        metadata,
-        transfer_data: {
-          destination: connectedManager.stripeConnectedAccountId
-        }
-      },
+      payment_intent_data: paymentIntentData,
       success_url: `${appUrl}/transactions?stripe=success&payment=${encodeURIComponent(payment.id)}`,
       cancel_url: `${appUrl}/transactions?stripe=cancelled&payment=${encodeURIComponent(payment.id)}`
     });

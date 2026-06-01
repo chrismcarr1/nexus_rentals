@@ -56,7 +56,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCr
       amountPaid: amountPaidCents > 0 ? amountPaidCents / 100 : payment.amount,
       stripeCheckoutSessionId: session.id,
       stripePaymentIntentId: getPaymentIntentId(session),
-      stripeDestinationAccountId: session.metadata?.stripeDestinationAccountId,
+      stripeDestinationAccountId: session.metadata?.stripeDestinationAccountId || undefined,
       stripeApplicationFeeAmountCents: applicationFeeAmountCents,
       stripeAmountPaidCents: amountPaidCents,
       stripePaidAt: paidAt
