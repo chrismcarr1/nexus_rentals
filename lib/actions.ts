@@ -111,6 +111,10 @@ function getLeaseManager(portal: Awaited<ReturnType<typeof getPortalContext>>, l
   return candidates.find((candidate) => candidate.id === managerId) ?? candidates.find((candidate) => candidate.role === UserRole.MANAGER) ?? null;
 }
 
+function isStripeConnectSignupError(error: unknown) {
+  return error instanceof Error && error.message.includes("signed up for Connect");
+}
+
 export async function connectStripeAccountAction() {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const appUrl = await getAppOrigin();
@@ -134,6 +138,9 @@ export async function connectStripeAccountAction() {
     accountLinkUrl = accountLink.url;
   } catch (error) {
     console.error("[stripe] Failed to start manager Connect onboarding", error);
+    if (isStripeConnectSignupError(error)) {
+      redirect("/transactions?stripe=connect-not-enabled");
+    }
     redirect("/transactions?stripe=connect-error");
   }
 

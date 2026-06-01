@@ -1,4 +1,5 @@
 import { AlertTriangle, CreditCard, ExternalLink, Link2, LockKeyhole, RefreshCw, Send, Settings2, ShieldCheck } from "lucide-react";
+import { headers } from "next/headers";
 
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
@@ -37,9 +38,21 @@ function stripeStatusMessage(status?: string) {
   if (status === "connect-required") return "Set up Stripe payouts before tenants can pay rent online.";
   if (status === "manager-connect-required") return "This rent payment is ready, but the manager needs to finish Stripe payout setup first.";
   if (status === "connect-refreshed") return "Stripe payout status was refreshed.";
+  if (status === "connect-not-enabled") return "This Stripe account has not been enabled for Connect yet. Sign up for Connect in Stripe, then try payout setup again.";
   if (status === "connect-error") return "Stripe payout setup could not be opened or refreshed. Check your Stripe keys and try again.";
   if (status) return "Stripe checkout could not continue for this payment.";
   return null;
+}
+
+async function getSetupPanelAppUrl() {
+  const headerStore = await headers();
+  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
+  const proto = headerStore.get("x-forwarded-proto") ?? "http";
+  const headerOrigin = host ? `${proto}://${host}` : null;
+  const configuredOrigin = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL)?.replace(/\/$/, "");
+
+  if (process.env.NODE_ENV === "production" && configuredOrigin) return configuredOrigin;
+  return headerOrigin ?? configuredOrigin ?? "http://localhost:3000";
 }
 
 export default async function TransactionsPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
@@ -51,11 +64,11 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const unpaidPayments = portal.scope.payments.filter((payment) => payment.status !== "PAID");
   const stripePayments = portal.scope.payments.filter((payment) => payment.stripeCheckoutSessionId);
   const nextPaymentAmount = portal.nextPayment ? portal.nextPayment.balanceDue || portal.nextPayment.amount : 0;
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const appUrl = await getSetupPanelAppUrl();
   const stripeSetup = {
     secretKey: Boolean(process.env.STRIPE_SECRET_KEY),
     webhookSecret: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
-    appUrl: Boolean(process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL),
+    appUrl: Boolean(appUrl),
     webhookUrl: `${appUrl}/api/stripe/webhook`
   };
   const stripeReady = stripeSetup.secretKey && stripeSetup.webhookSecret && stripeSetup.appUrl;
