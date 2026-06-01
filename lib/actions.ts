@@ -20,7 +20,7 @@ import { sendPasswordResetEmail } from "@/lib/email";
 import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { FileKind, UserRole, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
-import { getStripe } from "@/lib/stripe";
+import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe } from "@/lib/stripe";
 import { createStripeExpressAccount, isStripeConnectReady, syncStripeConnectedAccount } from "@/lib/stripe-connect";
 import {
   damageAssessmentSchema,
@@ -1175,6 +1175,9 @@ export async function createStripeCheckoutAction(formData: FormData) {
   if (!Number.isFinite(amountCents) || amountCents <= 0) {
     redirect("/transactions?stripe=invalid-amount");
   }
+  if (amountCents <= NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS) {
+    redirect("/transactions?stripe=amount-below-platform-fee");
+  }
 
   const paymentMonth = getPaymentMonth(payment.dueDate);
   const appUrl = await getAppOrigin();
@@ -1182,12 +1185,22 @@ export async function createStripeCheckoutAction(formData: FormData) {
   if (!payment.leaseId) {
     await db.payment.update({
       where: { id: payment.id },
-      data: { leaseId, stripeDestinationAccountId: connectedManager.stripeConnectedAccountId }
+      data: {
+        leaseId,
+        stripeDestinationAccountId: connectedManager.stripeConnectedAccountId,
+        stripeApplicationFeeAmountCents: NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS
+      }
     });
-  } else if (payment.stripeDestinationAccountId !== connectedManager.stripeConnectedAccountId) {
+  } else if (
+    payment.stripeDestinationAccountId !== connectedManager.stripeConnectedAccountId ||
+    payment.stripeApplicationFeeAmountCents !== NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS
+  ) {
     await db.payment.update({
       where: { id: payment.id },
-      data: { stripeDestinationAccountId: connectedManager.stripeConnectedAccountId }
+      data: {
+        stripeDestinationAccountId: connectedManager.stripeConnectedAccountId,
+        stripeApplicationFeeAmountCents: NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS
+      }
     });
   }
 
@@ -1199,6 +1212,7 @@ export async function createStripeCheckoutAction(formData: FormData) {
     tenantId: portal.currentTenant?.id ?? "",
     managerUserId: connectedManager.id,
     stripeDestinationAccountId: connectedManager.stripeConnectedAccountId ?? "",
+    applicationFeeAmountCents: String(NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS),
     leaseId,
     unitId: payment.unitId,
     paymentMonth,
@@ -1227,6 +1241,7 @@ export async function createStripeCheckoutAction(formData: FormData) {
       ],
       metadata,
       payment_intent_data: {
+        application_fee_amount: NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS,
         metadata,
         transfer_data: {
           destination: connectedManager.stripeConnectedAccountId

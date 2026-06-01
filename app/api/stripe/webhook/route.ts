@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
-import { getStripe, getStripeWebhookSecret } from "@/lib/stripe";
+import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe, getStripeWebhookSecret } from "@/lib/stripe";
 
 export const runtime = "nodejs";
 
@@ -38,6 +38,12 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCr
   if (session.metadata?.amountCents && Number(session.metadata.amountCents) !== amountPaidCents) {
     throw new Error(`Stripe session ${session.id} amount does not match payment ${paymentId}.`);
   }
+  const metadataApplicationFeeAmountCents = session.metadata?.applicationFeeAmountCents
+    ? Number(session.metadata.applicationFeeAmountCents)
+    : NaN;
+  const applicationFeeAmountCents = Number.isFinite(metadataApplicationFeeAmountCents)
+    ? metadataApplicationFeeAmountCents
+    : NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS;
 
   const paidAt = new Date(eventCreated * 1000);
 
@@ -51,6 +57,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCr
       stripeCheckoutSessionId: session.id,
       stripePaymentIntentId: getPaymentIntentId(session),
       stripeDestinationAccountId: session.metadata?.stripeDestinationAccountId,
+      stripeApplicationFeeAmountCents: applicationFeeAmountCents,
       stripeAmountPaidCents: amountPaidCents,
       stripePaidAt: paidAt
     }
@@ -80,7 +87,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (event.type === "checkout.session.completed") {
+    if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const result = await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session, event.created);
       return Response.json({ received: true, ...result });
     }

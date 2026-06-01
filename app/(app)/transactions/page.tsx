@@ -25,6 +25,7 @@ function stripeStatusMessage(status?: string) {
   if (status === "already-paid") return "That rent payment is already marked paid.";
   if (status === "missing-lease") return "This rent charge is not connected to an active lease. Ask your manager to link the charge to your lease or unit.";
   if (status === "invalid-amount") return "This rent charge has no payable balance.";
+  if (status === "amount-below-platform-fee") return "Stripe checkout requires the rent balance to be greater than the $1 Nexus platform fee.";
   if (status === "checkout-error") return "Stripe checkout could not be started. Please try again or contact management.";
   if (status === "missing-session-url") return "Stripe did not return a checkout link. Please try again.";
   if (status === "payment-linked") return "Rent charge saved and linked to the active lease for that unit.";
@@ -195,7 +196,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
               </div>
               <h2 className="mt-2 text-xl font-semibold text-[var(--text)]">Stripe payout portal and rent requests</h2>
               <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-                Connect the manager Stripe account for bank payouts, link rent charges to leases, then tenants can pay directly from their portal.
+                Connect the manager Stripe account for bank payouts, link rent charges to leases, then tenant Checkout routes rent to the manager while Nexus keeps a $1 platform fee.
               </p>
               <div className="mt-4 grid gap-2 text-sm text-[var(--muted)] sm:grid-cols-3">
                 <div className="panel-muted p-3">

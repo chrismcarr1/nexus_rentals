@@ -2,6 +2,8 @@ import "server-only";
 
 import Stripe from "stripe";
 
+export const NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS = 100;
+
 let stripeClient: Stripe | null = null;
 
 export function getStripe() {

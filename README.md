@@ -94,6 +94,10 @@ Copy `.env.example` to `.env.local` and use:
 DATABASE_URL="postgresql://user:password@host/db?sslmode=require"
 AUTH_SECRET="change-this-to-a-long-random-string"
 APP_URL="http://localhost:3000"
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=""
+STRIPE_SECRET_KEY=""
+STRIPE_WEBHOOK_SECRET=""
 BLOB_READ_WRITE_TOKEN=""
 RESEND_API_KEY=""
 RESET_EMAIL_FROM="Nexus Rentals <no-reply@yourdomain.com>"
@@ -102,6 +106,8 @@ RESET_EMAIL_FROM="Nexus Rentals <no-reply@yourdomain.com>"
 `DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `BLOB_READ_WRITE_TOKEN` is optional for local development, where uploads fall back to `public/uploads`, but it is required in Vercel production for persistent photos and documents.
 
 Tenant invite emails require `RESEND_API_KEY` and `RESET_EMAIL_FROM`. Invite tokens are stored only as SHA-256 hashes in the hosted datastore; the raw token appears only in the tenant email link.
+
+Stripe rent checkout uses Connect destination charges. Tenant payments are created from the Nexus platform account, routed to the manager's connected Stripe account with `transfer_data.destination`, and include a fixed $1 Nexus platform fee through `application_fee_amount`.
 
 ## Setup
 

@@ -107,6 +107,7 @@ export type Payment = {
   stripeCheckoutSessionId?: string;
   stripePaymentIntentId?: string;
   stripeDestinationAccountId?: string;
+  stripeApplicationFeeAmountCents?: number;
   stripeAmountPaidCents?: number;
   stripePaidAt?: string;
   createdAt: string;
