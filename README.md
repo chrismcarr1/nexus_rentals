@@ -98,6 +98,8 @@ NEXT_PUBLIC_APP_URL="http://localhost:3000"
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=""
 STRIPE_SECRET_KEY=""
 STRIPE_WEBHOOK_SECRET=""
+OPENAI_API_KEY=""
+OPENAI_MAINTENANCE_MODEL="gpt-5.5"
 BLOB_READ_WRITE_TOKEN=""
 RESEND_API_KEY=""
 RESET_EMAIL_FROM="Nexus Rentals <no-reply@yourdomain.com>"
@@ -108,6 +110,8 @@ RESET_EMAIL_FROM="Nexus Rentals <no-reply@yourdomain.com>"
 Tenant invite emails require `RESEND_API_KEY` and `RESET_EMAIL_FROM`. Invite tokens are stored only as SHA-256 hashes in the hosted datastore; the raw token appears only in the tenant email link.
 
 Stripe rent checkout uses Connect destination charges. Tenant payments are created from the Nexus platform account, routed to the manager's connected Stripe account with `transfer_data.destination`, and include a fixed $1 Nexus platform fee through `application_fee_amount`.
+
+AI photo maintenance drafting uses OpenAI's Responses API with image inputs. Add `OPENAI_API_KEY` locally and in Vercel; `OPENAI_MAINTENANCE_MODEL` is optional and defaults to `gpt-5.5`.
 
 ## Setup
 
@@ -171,6 +175,18 @@ RESEND_API_KEY
 RESET_EMAIL_FROM
 ```
 
+Required Vercel environment variable for AI photo maintenance drafting:
+
+```text
+OPENAI_API_KEY
+```
+
+Optional AI model override:
+
+```text
+OPENAI_MAINTENANCE_MODEL
+```
+
 Recommended setup:
 
 1. Create or attach a hosted Postgres database, such as Vercel Postgres or Neon.
@@ -179,9 +195,10 @@ Recommended setup:
 4. Set `APP_URL` to the deployed Vercel URL.
 5. Attach Vercel Blob and add `BLOB_READ_WRITE_TOKEN` so production uploads persist.
 6. Configure Resend and add `RESEND_API_KEY` plus `RESET_EMAIL_FROM` so tenant invites can be delivered.
-7. Run `npm run db:migrate` against the production database to create the table.
-8. Run `npm run db:setup` once if you want the seeded demo accounts and data in production.
-9. Deploy normally with Vercel. The project declares Node `22.x` in `package.json`.
+7. Add `OPENAI_API_KEY` so AI photo maintenance drafting can analyze uploaded images.
+8. Run `npm run db:migrate` against the production database to create the table.
+9. Run `npm run db:setup` once if you want the seeded demo accounts and data in production.
+10. Deploy normally with Vercel. The project declares Node `22.x` in `package.json`.
 
 ## Key Pages
 

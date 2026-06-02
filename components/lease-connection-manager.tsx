@@ -1,6 +1,19 @@
 "use client";
 
-import { Ban, Copy, Mail, Plus, RefreshCw } from "lucide-react";
+import {
+  Ban,
+  Building2,
+  CalendarClock,
+  CheckCircle2,
+  Copy,
+  FileText,
+  Home,
+  Mail,
+  Plus,
+  RefreshCw,
+  UserCheck,
+  type LucideIcon
+} from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { useMemo, useState } from "react";
 
@@ -10,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 type PropertyOption = {
   id: string;
@@ -81,21 +95,86 @@ function humanizeStatus(value: string) {
     .join(" ");
 }
 
-function StatusMetric({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2.5">
-      <p className="text-[11px] font-medium text-[var(--muted)]">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-[var(--text)]">{value}</p>
-    </div>
-  );
+function daysUntil(value: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return Math.ceil((date.getTime() - today.getTime()) / 86_400_000);
+}
+
+function formatTerm(lease: LeaseRow) {
+  return `${formatDate(lease.startDate)} to ${formatDate(lease.endDate)}`;
 }
 
 function FieldLabel({ children, hint }: { children: ReactNode; hint?: string }) {
   return (
-    <span className="mb-2 flex items-center justify-between gap-3 text-sm font-medium text-[var(--text)]">
+    <span className="mb-2 flex items-center justify-between gap-3 text-sm font-semibold text-[var(--text)]">
       <span>{children}</span>
-      {hint ? <span className="text-xs font-normal text-[var(--muted)]">{hint}</span> : null}
+      {hint ? <span className="text-xs font-medium text-[var(--muted)]">{hint}</span> : null}
     </span>
+  );
+}
+
+function MetricTile({
+  label,
+  value,
+  detail,
+  Icon,
+  tone = "brand"
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+  Icon: LucideIcon;
+  tone?: "brand" | "blue" | "success" | "warning";
+}) {
+  return (
+    <div className="min-w-0 rounded-md border border-[var(--line)] bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
+          <p className="mt-2 text-2xl font-semibold text-[var(--text)]">{value}</p>
+        </div>
+        <span
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-md border",
+            tone === "brand" && "border-[rgba(13,143,123,0.18)] bg-[var(--accent-soft)] text-[var(--brand)]",
+            tone === "blue" && "border-[rgba(49,92,207,0.16)] bg-[var(--accent-blue)] text-[var(--brand-2)]",
+            tone === "success" && "border-emerald-600/15 bg-emerald-600/10 text-emerald-700",
+            tone === "warning" && "border-amber-600/18 bg-amber-500/12 text-amber-800"
+          )}
+        >
+          <Icon className="h-4 w-4" />
+        </span>
+      </div>
+      <p className="mt-3 text-sm leading-5 text-[var(--muted)]">{detail}</p>
+    </div>
+  );
+}
+
+function Notice({ tone, children }: { tone: "success" | "danger"; children: ReactNode }) {
+  return (
+    <p
+      className={cn(
+        "rounded-md border px-4 py-3 text-sm",
+        tone === "success" && "border-emerald-600/15 bg-emerald-600/10 text-emerald-800",
+        tone === "danger" && "border-red-600/15 bg-red-600/10 text-red-700"
+      )}
+    >
+      {children}
+    </p>
+  );
+}
+
+function InfoLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-[var(--text)]">{value}</p>
+    </div>
   );
 }
 
@@ -125,12 +204,34 @@ export function LeaseConnectionManager({
 
   const propertyUnits = useMemo(() => units.filter((unit) => unit.propertyId === selectedPropertyId), [selectedPropertyId, units]);
   const selectedProperty = useMemo(() => properties.find((property) => property.id === selectedPropertyId) ?? null, [properties, selectedPropertyId]);
+  const pendingInvites = leases.filter((lease) => lease.inviteStatus === "pending").length;
+  const connectedTenants = leases.filter((lease) => lease.tenantConnected).length;
+  const activeLeases = leases.filter((lease) => lease.status === "active").length;
+  const endingSoon = leases.filter((lease) => {
+    const days = daysUntil(lease.endDate);
+    return lease.status === "active" && days != null && days >= 0 && days <= 60;
+  }).length;
 
   async function refreshLeases() {
     const response = await fetch("/api/leases/manager", { cache: "no-store" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "Could not refresh leases.");
     setLeases(payload.leases ?? []);
+  }
+
+  async function refreshWithFeedback() {
+    setError("");
+    setMessage("");
+    setPendingAction("refresh");
+
+    try {
+      await refreshLeases();
+      setMessage("Lease board refreshed.");
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : "Could not refresh leases.");
+    } finally {
+      setPendingAction("");
+    }
   }
 
   async function createLease(event: FormEvent<HTMLFormElement>) {
@@ -231,68 +332,76 @@ export function LeaseConnectionManager({
     }
   }
 
-  const pendingInvites = leases.filter((lease) => lease.inviteStatus === "pending").length;
-  const connectedTenants = leases.filter((lease) => lease.tenantConnected).length;
-  const activeLeases = leases.filter((lease) => lease.status === "active").length;
-
   return (
     <div className="space-y-4">
-      <Card className="p-5">
-        <div className="flex flex-col items-stretch gap-4">
-          <SectionHeader
-            eyebrow="Workspace status"
-            title="Tenant invite pipeline"
-            description="Keep lease records, delivery fallbacks, and account connections visible without leaving this workspace."
-            className="flex-1"
-          />
-          <div className="grid w-full grid-cols-1 gap-2">
-            <StatusMetric label="Leases" value={leases.length} />
-            <StatusMetric label="Invites" value={pendingInvites} />
-            <StatusMetric label="Connections" value={connectedTenants} />
+      <Card className="overflow-hidden">
+        <div className="border-b border-[rgba(13,143,123,0.18)] bg-[var(--accent-soft)] p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <SectionHeader
+              eyebrow="Lease command center"
+              title="Portfolio lease board"
+              description="Create lease records, send tenant invites, and watch account connections from one focused workspace."
+            />
+            <Button type="button" variant="secondary" className="w-full md:w-auto" disabled={pendingAction === "refresh"} onClick={() => void refreshWithFeedback()}>
+              <RefreshCw className={cn("h-4 w-4", pendingAction === "refresh" && "animate-spin")} />
+              {pendingAction === "refresh" ? "Refreshing" : "Refresh"}
+            </Button>
           </div>
         </div>
-
-        {error || message ? (
-          <div className="mt-4 grid gap-2">
-            {error ? <p className="rounded-md border border-red-300/20 bg-red-400/10 px-3 py-2.5 text-sm text-red-200">{error}</p> : null}
-            {message ? <p className="rounded-md border border-emerald-300/20 bg-emerald-400/10 px-3 py-2.5 text-sm text-emerald-200">{message}</p> : null}
-          </div>
-        ) : null}
-
-        {manualInviteUrl ? (
-          <div className="mt-4 rounded-md border border-[var(--line)] bg-[var(--panel)] p-3">
-            <div className="flex flex-col items-stretch gap-2">
-              <div>
-                <p className="text-sm font-semibold text-[var(--text)]">Manual invite link</p>
-                <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Email delivery is unavailable. Copy this secure link and send it to the tenant directly.</p>
-              </div>
-              <Badge>Delivery fallback</Badge>
-            </div>
-            <div className="mt-3 flex flex-col gap-2">
-              <Input readOnly value={manualInviteUrl} className="font-mono text-xs" />
-              <Button type="button" variant="secondary" className="gap-2" onClick={() => void copyManualInviteLink()}>
-                <Copy className="h-4 w-4" />
-                Copy link
-              </Button>
-            </div>
-          </div>
-        ) : null}
+        <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricTile label="Leases" value={leases.length} detail="Total lease records in scope" Icon={FileText} />
+          <MetricTile label="Active" value={activeLeases} detail="Tenancies currently connected to operations" Icon={Home} tone="success" />
+          <MetricTile label="Pending invites" value={pendingInvites} detail="Tenants still need to accept access" Icon={Mail} tone="warning" />
+          <MetricTile label="Renewal watch" value={endingSoon} detail="Active leases ending within 60 days" Icon={CalendarClock} tone="blue" />
+        </div>
       </Card>
 
-      <div className="content-split">
-        <Card className="p-6">
+      {error || message ? (
+        <div className="grid gap-2">
+          {error ? <Notice tone="danger">{error}</Notice> : null}
+          {message ? <Notice tone="success">{message}</Notice> : null}
+        </div>
+      ) : null}
+
+      {manualInviteUrl ? (
+        <Card className="p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="section-kicker">Delivery fallback</p>
+              <h2 className="mt-2 text-xl font-semibold text-[var(--text)]">Manual invite link</h2>
+              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                Email delivery is unavailable. Copy this secure link and send it to the tenant directly.
+              </p>
+            </div>
+            <Badge tone="warning">Copy required</Badge>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <Input readOnly value={manualInviteUrl} className="font-mono text-xs" />
+            <Button type="button" variant="secondary" onClick={() => void copyManualInviteLink()}>
+              <Copy className="h-4 w-4" />
+              Copy link
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">
+        <Card className="p-5">
           <SectionHeader
             eyebrow="Create lease"
             title="New tenant connection"
-            description="Select the property context, add the tenant email, and create the lease record before sending the invite."
+            description="Choose the property, enter the tenant email, then create the record before sending access."
           />
           {!properties.length ? (
-            <div className="mt-5 rounded-md border border-dashed border-[var(--line-strong)] bg-[var(--panel)] p-6 text-center">
-              <h3 className="text-base font-semibold text-[var(--text)]">Add a property first</h3>
-              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[var(--muted)]">Create or assign a property to your manager account before inviting tenants.</p>
+            <div className="mt-5 rounded-md border border-dashed border-[var(--line-strong)] bg-[var(--surface)] p-6 text-center">
+              <Building2 className="mx-auto h-6 w-6 text-[var(--brand)]" />
+              <h3 className="mt-3 text-base font-semibold text-[var(--text)]">Add a property first</h3>
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[var(--muted)]">
+                Create or assign a property to your manager account before inviting tenants.
+              </p>
             </div>
           ) : (
-            <form onSubmit={(event) => void createLease(event)} className="mt-6 space-y-5">
+            <form onSubmit={(event) => void createLease(event)} className="mt-5 space-y-4">
               <label className="block">
                 <FieldLabel>Property</FieldLabel>
                 <Select
@@ -310,13 +419,13 @@ export function LeaseConnectionManager({
                   ))}
                 </Select>
                 {selectedProperty ? (
-                  <span className="mt-2 block rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-xs leading-5 text-[var(--muted)]">
+                  <span className="mt-2 block rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-xs leading-5 text-[var(--muted)]">
                     {selectedProperty.formattedAddress}
                   </span>
                 ) : null}
               </label>
 
-              <div className="form-grid-2">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                 <label className="block">
                   <FieldLabel hint="Optional">Unit</FieldLabel>
                   <Select value={form.unitId} onChange={(event) => setForm((current) => ({ ...current, unitId: event.target.value }))}>
@@ -340,7 +449,7 @@ export function LeaseConnectionManager({
                 </label>
               </div>
 
-              <div className="form-grid-2">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                 <label className="block">
                   <FieldLabel hint="Optional">Start date</FieldLabel>
                   <Input type="date" value={form.startDate} onChange={(event) => setForm((current) => ({ ...current, startDate: event.target.value }))} />
@@ -351,7 +460,7 @@ export function LeaseConnectionManager({
                 </label>
               </div>
 
-              <div className="form-grid-2">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                 <label className="block">
                   <FieldLabel hint="Optional">Monthly rent</FieldLabel>
                   <Input
@@ -376,9 +485,9 @@ export function LeaseConnectionManager({
                 </label>
               </div>
 
-              <div className="flex flex-col items-stretch gap-3 border-t border-[var(--line)] pt-5">
-                <p className="text-xs leading-5 text-[var(--muted)]">After creation, send or resend the tenant invite from the operations table.</p>
-                <Button type="submit" disabled={pendingAction === "create"} className="gap-2">
+              <div className="border-t border-[var(--line)] pt-4">
+                <p className="text-xs leading-5 text-[var(--muted)]">Create the record first. Invite actions appear on each lease row.</p>
+                <Button type="submit" disabled={pendingAction === "create"} className="mt-3 w-full">
                   <Plus className="h-4 w-4" />
                   {pendingAction === "create" ? "Creating..." : "Create lease"}
                 </Button>
@@ -387,91 +496,98 @@ export function LeaseConnectionManager({
           )}
         </Card>
 
-        <Card className="overflow-hidden p-0">
-          <div className="border-b border-[var(--line)] p-6">
+        <Card className="overflow-hidden">
+          <div className="border-b border-[var(--line)] p-5">
             <SectionHeader
-              eyebrow="Tenant connections"
-              title="Leases and invites"
-              description={`${activeLeases} active leases, ${pendingInvites} pending invites, and ${connectedTenants} connected tenants.`}
-              actions={
-                <Button type="button" variant="secondary" className="gap-2" onClick={() => void refreshLeases()}>
-                  <RefreshCw className="h-4 w-4" />
-                  Refresh
-                </Button>
-              }
+              eyebrow="Lease records"
+              title="Connections and invite status"
+              description={`${connectedTenants} connected tenants, ${pendingInvites} pending invites, ${endingSoon} renewals to watch.`}
             />
           </div>
 
           {leases.length ? (
-            <div className="data-table-scroll">
-              <table className="responsive-table min-w-[58rem] text-left text-sm">
-                <thead className="border-b border-[var(--line)] bg-[var(--panel)] text-[11px] uppercase tracking-[0.16em] text-[var(--muted)]">
-                  <tr>
-                    <th className="px-5 py-3 font-semibold">Tenant</th>
-                    <th className="px-5 py-3 font-semibold">Lease ID</th>
-                    <th className="px-5 py-3 font-semibold">Property</th>
-                    <th className="px-5 py-3 font-semibold">Status</th>
-                    <th className="px-5 py-3 font-semibold">Term</th>
-                    <th className="px-5 py-3 font-semibold">Rent</th>
-                    <th className="px-5 py-3 font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--line)]">
-                  {leases.map((lease) => {
-                    const canSend = lease.inviteStatus !== "accepted" && lease.status !== "active";
-                    const canRevoke = lease.inviteStatus === "pending";
+            <div className="divide-y divide-[var(--line)]">
+              {leases.map((lease) => {
+                const canSend = lease.inviteStatus !== "accepted" && lease.status !== "active";
+                const canRevoke = lease.inviteStatus === "pending";
+                const daysLeft = daysUntil(lease.endDate);
 
-                    return (
-                      <tr key={lease.id} className="align-top transition hover:bg-[var(--panel)]">
-                        <td className="px-5 py-4">
-                          <p className="font-semibold text-[var(--text)]">{lease.tenantEmail}</p>
-                          <p className="mt-1 text-xs text-[var(--muted)]">{lease.tenantConnected ? "Connected tenant" : "Not connected yet"}</p>
-                        </td>
-                        <td className="px-5 py-4">
-                          <p className="font-mono text-xs font-semibold text-[var(--text)]">{lease.nexusLeaseId ?? lease.id}</p>
-                        </td>
-                        <td className="px-5 py-4">
-                          <p className="font-semibold text-[var(--text)]">{lease.property?.name ?? "Property"}</p>
-                          <p className="mt-1 text-xs text-[var(--muted)]">{lease.unit?.unitNumber ? `Unit ${lease.unit.unitNumber}` : "No unit assigned"}</p>
-                          <p className="mt-1 max-w-xs text-xs leading-5 text-[var(--muted)]">{lease.formattedAddress}</p>
-                        </td>
-                        <td className="px-5 py-4">
-                          <div className="flex flex-wrap gap-2">
-                            <Badge tone={leaseTone(lease.status)}>{humanizeStatus(lease.status)}</Badge>
-                            <Badge tone={inviteTone(lease.inviteStatus)}>{humanizeStatus(lease.inviteStatus)}</Badge>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 text-[var(--muted)]">
-                          {formatDate(lease.startDate)} to {formatDate(lease.endDate)}
-                        </td>
-                        <td className="px-5 py-4 font-semibold text-[var(--text)]">{formatCurrency(lease.monthlyRent)}</td>
-                        <td className="px-5 py-4">
-                          <div className="flex flex-wrap gap-2">
-                            {canSend ? (
-                              <Button type="button" variant="secondary" className="min-h-9 gap-2 px-3 py-1.5" disabled={pendingAction === `send-${lease.id}`} onClick={() => void sendInvite(lease.id)}>
-                                <Mail className="h-4 w-4" />
-                                {lease.inviteStatus === "not sent" ? "Send" : "Resend"}
-                              </Button>
-                            ) : null}
-                            {canRevoke ? (
-                              <Button type="button" variant="ghost" className="min-h-9 gap-2 px-3 py-1.5" disabled={pendingAction === `revoke-${lease.id}`} onClick={() => void revokeInvite(lease.id)}>
-                                <Ban className="h-4 w-4" />
-                                Revoke
-                              </Button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                return (
+                  <article key={lease.id} className="bg-white p-5 transition hover:bg-[var(--surface)]">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-md border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 font-mono text-xs font-semibold text-[var(--muted-strong)]">
+                            {lease.nexusLeaseId ?? lease.id}
+                          </span>
+                          <Badge tone={leaseTone(lease.status)}>{humanizeStatus(lease.status)}</Badge>
+                          <Badge tone={inviteTone(lease.inviteStatus)}>{humanizeStatus(lease.inviteStatus)}</Badge>
+                        </div>
+                        <h3 className="mt-3 truncate text-lg font-semibold text-[var(--text)]">{lease.tenantEmail || "Tenant email missing"}</h3>
+                        <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+                          {lease.property?.name ?? "Property"}{lease.unit?.unitNumber ? ` - Unit ${lease.unit.unitNumber}` : " - No unit assigned"}
+                        </p>
+                        <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--muted)]">{lease.formattedAddress}</p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                        {canSend ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="min-h-9 px-3 py-1.5"
+                            disabled={pendingAction === `send-${lease.id}`}
+                            onClick={() => void sendInvite(lease.id)}
+                          >
+                            <Mail className="h-4 w-4" />
+                            {pendingAction === `send-${lease.id}` ? "Sending" : lease.inviteStatus === "not sent" ? "Send invite" : "Resend"}
+                          </Button>
+                        ) : null}
+                        {canRevoke ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="min-h-9 px-3 py-1.5"
+                            disabled={pendingAction === `revoke-${lease.id}`}
+                            onClick={() => void revokeInvite(lease.id)}
+                          >
+                            <Ban className="h-4 w-4" />
+                            {pendingAction === `revoke-${lease.id}` ? "Revoking" : "Revoke"}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-5 grid gap-4 border-t border-[var(--line)] pt-4 sm:grid-cols-2 xl:grid-cols-4">
+                      <InfoLine label="Term" value={formatTerm(lease)} />
+                      <InfoLine label="Rent" value={formatCurrency(lease.monthlyRent)} />
+                      <InfoLine label="Deposit" value={formatCurrency(lease.securityDeposit)} />
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Connection</p>
+                        <p className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-[var(--text)]">
+                          {lease.tenantConnected ? <CheckCircle2 className="h-4 w-4 text-[var(--success)]" /> : <UserCheck className="h-4 w-4 text-[var(--muted)]" />}
+                          {lease.tenantConnected ? "Tenant connected" : "Waiting for tenant"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {daysLeft != null && daysLeft >= 0 && daysLeft <= 60 ? (
+                      <div className="mt-4 rounded-md border border-amber-600/18 bg-amber-500/12 px-3 py-2 text-sm font-medium text-amber-800">
+                        Renewal watch: lease ends in {daysLeft} day{daysLeft === 1 ? "" : "s"}.
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
             </div>
           ) : (
             <div className="p-6">
-              <div className="rounded-md border border-dashed border-[var(--line-strong)] bg-[var(--panel)] p-8 text-center">
-                <h3 className="text-base font-semibold text-[var(--text)]">No leases yet</h3>
-                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted)]">Create a lease with a tenant email, then send an invite to connect the tenant account.</p>
+              <div className="rounded-md border border-dashed border-[var(--line-strong)] bg-[var(--surface)] p-8 text-center">
+                <FileText className="mx-auto h-7 w-7 text-[var(--brand)]" />
+                <h3 className="mt-3 text-base font-semibold text-[var(--text)]">No leases yet</h3>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted)]">
+                  Create a lease with a tenant email, then send an invite to connect the tenant account.
+                </p>
               </div>
             </div>
           )}
