@@ -1,5 +1,4 @@
 import { AlertTriangle, CreditCard, ExternalLink, Link2, LockKeyhole, RefreshCw, Send, Settings2, ShieldCheck } from "lucide-react";
-import { headers } from "next/headers";
 
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
@@ -16,6 +15,7 @@ import {
   refreshStripeConnectStatusAction
 } from "@/lib/actions";
 import { requireUser } from "@/lib/auth";
+import { getAppOrigin } from "@/lib/request-origin";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { badgeToneFromPayment, getPortalContext } from "@/services/portal";
 
@@ -44,17 +44,6 @@ function stripeStatusMessage(status?: string) {
   return null;
 }
 
-async function getSetupPanelAppUrl() {
-  const headerStore = await headers();
-  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
-  const proto = headerStore.get("x-forwarded-proto") ?? "http";
-  const headerOrigin = host ? `${proto}://${host}` : null;
-  const configuredOrigin = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL)?.replace(/\/$/, "");
-
-  if (process.env.NODE_ENV === "production" && configuredOrigin) return configuredOrigin;
-  return headerOrigin ?? configuredOrigin ?? "http://localhost:3000";
-}
-
 export default async function TransactionsPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireUser();
   const params = (await searchParams) ?? {};
@@ -64,7 +53,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const unpaidPayments = portal.scope.payments.filter((payment) => payment.status !== "PAID");
   const stripePayments = portal.scope.payments.filter((payment) => payment.stripeCheckoutSessionId);
   const nextPaymentAmount = portal.nextPayment ? portal.nextPayment.balanceDue || portal.nextPayment.amount : 0;
-  const appUrl = await getSetupPanelAppUrl();
+  const appUrl = await getAppOrigin();
   const stripeSetup = {
     secretKey: Boolean(process.env.STRIPE_SECRET_KEY),
     webhookSecret: Boolean(process.env.STRIPE_WEBHOOK_SECRET),

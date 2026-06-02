@@ -1,27 +1,16 @@
-import { headers } from "next/headers";
 import { z } from "zod";
 
 import { createTenantInvite, getLeaseProperty, getLeaseUnit } from "@/lib/lease-connections";
 import { formatUnitAddress } from "@/lib/address";
 import { getCurrentUser } from "@/lib/auth";
 import { sendTenantInviteEmail } from "@/lib/email";
+import { getAppOrigin } from "@/lib/request-origin";
 import { readStore, UserRole } from "@/lib/store";
 import { formatDate } from "@/lib/utils";
 
 const sendInviteSchema = z.object({
   leaseId: z.string().min(1)
 });
-
-async function getAppOrigin() {
-  const headerStore = await headers();
-  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
-  const proto = headerStore.get("x-forwarded-proto") ?? "http";
-  const headerOrigin = host ? `${proto}://${host}` : null;
-  const configuredOrigin = process.env.APP_URL?.replace(/\/$/, "");
-
-  if (process.env.NODE_ENV === "production" && configuredOrigin) return configuredOrigin;
-  return headerOrigin ?? configuredOrigin ?? "http://localhost:3000";
-}
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();

@@ -2,7 +2,6 @@
 
 import { createHash, randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getEffectiveUserRole, isSystemAdminEmail } from "@/lib/admin";
@@ -19,6 +18,7 @@ import { sendDiscussionMessage } from "@/lib/discussions";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
 import { hashPassword, verifyPassword } from "@/lib/password";
+import { getAppOrigin } from "@/lib/request-origin";
 import { FileKind, UserRole, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
 import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe } from "@/lib/stripe";
 import { createStripeExpressAccount, isStripeConnectReady, syncStripeConnectedAccount } from "@/lib/stripe-connect";
@@ -76,17 +76,6 @@ function leaseDrivenUnitState(leases: Array<{ status: LeaseStatus }>): { leaseSt
 
 function hashResetToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
-}
-
-async function getAppOrigin() {
-  const headerStore = await headers();
-  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
-  const proto = headerStore.get("x-forwarded-proto") ?? "http";
-  const headerOrigin = host ? `${proto}://${host}` : null;
-  const configuredOrigin = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL)?.replace(/\/$/, "");
-
-  if (process.env.NODE_ENV === "production" && configuredOrigin) return configuredOrigin;
-  return headerOrigin ?? configuredOrigin ?? "http://localhost:3000";
 }
 
 function getPaymentMonth(value: string | Date) {
