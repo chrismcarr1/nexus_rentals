@@ -3,17 +3,20 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BarChart3,
   BellRing,
   Building2,
   ClipboardList,
   CreditCard,
   FileCheck2,
+  FileText,
   Gauge,
   Home,
   MessageSquare,
   Receipt,
   Settings,
   ShieldCheck,
+  TableProperties,
   Users,
   type LucideIcon
 } from "lucide-react";
@@ -22,17 +25,20 @@ import type { NavIconName } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 
 const icons: Record<NavIconName, LucideIcon> = {
+  barChart3: BarChart3,
   bellRing: BellRing,
   building2: Building2,
   clipboardList: ClipboardList,
   creditCard: CreditCard,
   fileCheck2: FileCheck2,
+  fileText: FileText,
   gauge: Gauge,
   home: Home,
   messageSquare: MessageSquare,
   receipt: Receipt,
   settings: Settings,
   shieldCheck: ShieldCheck,
+  tableProperties: TableProperties,
   users: Users
 };
 

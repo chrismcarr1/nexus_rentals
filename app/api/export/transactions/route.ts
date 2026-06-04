@@ -1,4 +1,5 @@
 import { requireRoles } from "@/lib/auth";
+import { buildCsv } from "@/lib/csv";
 import { db } from "@/lib/db";
 import { UserRole } from "@/lib/store";
 
@@ -23,7 +24,7 @@ export async function GET() {
     ])
   ];
 
-  const csv = rows.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\n");
+  const csv = buildCsv(rows);
 
   return new Response(csv, {
     headers: {

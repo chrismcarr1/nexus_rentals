@@ -15,6 +15,10 @@ export type MaintenancePriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 export type AssessmentSeverity = "LOW" | "MODERATE" | "HIGH" | "CRITICAL";
 export type NotificationType = "RENT_DUE" | "RENT_OVERDUE" | "LEASE_EXPIRING" | "INSPECTION_PENDING" | "MAINTENANCE_OPEN" | "DAMAGE_ASSESSMENT" | "SYSTEM";
 export type FileKind = "PROPERTY_IMAGE" | "UNIT_IMAGE" | "MOVE_IN_IMAGE" | "MOVE_OUT_IMAGE" | "DAMAGE_IMAGE" | "LEASE_DOCUMENT" | "AVATAR";
+export type RentalApplicationStatus = "DRAFT" | "PUBLISHED" | "SUBMITTED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED" | "WITHDRAWN" | "CONVERTED_TO_LEASE";
+export type ApplicationApplicantType = "PRIMARY" | "CO_APPLICANT";
+export type ApplicationFeeStatus = "NOT_REQUIRED" | "UNPAID" | "PAID" | "WAIVED";
+export type ApplicationDocumentStatus = "REQUESTED" | "RECEIVED" | "WAIVED";
 
 export const UserRole = {
   ADMIN: "ADMIN",
@@ -68,6 +72,7 @@ export type Lease = {
   tenantIds: string[];
   startDate?: string;
   endDate?: string;
+  moveInDate?: string;
   monthlyRent: number;
   dueDay: number;
   securityDeposit: number;
@@ -150,6 +155,74 @@ export type DiscussionThread = { id: string; organizationId: string; managerUser
 export type DiscussionMessage = { id: string; threadId: string; organizationId: string; senderUserId: string; body: string; createdAt: string };
 export type Notification = { id: string; organizationId: string; userId?: string; type: NotificationType; title: string; body: string; href?: string; isRead: boolean; createdAt: string };
 export type PasswordResetToken = { id: string; userId: string; token: string; expiresAt: string; usedAt?: string; createdAt: string };
+export type RentalApplication = {
+  id: string;
+  organizationId: string;
+  managerUserId: string;
+  propertyId: string;
+  unitId?: string;
+  publicSlug: string;
+  title: string;
+  monthlyRent: number;
+  securityDeposit: number;
+  availableMoveInDate: string;
+  applicationFee: number;
+  requiredFields: string[];
+  allowCoApplicants: boolean;
+  allowPets: boolean;
+  status: RentalApplicationStatus;
+  publishedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ApplicationQuestion = { id: string; applicationId: string; prompt: string; required: boolean; sortOrder: number; createdAt: string; updatedAt: string };
+export type ApplicationSubmission = {
+  id: string;
+  applicationId: string;
+  organizationId: string;
+  managerUserId: string;
+  propertyId: string;
+  unitId?: string;
+  status: RentalApplicationStatus;
+  feeStatus: ApplicationFeeStatus;
+  submittedAt: string;
+  currentAddress?: string;
+  monthlyIncome?: number;
+  employment?: string;
+  rentalHistory?: string;
+  references?: string;
+  pets?: string;
+  vehicles?: string;
+  documentNotes?: string;
+  authorizationAccepted: boolean;
+  answers: Array<{ questionId: string; prompt: string; answer: string }>;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ApplicationApplicant = {
+  id: string;
+  submissionId: string;
+  type: ApplicationApplicantType;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  dateOfBirth?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ApplicationDocument = {
+  id: string;
+  applicationId: string;
+  submissionId?: string;
+  label: string;
+  required: boolean;
+  status: ApplicationDocumentStatus;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ApplicationNote = { id: string; applicationId: string; submissionId?: string; managerUserId: string; body: string; createdAt: string };
 
 export type AppStore = {
   organizations: Organization[];
@@ -169,6 +242,12 @@ export type AppStore = {
   discussionMessages: DiscussionMessage[];
   notifications: Notification[];
   passwordResetTokens: PasswordResetToken[];
+  rentalApplications: RentalApplication[];
+  applicationQuestions: ApplicationQuestion[];
+  applicationSubmissions: ApplicationSubmission[];
+  applicationApplicants: ApplicationApplicant[];
+  applicationDocuments: ApplicationDocument[];
+  applicationNotes: ApplicationNote[];
 };
 
 const STORE_ID = "default";
@@ -191,7 +270,13 @@ function emptyStore(): AppStore {
     discussionThreads: [],
     discussionMessages: [],
     notifications: [],
-    passwordResetTokens: []
+    passwordResetTokens: [],
+    rentalApplications: [],
+    applicationQuestions: [],
+    applicationSubmissions: [],
+    applicationApplicants: [],
+    applicationDocuments: [],
+    applicationNotes: []
   };
 }
 
@@ -225,6 +310,12 @@ function normalizeStore(store: AppStore): AppStore {
     discussionThreads: store.discussionThreads ?? [],
     discussionMessages: store.discussionMessages ?? [],
     tenantInvites: store.tenantInvites ?? [],
+    rentalApplications: store.rentalApplications ?? [],
+    applicationQuestions: store.applicationQuestions ?? [],
+    applicationSubmissions: store.applicationSubmissions ?? [],
+    applicationApplicants: store.applicationApplicants ?? [],
+    applicationDocuments: store.applicationDocuments ?? [],
+    applicationNotes: store.applicationNotes ?? [],
     leases: (store.leases ?? []).map((lease, index) => {
       const unit = lease.unitId ? store.units?.find((item) => item.id === lease.unitId) : null;
       const property = lease.propertyId
@@ -377,6 +468,20 @@ export async function getOrganizationSnapshot(organizationId: string) {
       }
       return false;
     }),
-    notifications: store.notifications.filter((notification) => notification.organizationId === organizationId)
+    notifications: store.notifications.filter((notification) => notification.organizationId === organizationId),
+    rentalApplications: store.rentalApplications.filter((application) => application.organizationId === organizationId),
+    applicationQuestions: store.applicationQuestions.filter((question) =>
+      store.rentalApplications.some((application) => application.organizationId === organizationId && application.id === question.applicationId)
+    ),
+    applicationSubmissions: store.applicationSubmissions.filter((submission) => submission.organizationId === organizationId),
+    applicationApplicants: store.applicationApplicants.filter((applicant) =>
+      store.applicationSubmissions.some((submission) => submission.organizationId === organizationId && submission.id === applicant.submissionId)
+    ),
+    applicationDocuments: store.applicationDocuments.filter((document) =>
+      store.rentalApplications.some((application) => application.organizationId === organizationId && application.id === document.applicationId)
+    ),
+    applicationNotes: store.applicationNotes.filter((note) =>
+      store.rentalApplications.some((application) => application.organizationId === organizationId && application.id === note.applicationId)
+    )
   };
 }

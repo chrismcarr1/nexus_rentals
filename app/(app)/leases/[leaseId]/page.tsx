@@ -9,6 +9,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { deleteLeaseAction, updateLeaseAction } from "@/lib/actions";
 import { formatUnitAddress } from "@/lib/address";
 import { requireRoles } from "@/lib/auth";
+import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { UserRole } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
@@ -41,6 +42,7 @@ export default async function ManageLeasePage({
   const property = portal.scope.properties.find((item) => item.id === (lease.propertyId ?? unit?.propertyId)) ?? null;
   const tenants = portal.scope.tenants.filter((tenant) => lease.tenantIds.includes(tenant.id));
   const returnTo = `/leases/${lease.id}`;
+  const safeDocumentPath = isAllowedStoredAssetPath(lease.documentPath, { allowDemo: true }) ? lease.documentPath : undefined;
 
   return (
     <div className="space-y-4">
@@ -58,6 +60,17 @@ export default async function ManageLeasePage({
       {query.error === "invalid-lease" ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           Review the lease details and make sure the required fields are complete.
+        </div>
+      ) : null}
+
+      {query.moveIn === "created" ? (
+        <div className="rounded-2xl border border-emerald-600/15 bg-emerald-600/10 px-4 py-3 text-sm text-emerald-800">
+          New move-in created successfully.{" "}
+          {query.invite === "sent"
+            ? "The tenant portal invite email was sent."
+            : query.invite === "pending"
+              ? "A tenant portal invite was created and can be resent from the lease board if email delivery needs attention."
+              : "Portal invite was skipped for now."}
         </div>
       ) : null}
 
@@ -88,9 +101,13 @@ export default async function ManageLeasePage({
               <p className="text-sm text-[var(--muted)]">Due day</p>
               <p className="mt-2 font-semibold">Day {lease.dueDay}</p>
             </div>
+            <div className="panel-muted p-4">
+              <p className="text-sm text-[var(--muted)]">Move-in date</p>
+              <p className="mt-2 font-semibold">{formatDateOrUnset(lease.moveInDate)}</p>
+            </div>
           </div>
-          {lease.documentPath ? (
-            <a href={lease.documentPath} target="_blank" rel="noreferrer" className="mt-5 block truncate text-sm font-semibold text-[var(--brand)]">
+          {safeDocumentPath ? (
+            <a href={safeDocumentPath} target="_blank" rel="noreferrer" className="mt-5 block truncate text-sm font-semibold text-[var(--brand)]">
               Open current lease agreement
             </a>
           ) : null}
@@ -101,7 +118,7 @@ export default async function ManageLeasePage({
           <form action={updateLeaseAction} className="mt-6 space-y-4">
             <input type="hidden" name="leaseId" value={lease.id} />
             <input type="hidden" name="returnTo" value={returnTo} />
-            <input type="hidden" name="existingDocumentPath" value={lease.documentPath ?? ""} />
+            <input type="hidden" name="existingDocumentPath" value={safeDocumentPath ?? ""} />
             <select name="unitId" className="field" required defaultValue={lease.unitId ?? ""}>
               <option value="" disabled>Select unit</option>
               {portal.scope.units.map((unit) => {

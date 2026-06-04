@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Plus } from "lucide-react";
 
 import { SingleUploadInput } from "@/components/upload-inputs";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +10,7 @@ import { addUnitAssetAction } from "@/lib/actions";
 import { formatUnitAddress } from "@/lib/address";
 import { requireRouteAccess } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { formatCurrency, formatDate, parseTags } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
@@ -33,6 +36,12 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
   });
 
   if (!unit || !portal.scope.units.some((item) => item.id === unit.id)) notFound();
+  const unitFiles = unit.files.filter((file) => isAllowedStoredAssetPath(file.path, { allowDemo: true }));
+  const canStartMoveIn =
+    user.role === "MANAGER" &&
+    unit.property.managerId === user.id &&
+    ["VACANT", "TURNOVER"].includes(unit.occupancyStatus) &&
+    !unit.leases.some((lease) => ["ACTIVE", "UPCOMING", "active", "invited", "draft"].includes(lease.status));
 
   return (
     <div className="space-y-4">
@@ -56,6 +65,15 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
               <Badge tone={unit.occupancyStatus === "OCCUPIED" ? "success" : "warning"}>{unit.occupancyStatus}</Badge>
               <Badge>{unit.leaseStatus}</Badge>
             </div>
+            {canStartMoveIn ? (
+              <Link
+                href={`/move-ins/new?propertyId=${encodeURIComponent(unit.propertyId)}&unitId=${encodeURIComponent(unit.id)}`}
+                className="mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]"
+              >
+                <Plus className="h-4 w-4" />
+                New Move-In
+              </Link>
+            ) : null}
           </div>
         </div>
       </Card>
@@ -64,7 +82,7 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
         <Card className="p-6">
           <p className="text-sm uppercase tracking-[0.24em] text-stone-400">Gallery</p>
           <div className="card-grid-compact mt-5">
-            {unit.files.map((file) => (
+            {unitFiles.map((file) => (
               <div key={file.id} className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={file.path} alt={file.label ?? "Unit image"} className="h-40 w-full object-cover" />

@@ -1,4 +1,6 @@
 import { getCurrentUser } from "@/lib/auth";
+import { filterSubmittedAssetPaths } from "@/lib/file-security";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { generateMaintenancePhotoDraft } from "@/services/maintenance-estimator";
 
 export const runtime = "nodejs";
@@ -7,6 +9,19 @@ export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) {
     return Response.json({ error: "Sign in before generating a maintenance draft." }, { status: 401 });
+  }
+
+  const rateLimit = checkRateLimit({
+    key: `maintenance-ai:${user.id}`,
+    limit: 10,
+    windowMs: 60 * 1000
+  });
+
+  if (!rateLimit.allowed) {
+    return Response.json(
+      { error: "Too many AI draft requests. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfter) } }
+    );
   }
 
   let body: unknown;
@@ -18,7 +33,7 @@ export async function POST(request: Request) {
 
   const payload = body as { imagePaths?: unknown; notes?: unknown };
   const imagePaths = Array.isArray(payload.imagePaths)
-    ? payload.imagePaths.map(String).filter(Boolean).slice(0, 3)
+    ? filterSubmittedAssetPaths(payload.imagePaths.map(String), user, 3)
     : [];
 
   if (imagePaths.length === 0) {

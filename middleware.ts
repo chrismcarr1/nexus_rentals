@@ -8,13 +8,24 @@ import { canAccessPath } from "@/lib/rbac";
 const protectedPaths = [
   "/admin",
   "/api/admin",
+  "/api/export",
+  "/api/leases",
+  "/api/maintenance",
+  "/api/stripe/connect",
+  "/api/tenant-invites/accept",
+  "/api/tenant-invites/revoke",
+  "/api/tenant-invites/send",
+  "/api/upload",
   "/dashboard",
   "/properties",
   "/tenants",
   "/leases",
+  "/applications",
+  "/move-ins",
   "/transactions",
   "/expenses",
   "/maintenance",
+  "/documents",
   "/messages",
   "/ai-assessments",
   "/reports",
@@ -36,6 +47,7 @@ export async function middleware(request: NextRequest) {
   const isProtected = protectedPaths.some((path) => pathname.startsWith(path));
   const isAdminApi = pathname.startsWith("/api/admin");
   const isAdminPage = pathname.startsWith("/admin");
+  const isApi = pathname.startsWith("/api/");
 
   if (!isProtected) {
     return NextResponse.next();
@@ -43,7 +55,7 @@ export async function middleware(request: NextRequest) {
 
   const token = request.cookies.get("rentroll_session")?.value;
   if (!token) {
-    if (isAdminApi) {
+    if (isApi) {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     }
     return NextResponse.redirect(new URL("/login", request.url));
@@ -73,6 +85,9 @@ export async function middleware(request: NextRequest) {
     }
     return NextResponse.next();
   } catch {
+    if (isApi) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
     return NextResponse.redirect(new URL("/login", request.url));
   }
 }

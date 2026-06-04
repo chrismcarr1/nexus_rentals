@@ -1,4 +1,5 @@
 import { config } from "dotenv";
+import { randomBytes } from "crypto";
 
 import bcrypt from "bcryptjs";
 import postgres from "postgres";
@@ -6,6 +7,11 @@ import { formatAddress, normalizeAddress } from "../lib/address.ts";
 
 config({ path: ".env.local" });
 config();
+
+if (process.env.ALLOW_DEMO_SEED !== "true") {
+  console.error("Refusing to seed demo users without explicit opt-in. Set ALLOW_DEMO_SEED=true when you intentionally want demo data.");
+  process.exit(1);
+}
 
 const databaseUrl = process.env.DATABASE_URL?.startsWith("postgres://")
   ? `postgresql://${process.env.DATABASE_URL.slice("postgres://".length)}`
@@ -58,8 +64,17 @@ function shiftMonths(date, amount) {
   return next;
 }
 
+function generatePassword() {
+  return `${randomBytes(18).toString("base64url")}Aa1!`;
+}
+
 async function main() {
   const now = new Date();
+  const demoPasswords = {
+    operator: generatePassword(),
+    manager: generatePassword(),
+    tenant: generatePassword()
+  };
   const organizationMailingAddress = normalizeAddress({
     addressLine1: "240 Valencia Street",
     addressLine2: "Suite 500",
@@ -93,9 +108,9 @@ async function main() {
   const store = {
     organizations: [{ id: "org_nexus", name: "Nexus Rentals", email: "contact@nexusrentals.local", phone: "(415) 555-0190", mailingAddress: formatAddress(organizationMailingAddress), logoPath: "/demo/logo-mark.svg", createdAt: iso(now), updatedAt: iso(now) }],
     users: [
-      { id: "user_admin", organizationId: "org_nexus", email: "demo@nexusrentals.local", passwordHash: await bcrypt.hash("DemoPass123!", 12), firstName: "Avery", lastName: "Stone", role: "MANAGER", isActive: true, title: "Principal Operator", phone: "(415) 555-0132", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "user_manager", organizationId: "org_nexus", email: "manager@nexusrentals.local", passwordHash: await bcrypt.hash("ManagerPass123!", 12), firstName: "Jordan", lastName: "Lee", role: "MANAGER", isActive: true, title: "Property Manager", phone: "(415) 555-0177", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "user_tenant", organizationId: "org_nexus", email: "tenant@nexusrentals.local", passwordHash: await bcrypt.hash("TenantPass123!", 12), firstName: "Sam", lastName: "Carter", role: "TENANT", isActive: true, title: "Resident", createdAt: iso(now), updatedAt: iso(now) }
+      { id: "user_admin", organizationId: "org_nexus", email: "demo@nexusrentals.local", passwordHash: await bcrypt.hash(demoPasswords.operator, 12), firstName: "Avery", lastName: "Stone", role: "MANAGER", isActive: true, title: "Principal Operator", phone: "(415) 555-0132", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "user_manager", organizationId: "org_nexus", email: "manager@nexusrentals.local", passwordHash: await bcrypt.hash(demoPasswords.manager, 12), firstName: "Jordan", lastName: "Lee", role: "MANAGER", isActive: true, title: "Property Manager", phone: "(415) 555-0177", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "user_tenant", organizationId: "org_nexus", email: "tenant@nexusrentals.local", passwordHash: await bcrypt.hash(demoPasswords.tenant, 12), firstName: "Sam", lastName: "Carter", role: "TENANT", isActive: true, title: "Resident", createdAt: iso(now), updatedAt: iso(now) }
     ],
     properties: [
       { id: "prop_harbor", organizationId: "org_nexus", managerId: "user_manager", name: "Harbor Point Residences", ...harborAddress, status: "ACTIVE", description: "A mixed-use mid-rise asset with renovated interiors and strong waterfront demand.", amenities: "Fitness studio, secure package room, rooftop lounge, EV charging", notes: "Premium Class A demo property with high occupancy.", createdAt: iso(now), updatedAt: iso(now) },
@@ -170,7 +185,7 @@ async function main() {
       { id: "note_3", organizationId: "org_nexus", type: "MAINTENANCE_OPEN", title: "Maintenance item still open", body: "Dishwasher leak review has not been scheduled with a vendor yet.", isRead: false, createdAt: iso(now) },
       { id: "note_4", organizationId: "org_nexus", type: "DAMAGE_ASSESSMENT", title: "New AI assessment available", body: "Turnover estimate for Maple Terrace unit 15 is ready for review.", isRead: false, createdAt: iso(now) }
     ],
-    passwordResetTokens: [{ id: "reset_demo", userId: "user_admin", token: "demo-reset-token", expiresAt: iso(shiftDays(now, 2)), createdAt: iso(now) }]
+    passwordResetTokens: []
   };
 
   await sql`
@@ -187,7 +202,10 @@ async function main() {
   `;
 
   console.log("Hosted Postgres datastore initialized.");
-  console.log("Operator: demo@nexusrentals.local / DemoPass123!");
+  console.log("Demo credentials generated for this seed run:");
+  console.log(`Operator: demo@nexusrentals.local / ${demoPasswords.operator}`);
+  console.log(`Manager: manager@nexusrentals.local / ${demoPasswords.manager}`);
+  console.log(`Tenant: tenant@nexusrentals.local / ${demoPasswords.tenant}`);
   await sql.end();
 }
 

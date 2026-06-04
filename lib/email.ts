@@ -34,7 +34,7 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }: PasswordRes
   const safeResetUrl = escapeHtml(resetUrl);
 
   if (!apiKey) {
-    console.info(`[email] RESEND_API_KEY is not configured. Password reset link for ${to}: ${resetUrl}`);
+    console.info(`[email] RESEND_API_KEY is not configured. Password reset email was not sent for ${to}.`);
     return { sent: false };
   }
 

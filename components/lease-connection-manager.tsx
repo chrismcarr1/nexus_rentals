@@ -1,22 +1,23 @@
 "use client";
 
+import Link from "next/link";
 import {
   Ban,
   Building2,
   CalendarClock,
-  CheckCircle2,
   Copy,
   FileText,
   Home,
   Mail,
   Plus,
   RefreshCw,
-  UserCheck,
   type LucideIcon
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { useMemo, useState } from "react";
 
+import { DataTable } from "@/components/data-table";
+import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
 import { SectionHeader } from "@/components/section-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,8 @@ type LeaseRow = {
   id: string;
   nexusLeaseId?: string;
   tenantEmail: string;
+  tenantFirstName?: string | null;
+  tenantLastName?: string | null;
   tenantConnected: boolean;
   property: PropertyOption | null;
   unit: { id: string; unitNumber: string } | null;
@@ -68,16 +71,38 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
 }
 
+function formatShortDate(value: string | null) {
+  if (!value) return "Not set";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not set";
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "2-digit" }).format(date);
+}
+
 function formatCurrency(value: number | null) {
   if (value == null) return "Not set";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
 }
 
-function inviteTone(status: string): "default" | "success" | "warning" | "danger" {
-  if (status === "accepted") return "success";
-  if (status === "pending") return "warning";
-  if (status === "expired" || status === "revoked") return "danger";
-  return "default";
+function combinedLeaseStatus(lease: LeaseRow) {
+  if (lease.tenantConnected && lease.status === "active") {
+    return { label: "Active", detail: "Tenant connected", tone: "success" as const };
+  }
+  if (lease.tenantConnected) {
+    return { label: humanizeStatus(lease.status), detail: "Tenant connected", tone: leaseTone(lease.status) };
+  }
+  if (lease.inviteStatus === "pending" || lease.status === "invited") {
+    return { label: "Invited", detail: "Waiting for tenant", tone: "warning" as const };
+  }
+  if (lease.inviteStatus === "expired") {
+    return { label: "Invite expired", detail: humanizeStatus(lease.status), tone: "danger" as const };
+  }
+  if (lease.inviteStatus === "revoked") {
+    return { label: "Invite revoked", detail: humanizeStatus(lease.status), tone: "danger" as const };
+  }
+  if (lease.status === "draft" || lease.inviteStatus === "not sent") {
+    return { label: "Draft", detail: "Invite not sent", tone: "default" as const };
+  }
+  return { label: humanizeStatus(lease.status), detail: humanizeStatus(lease.inviteStatus), tone: leaseTone(lease.status) };
 }
 
 function leaseTone(status: string): "default" | "success" | "warning" | "danger" {
@@ -103,10 +128,6 @@ function daysUntil(value: string | null) {
   today.setHours(0, 0, 0, 0);
   date.setHours(0, 0, 0, 0);
   return Math.ceil((date.getTime() - today.getTime()) / 86_400_000);
-}
-
-function formatTerm(lease: LeaseRow) {
-  return `${formatDate(lease.startDate)} to ${formatDate(lease.endDate)}`;
 }
 
 function FieldLabel({ children, hint }: { children: ReactNode; hint?: string }) {
@@ -166,15 +187,6 @@ function Notice({ tone, children }: { tone: "success" | "danger"; children: Reac
     >
       {children}
     </p>
-  );
-}
-
-function InfoLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
-      <p className="mt-1 truncate text-sm font-semibold text-[var(--text)]">{value}</p>
-    </div>
   );
 }
 
@@ -342,10 +354,16 @@ export function LeaseConnectionManager({
               title="Portfolio lease board"
               description="Create lease records, send tenant invites, and watch account connections from one focused workspace."
             />
-            <Button type="button" variant="secondary" className="w-full md:w-auto" disabled={pendingAction === "refresh"} onClick={() => void refreshWithFeedback()}>
-              <RefreshCw className={cn("h-4 w-4", pendingAction === "refresh" && "animate-spin")} />
-              {pendingAction === "refresh" ? "Refreshing" : "Refresh"}
-            </Button>
+            <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row">
+              <Link href="/move-ins/new" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(13,143,123,0.18)] transition hover:bg-[var(--brand-strong)]">
+                <Plus className="h-4 w-4" />
+                New Move-In
+              </Link>
+              <Button type="button" variant="secondary" className="w-full md:w-auto" disabled={pendingAction === "refresh"} onClick={() => void refreshWithFeedback()}>
+                <RefreshCw className={cn("h-4 w-4", pendingAction === "refresh" && "animate-spin")} />
+                {pendingAction === "refresh" ? "Refreshing" : "Refresh"}
+              </Button>
+            </div>
           </div>
         </div>
         <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
@@ -506,80 +524,98 @@ export function LeaseConnectionManager({
           </div>
 
           {leases.length ? (
-            <div className="divide-y divide-[var(--line)]">
+            <DataTable
+              className="lease-records-table"
+              minWidth="min(52rem, 100%)"
+              columns={["Lease", "Tenant", "Property / unit", "Status", "Term", "Financials", ""]}
+            >
               {leases.map((lease) => {
                 const canSend = lease.inviteStatus !== "accepted" && lease.status !== "active";
                 const canRevoke = lease.inviteStatus === "pending";
                 const daysLeft = daysUntil(lease.endDate);
+                const renewalWatch = daysLeft != null && daysLeft >= 0 && daysLeft <= 60;
+                const status = combinedLeaseStatus(lease);
+                const tenantHasName = Boolean(lease.tenantFirstName || lease.tenantLastName);
 
                 return (
-                  <article key={lease.id} className="bg-white p-5 transition hover:bg-[var(--surface)]">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="rounded-md border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 font-mono text-xs font-semibold text-[var(--muted-strong)]">
-                            {lease.nexusLeaseId ?? lease.id}
-                          </span>
-                          <Badge tone={leaseTone(lease.status)}>{humanizeStatus(lease.status)}</Badge>
-                          <Badge tone={inviteTone(lease.inviteStatus)}>{humanizeStatus(lease.inviteStatus)}</Badge>
-                        </div>
-                        <h3 className="mt-3 truncate text-lg font-semibold text-[var(--text)]">{lease.tenantEmail || "Tenant email missing"}</h3>
-                        <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
-                          {lease.property?.name ?? "Property"}{lease.unit?.unitNumber ? ` - Unit ${lease.unit.unitNumber}` : " - No unit assigned"}
-                        </p>
-                        <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--muted)]">{lease.formattedAddress}</p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                  <tr key={lease.id} className="table-row">
+                    <td className="table-cell">
+                      <Link href={`/leases/${lease.id}`} className="table-link">
+                        <span className="inline-flex max-w-full items-center rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1 font-mono text-[11px] font-semibold text-[var(--muted-strong)]">
+                          <span className="truncate">{lease.nexusLeaseId ?? lease.id}</span>
+                        </span>
+                        <span className="mt-1.5 block truncate text-xs font-medium text-[var(--muted)]">Lease record</span>
+                      </Link>
+                    </td>
+                    <td className="table-cell">
+                      {tenantHasName ? (
+                        <>
+                          <span className="block truncate text-sm font-semibold text-[var(--text)]">{lease.tenantLastName || "Last name"}</span>
+                          <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{lease.tenantFirstName || "First name"}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="block truncate text-sm font-semibold text-[var(--text)]">Invited tenant</span>
+                          <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{lease.tenantEmail || "Email not set"}</span>
+                        </>
+                      )}
+                    </td>
+                    <td className="table-cell">
+                      <span className="block truncate text-sm font-medium text-[var(--text)]">{lease.property?.name ?? "Property"}</span>
+                      <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">
+                        {lease.unit?.unitNumber ? `Unit ${lease.unit.unitNumber}` : "No unit assigned"}
+                      </span>
+                    </td>
+                    <td className="table-cell">
+                      <Badge tone={status.tone}>{status.label}</Badge>
+                      <span className="mt-1 block text-xs text-[var(--muted)]">{status.detail}</span>
+                    </td>
+                    <td className="table-cell">
+                      <span className="block truncate text-xs font-medium text-[var(--muted)]">{formatShortDate(lease.startDate)} - {formatShortDate(lease.endDate)}</span>
+                      {renewalWatch ? (
+                        <span className="mt-1 inline-flex rounded-md border border-amber-600/18 bg-amber-500/12 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                          {daysLeft}d renewal
+                        </span>
+                      ) : (
+                        <span className="mt-1 block text-xs text-[var(--muted)]">No renewal flag</span>
+                      )}
+                    </td>
+                    <td className="table-cell">
+                      <span className="block truncate text-sm font-semibold text-[var(--text)]">{formatCurrency(lease.monthlyRent)}</span>
+                      <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">Deposit {formatCurrency(lease.securityDeposit)}</span>
+                    </td>
+                    <td className="table-cell text-right">
+                      <RowActionsMenu>
+                        <RowActionLink href={`/leases/${lease.id}`}>View</RowActionLink>
+                        {lease.unit?.id ? <RowActionLink href={`/units/${lease.unit.id}`}>View unit</RowActionLink> : null}
                         {canSend ? (
-                          <Button
+                          <button
                             type="button"
-                            variant="secondary"
-                            className="min-h-9 px-3 py-1.5"
+                            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-[var(--text)] transition hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
                             disabled={pendingAction === `send-${lease.id}`}
                             onClick={() => void sendInvite(lease.id)}
                           >
-                            <Mail className="h-4 w-4" />
-                            {pendingAction === `send-${lease.id}` ? "Sending" : lease.inviteStatus === "not sent" ? "Send invite" : "Resend"}
-                          </Button>
+                            <Mail className="h-4 w-4 text-[var(--muted)]" />
+                            {pendingAction === `send-${lease.id}` ? "Sending..." : lease.inviteStatus === "not sent" ? "Send invite" : "Resend invite"}
+                          </button>
                         ) : null}
                         {canRevoke ? (
-                          <Button
+                          <button
                             type="button"
-                            variant="ghost"
-                            className="min-h-9 px-3 py-1.5"
+                            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                             disabled={pendingAction === `revoke-${lease.id}`}
                             onClick={() => void revokeInvite(lease.id)}
                           >
                             <Ban className="h-4 w-4" />
-                            {pendingAction === `revoke-${lease.id}` ? "Revoking" : "Revoke"}
-                          </Button>
+                            {pendingAction === `revoke-${lease.id}` ? "Revoking..." : "Revoke invite"}
+                          </button>
                         ) : null}
-                      </div>
-                    </div>
-
-                    <div className="mt-5 grid gap-4 border-t border-[var(--line)] pt-4 sm:grid-cols-2 xl:grid-cols-4">
-                      <InfoLine label="Term" value={formatTerm(lease)} />
-                      <InfoLine label="Rent" value={formatCurrency(lease.monthlyRent)} />
-                      <InfoLine label="Deposit" value={formatCurrency(lease.securityDeposit)} />
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Connection</p>
-                        <p className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-[var(--text)]">
-                          {lease.tenantConnected ? <CheckCircle2 className="h-4 w-4 text-[var(--success)]" /> : <UserCheck className="h-4 w-4 text-[var(--muted)]" />}
-                          {lease.tenantConnected ? "Tenant connected" : "Waiting for tenant"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {daysLeft != null && daysLeft >= 0 && daysLeft <= 60 ? (
-                      <div className="mt-4 rounded-md border border-amber-600/18 bg-amber-500/12 px-3 py-2 text-sm font-medium text-amber-800">
-                        Renewal watch: lease ends in {daysLeft} day{daysLeft === 1 ? "" : "s"}.
-                      </div>
-                    ) : null}
-                  </article>
+                      </RowActionsMenu>
+                    </td>
+                  </tr>
                 );
               })}
-            </div>
+            </DataTable>
           ) : (
             <div className="p-6">
               <div className="rounded-md border border-dashed border-[var(--line-strong)] bg-[var(--surface)] p-8 text-center">

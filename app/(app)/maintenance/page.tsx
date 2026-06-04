@@ -18,6 +18,7 @@ import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createMaintenanceAction } from "@/lib/actions";
 import { requireUser } from "@/lib/auth";
+import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { badgeToneFromMaintenance, getPortalContext } from "@/services/portal";
 
@@ -138,6 +139,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
             {activeMaintenance.map((item) => {
               const property = portal.scope.properties.find((candidate) => candidate.id === item.propertyId);
               const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;
+              const imagePaths = (item.imagePaths ?? []).filter((path) => isAllowedStoredAssetPath(path, { allowDemo: true })).slice(0, 3);
 
               return (
                 <div key={item.id} className="panel-muted p-4">
@@ -181,11 +183,11 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
                     </div>
                   ) : null}
 
-                  {item.imagePaths?.length ? (
+                  {imagePaths.length ? (
                     <div className="mt-4 rounded-md border border-[var(--line)] bg-white p-3">
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Uploaded images</p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      {item.imagePaths.slice(0, 3).map((path) => (
+                      {imagePaths.map((path) => (
                         <a
                           key={path}
                           href={path}
@@ -405,6 +407,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
           {pastMaintenance.map((item) => {
             const property = portal.scope.properties.find((candidate) => candidate.id === item.propertyId);
             const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;
+            const imagePaths = (item.imagePaths ?? []).filter((path) => isAllowedStoredAssetPath(path, { allowDemo: true })).slice(0, 3);
 
             return (
               <div key={item.id} className="panel-muted p-4">
@@ -425,11 +428,11 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
                 {item.timeline ? (
                   <p className="mt-3 whitespace-pre-line rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm text-[var(--muted)]">{item.timeline}</p>
                 ) : null}
-                {item.imagePaths?.length ? (
+                {imagePaths.length ? (
                   <div className="mt-3 rounded-md border border-[var(--line)] bg-white p-3">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Uploaded images</p>
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    {item.imagePaths.slice(0, 3).map((path) => (
+                    {imagePaths.map((path) => (
                       <a
                         key={path}
                         href={path}

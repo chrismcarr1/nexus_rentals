@@ -1,32 +1,38 @@
 import {
   BellRing,
+  BarChart3,
   Building2,
   ClipboardList,
   CreditCard,
   FileCheck2,
+  FileText,
   Gauge,
   Home,
   MessageSquare,
   Receipt,
   Settings,
   ShieldCheck,
+  TableProperties,
   Users
 } from "lucide-react";
 
 import type { UserRole } from "@/lib/store";
 
 export const navIconNames = {
+  barChart3: BarChart3.displayName ?? "BarChart3",
   bellRing: BellRing.displayName ?? "BellRing",
   building2: Building2.displayName ?? "Building2",
   clipboardList: ClipboardList.displayName ?? "ClipboardList",
   creditCard: CreditCard.displayName ?? "CreditCard",
   fileCheck2: FileCheck2.displayName ?? "FileCheck2",
+  fileText: FileText.displayName ?? "FileText",
   gauge: Gauge.displayName ?? "Gauge",
   home: Home.displayName ?? "Home",
   messageSquare: MessageSquare.displayName ?? "MessageSquare",
   receipt: Receipt.displayName ?? "Receipt",
   settings: Settings.displayName ?? "Settings",
   shieldCheck: ShieldCheck.displayName ?? "ShieldCheck",
+  tableProperties: TableProperties.displayName ?? "TableProperties",
   users: Users.displayName ?? "Users"
 } as const;
 
@@ -60,29 +66,31 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/transactions", label: "Payments", icon: "creditCard", description: "Collections and receivables" },
       { href: "/expenses", label: "Expenses", icon: "receipt", description: "Operating spend and vendor cost tracking" },
       { href: "/maintenance", label: "Maintenance", icon: "clipboardList", description: "Service volume and work orders" },
+      { href: "/documents", label: "Documents", icon: "fileText", description: "Lease, property, unit, and inspection files" },
       { href: "/ai-assessments", label: "Inspections", icon: "fileCheck2", description: "Damage review and turnover support" },
       { href: "/reports", label: "Reporting", icon: "fileCheck2", description: "Financials, compliance, and exports" },
       { href: "/settings", label: "Settings", icon: "shieldCheck", description: "Platform settings and permissions" }
     ],
-    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/maintenance", "/reports", "/settings", "/units", "/expenses", "/ai-assessments"]
+    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/maintenance", "/documents", "/reports", "/settings", "/units", "/expenses", "/ai-assessments"]
   },
   MANAGER: {
     label: "Manager",
     homeLabel: "Operations dashboard",
     description: "Day-to-day property operations for assigned assets.",
     nav: [
-      { href: "/dashboard", label: "Operations", icon: "gauge", description: "Assigned property performance and action queues" },
+      { href: "/dashboard", label: "Dashboard", icon: "gauge", description: "Assigned property performance and action queues" },
       { href: "/properties", label: "Properties", icon: "building2", description: "Assigned buildings and unit status" },
+      { href: "/units", label: "Units", icon: "tableProperties", description: "Unit inventory, occupancy, and lease status" },
       { href: "/tenants", label: "Tenants", icon: "users", description: "Resident roster and communications" },
       { href: "/leases", label: "Leases", icon: "home", description: "Renewals, move-ins, and upcoming expirations" },
+      { href: "/applications", label: "Applications", icon: "fileCheck2", description: "Rental applications and applicant review" },
       { href: "/transactions", label: "Payments", icon: "creditCard", description: "Overdue rent and rent status" },
-      { href: "/expenses", label: "Expenses", icon: "receipt", description: "Spend entries for assigned properties" },
       { href: "/maintenance", label: "Maintenance", icon: "clipboardList", description: "Open issues and vendor progress" },
-      { href: "/messages", label: "Messages", icon: "messageSquare", description: "Resident discussions and follow-up" },
-      { href: "/ai-assessments", label: "Inspections", icon: "fileCheck2", description: "Damage review and turnover support" },
-      { href: "/settings", label: "Profile", icon: "settings", description: "Profile and assigned property context" }
+      { href: "/documents", label: "Documents", icon: "fileText", description: "Lease, property, unit, and inspection files" },
+      { href: "/reports", label: "Reports", icon: "barChart3", description: "Portfolio reporting and operating visibility" },
+      { href: "/settings", label: "Settings", icon: "settings", description: "Profile and assigned property context" }
     ],
-    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/expenses", "/maintenance", "/messages", "/units", "/ai-assessments", "/settings", "/manager-guide"]
+    routes: ["/dashboard", "/properties", "/units", "/tenants", "/leases", "/applications", "/move-ins", "/transactions", "/expenses", "/maintenance", "/messages", "/documents", "/reports", "/ai-assessments", "/settings", "/manager-guide"]
   },
   TENANT: {
     label: "Tenant",

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getEffectiveUserRole, SYSTEM_ADMIN_EMAIL } from "@/lib/admin";
+import { getEffectiveUserRole, getSystemAdminEmail } from "@/lib/admin";
 import { formatAddress } from "@/lib/address";
 import { readStore, type AppStore, type UserRole } from "@/lib/store";
 
@@ -228,7 +228,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
 
   return {
     generatedAt: new Date().toISOString(),
-    adminIdentity: SYSTEM_ADMIN_EMAIL,
+    adminIdentity: getSystemAdminEmail() || "Not configured",
     summary: {
       totalUsers: users.length,
       managers: users.filter((user) => user.role === "MANAGER").length,

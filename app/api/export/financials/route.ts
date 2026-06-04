@@ -1,6 +1,7 @@
 import { requireRoles } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { escapeCsvCell } from "@/lib/csv";
 import { UserRole } from "@/lib/store";
+import { getPortalContext } from "@/services/portal";
 
 type ExportCell = string | number;
 
@@ -34,10 +35,6 @@ function asDate(value?: Date | string | null) {
 function dateLabel(value?: Date | string | null) {
   const date = asDate(value);
   return date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : "";
-}
-
-function escapeCsvCell(value: ExportCell) {
-  return `"${String(value).replace(/"/g, '""')}"`;
 }
 
 function buildCsv(rows: ExportCell[][]) {
@@ -289,67 +286,82 @@ function buildXlsx(rows: ExportCell[][]) {
   ]);
 }
 
-async function getFinancialExportRows(organizationId: string) {
-  const [payments, expenses] = await Promise.all([
-    db.payment.findMany({
-      where: { unit: { property: { organizationId } } },
-      include: { unit: { include: { property: true } } },
-      orderBy: { dueDate: "desc" }
-    }),
-    db.expense.findMany({
-      where: { property: { organizationId } },
-      include: { property: true, unit: true },
-      orderBy: { incurredAt: "desc" }
+async function getFinancialExportRows(
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    role: UserRole;
+    organizationId: string;
+  },
+  year?: number,
+  taxReport = false
+) {
+  const portal = await getPortalContext(user);
+
+  const paymentRows: ExportRow[] = portal.scope.payments
+    .filter((payment) => !taxReport || payment.status === "PAID")
+    .filter((payment) => {
+      const date = asDate(payment.paidDate ?? payment.dueDate);
+      return !year || date?.getFullYear() === year;
     })
-  ]);
+    .map((payment) => {
+      const unit = portal.scope.units.find((item) => item.id === payment.unitId);
+      const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) : null;
+      const dueDate = asDate(payment.dueDate) ?? new Date(0);
 
-  const paymentRows: ExportRow[] = payments.map((payment: any) => {
-    const dueDate = asDate(payment.dueDate) ?? new Date(0);
+      return {
+        sortDate: asDate(payment.paidDate) ?? dueDate,
+        cells: [
+          "Transaction",
+          dateLabel(payment.paidDate ?? payment.dueDate),
+          property?.name ?? "",
+          unit?.unitNumber ?? "",
+          payment.description,
+          payment.status,
+          payment.categoryTag ?? "",
+          payment.amount,
+          payment.amount,
+          payment.balanceDue,
+          dateLabel(payment.paidDate),
+          "",
+          "",
+          payment.id
+        ]
+      };
+    });
 
-    return {
-      sortDate: dueDate,
-      cells: [
-        "Transaction",
-        dateLabel(payment.dueDate),
-        payment.unit.property.name,
-        payment.unit.unitNumber,
-        payment.description,
-        payment.status,
-        payment.categoryTag ?? "",
-        payment.amount,
-        payment.amount,
-        payment.balanceDue,
-        dateLabel(payment.paidDate),
-        "",
-        "",
-        payment.id
-      ]
-    };
-  });
+  const expenseRows: ExportRow[] = portal.scope.expenses
+    .filter((expense) => {
+      const date = asDate(expense.incurredAt);
+      return !year || date?.getFullYear() === year;
+    })
+    .map((expense) => {
+      const property = portal.scope.properties.find((item) => item.id === expense.propertyId);
+      const unit = expense.unitId ? portal.scope.units.find((item) => item.id === expense.unitId) : null;
+      const incurredAt = asDate(expense.incurredAt) ?? new Date(0);
 
-  const expenseRows: ExportRow[] = expenses.map((expense: any) => {
-    const incurredAt = asDate(expense.incurredAt) ?? new Date(0);
-
-    return {
-      sortDate: incurredAt,
-      cells: [
-        "Expense",
-        dateLabel(expense.incurredAt),
-        expense.property.name,
-        expense.unit?.unitNumber ?? "",
-        expense.title,
-        "",
-        expense.category,
-        expense.amount,
-        -expense.amount,
-        "",
-        "",
-        expense.vendor ?? "",
-        expense.tags,
-        expense.id
-      ]
-    };
-  });
+      return {
+        sortDate: incurredAt,
+        cells: [
+          "Expense",
+          dateLabel(expense.incurredAt),
+          property?.name ?? "",
+          unit?.unitNumber ?? "",
+          expense.title,
+          "",
+          expense.category,
+          expense.amount,
+          -expense.amount,
+          "",
+          "",
+          expense.vendor ?? "",
+          expense.tags,
+          expense.id
+        ]
+      };
+    });
 
   return [...paymentRows, ...expenseRows]
     .sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime())
@@ -357,9 +369,12 @@ async function getFinancialExportRows(organizationId: string) {
 }
 
 export async function GET(request: Request) {
-  const user = await requireRoles([UserRole.ADMIN]);
-  const rows = await getFinancialExportRows(user.organizationId);
-  const format = new URL(request.url).searchParams.get("format")?.toLowerCase();
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const searchParams = new URL(request.url).searchParams;
+  const format = searchParams.get("format")?.toLowerCase();
+  const year = Number(searchParams.get("year"));
+  const taxReport = searchParams.get("report") === "tax";
+  const rows = await getFinancialExportRows(user, Number.isFinite(year) && year > 0 ? year : undefined, taxReport);
   const filenameDate = new Date().toISOString().slice(0, 10);
 
   if (format === "excel" || format === "xlsx") {

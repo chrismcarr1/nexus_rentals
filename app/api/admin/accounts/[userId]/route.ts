@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { getEffectiveUserRole, isSystemAdminEmail, normalizeEmail, SYSTEM_ADMIN_EMAIL } from "@/lib/admin";
+import { getEffectiveUserRole, getSystemAdminEmail, isSystemAdminEmail, normalizeEmail } from "@/lib/admin";
 import { getAdminDashboardData } from "@/lib/admin-dashboard";
 import { getCurrentUser } from "@/lib/auth";
 import { createId, nowIso, updateStore } from "@/lib/store";
@@ -45,7 +45,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ us
   const { userId } = await params;
   const parsed = result.data;
   const nextEmail = normalizeEmail(parsed.email);
-  const isReservedAdminEmail = nextEmail === SYSTEM_ADMIN_EMAIL;
+  const systemAdminEmail = getSystemAdminEmail();
+  const isReservedAdminEmail = Boolean(systemAdminEmail && nextEmail === systemAdminEmail);
   let targetExists = false;
   let updatedAdminAccount = false;
 
@@ -57,7 +58,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ us
       targetExists = true;
       const currentTargetIsAdmin = isSystemAdminEmail(target.email);
 
-      if (currentTargetIsAdmin && nextEmail !== SYSTEM_ADMIN_EMAIL) {
+      if (currentTargetIsAdmin && nextEmail !== systemAdminEmail) {
         throw new Error("The system admin email cannot be changed.");
       }
 

@@ -76,15 +76,14 @@ The damage workflow is intentionally modular.
 
 ## Demo Credentials
 
-- Manager: `manager@nexusrentals.local` / `ManagerPass123!`
-- Tenant: `tenant@nexusrentals.local` / `TenantPass123!`
+Demo credentials are generated fresh each time you intentionally seed demo data. Run the seed command with `ALLOW_DEMO_SEED=true`, then use the passwords printed once in your terminal.
 
-System admin access is reserved for `chriscarr4433@gmail.com` and should be provisioned manually without storing a plaintext password.
+System admin access is reserved for the email in `SYSTEM_ADMIN_EMAIL` and should be provisioned manually without storing a plaintext password.
 
 ## Password Reset Demo
 
-- Seeded reset token: `demo-reset-token`
-- Open `/reset-password` and submit the token with a new password
+- Configure `RESEND_API_KEY` and `RESET_EMAIL_FROM`, then request a reset from `/forgot-password`.
+- Reset tokens are stored only as hashes and are never printed to logs or returned in page URLs.
 
 ## Environment Variables
 
@@ -93,6 +92,7 @@ Copy `.env.example` to `.env.local` and use:
 ```env
 DATABASE_URL="postgresql://user:password@host/db?sslmode=require"
 AUTH_SECRET="change-this-to-a-long-random-string"
+SYSTEM_ADMIN_EMAIL="admin@example.com"
 APP_URL="http://localhost:3000"
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=""
@@ -119,7 +119,7 @@ AI photo maintenance drafting uses OpenAI's Responses API with image inputs. Add
 npm install
 copy .env.example .env.local
 npm run db:migrate
-npm run db:setup
+$env:ALLOW_DEMO_SEED="true"; npm run db:setup
 npm run dev
 ```
 
@@ -135,7 +135,7 @@ http://localhost:3000
 npm install
 copy .env.example .env.local
 npm run db:migrate
-npm run db:setup
+$env:ALLOW_DEMO_SEED="true"; npm run db:setup
 npm run dev
 ```
 
@@ -148,8 +148,8 @@ http://localhost:3000
 ## Datastore Commands
 
 - Create the hosted Postgres table: `npm run db:migrate`
-- Initialize hosted demo data: `npm run db:setup`
-- Reseed demo data: `npm run db:seed`
+- Initialize hosted demo data: `$env:ALLOW_DEMO_SEED="true"; npm run db:setup`
+- Reseed demo data: `$env:ALLOW_DEMO_SEED="true"; npm run db:seed`
 - `npm run db:push` runs the same lightweight hosted table migration as `npm run db:migrate`
 
 ## Vercel Deployment
@@ -159,6 +159,7 @@ Required Vercel environment variables:
 ```text
 DATABASE_URL
 AUTH_SECRET
+SYSTEM_ADMIN_EMAIL
 APP_URL
 ```
 
@@ -197,7 +198,7 @@ Recommended setup:
 6. Configure Resend and add `RESEND_API_KEY` plus `RESET_EMAIL_FROM` so tenant invites can be delivered.
 7. Add `OPENAI_API_KEY` so AI photo maintenance drafting can analyze uploaded images.
 8. Run `npm run db:migrate` against the production database to create the table.
-9. Run `npm run db:setup` once if you want the seeded demo accounts and data in production.
+9. Avoid seeding demo accounts in production. If you intentionally need demo data in a disposable environment, run `$env:ALLOW_DEMO_SEED="true"; npm run db:setup` and rotate the generated credentials afterward.
 10. Deploy normally with Vercel. The project declares Node `22.x` in `package.json`.
 
 ## Key Pages

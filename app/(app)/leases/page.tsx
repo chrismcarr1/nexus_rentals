@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatAddress, formatUnitAddress } from "@/lib/address";
 import { requireUser } from "@/lib/auth";
+import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { getManagerLeaseRows } from "@/lib/lease-connections";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
@@ -81,7 +82,7 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
     const currentManager = portal.currentLease?.managerUserId
       ? portal.managers.find((manager) => manager.id === portal.currentLease?.managerUserId) ?? null
       : null;
-    const leaseDocuments = portal.currentLease?.documentPath
+    const leaseDocuments = portal.currentLease?.documentPath && isAllowedStoredAssetPath(portal.currentLease.documentPath, { allowDemo: true })
       ? [
           {
             id: `${portal.currentLease.id}-agreement`,
@@ -91,7 +92,7 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
           }
         ]
       : [];
-    const documents = [...leaseDocuments, ...portal.documents];
+    const documents = [...leaseDocuments, ...portal.documents].filter((file) => isAllowedStoredAssetPath(file.path, { allowDemo: true }));
     const leaseDaysRemaining = daysUntil(portal.currentLease?.endDate);
 
     return (

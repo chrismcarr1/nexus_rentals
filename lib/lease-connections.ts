@@ -236,11 +236,19 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
   const unit = getLeaseUnit(store, lease);
   const invite = getLatestInviteForLease(store, lease.id);
   const manager = lease.managerUserId ? store.users.find((user) => user.id === lease.managerUserId) ?? null : null;
+  const tenant =
+    (lease.tenantIds ?? [])
+      .map((tenantId) => store.tenants.find((item) => item.id === tenantId))
+      .find(Boolean) ??
+    findTenantByEmail(store, property?.organizationId ?? null, lease.tenantEmail) ??
+    null;
 
   return {
     id: lease.id,
     nexusLeaseId: lease.nexusLeaseId ?? lease.id,
     tenantEmail: lease.tenantEmail ?? "",
+    tenantFirstName: tenant?.firstName ?? null,
+    tenantLastName: tenant?.lastName ?? null,
     tenantConnected: Boolean(lease.tenantUserId),
     property: property
       ? {

@@ -8,6 +8,7 @@ import {
   FileText,
   Home,
   MessageSquare,
+  Plus,
   ReceiptText,
   ShieldCheck,
   Sparkles,
@@ -15,15 +16,23 @@ import {
 } from "lucide-react";
 
 import { CashFlowChart } from "@/components/charts/cash-flow-chart";
+import { DataTable } from "@/components/data-table";
+import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
 import { MetricCard } from "@/components/metric-card";
+import { PageHeader } from "@/components/page-header";
+import { QuickActionMenu } from "@/components/quick-action-menu";
+import { StatCard } from "@/components/stat-card";
+import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createStripeCheckoutAction } from "@/lib/actions";
+import { managerOwnsApplication, primaryApplicant } from "@/lib/applications";
 import { requireUser } from "@/lib/auth";
 import { getRoleConfig } from "@/lib/rbac";
+import { readStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getDashboardSnapshot } from "@/services/finance";
 import {
@@ -65,6 +74,194 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const renewalCount = portal.expiringLeases.filter((lease) => lease.daysRemaining <= 60).length;
   const tenantBalance = portal.nextPayment?.balanceDue ?? portal.nextPayment?.amount ?? 0;
 
+  if (user.role === "MANAGER") {
+    const store = await readStore();
+    const managerApplications = store.rentalApplications
+      .filter((application) => managerOwnsApplication(store, user, application))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const managerSubmissions = store.applicationSubmissions
+      .filter((submission) => managerApplications.some((application) => application.id === submission.applicationId))
+      .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+    const pendingApplicationCount = managerSubmissions.filter((submission) => submission.status === "SUBMITTED" || submission.status === "UNDER_REVIEW").length;
+    const vacantUnits = portal.scope.units.filter((unit) => unit.occupancyStatus !== "OCCUPIED").length;
+    const monthlyRentRoll = portal.scope.units.reduce((sum, unit) => sum + unit.monthlyRent, 0);
+    const upcomingMoveIns = portal.scope.leases.filter((lease) => {
+      if (lease.moveInDate) return new Date(lease.moveInDate).getTime() >= Date.now();
+      return lease.status === "UPCOMING" || lease.status === "invited";
+    });
+    const urgentMaintenance = [...portal.maintenanceOpen].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)).slice(0, 5);
+    const recentOverdue = portal.overduePayments.slice(0, 5);
+    const recentSubmissions = managerSubmissions.slice(0, 5);
+
+    return (
+      <div className="dashboard-page">
+        <PageHeader
+          eyebrow={role.homeLabel}
+          title="Manager operations dashboard"
+          description="Search the portfolio, scan exceptions, and act on leasing, rent, maintenance, and move-in work from one dense command view."
+          actions={<QuickActionMenu role={user.role} />}
+        />
+
+        {params.q && searchResults ? (
+          <DetailSection title={`Search results for "${params.q}"`} description="Jump directly into matching records.">
+            <div className="grid gap-3 lg:grid-cols-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Properties</p>
+                <div className="mt-2 space-y-1">
+                  {searchResults.properties.length ? searchResults.properties.map((item) => (
+                    <Link key={item.id} href={`/properties/${item.id}`} className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.name}</Link>
+                  )) : <p className="text-sm text-[var(--muted)]">No property matches.</p>}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Units</p>
+                <div className="mt-2 space-y-1">
+                  {searchResults.units.length ? searchResults.units.map((item) => (
+                    <Link key={item.id} href={`/units/${item.id}`} className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.property.name} {item.unitNumber}</Link>
+                  )) : <p className="text-sm text-[var(--muted)]">No unit matches.</p>}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Tenants</p>
+                <div className="mt-2 space-y-1">
+                  {searchResults.tenants.length ? searchResults.tenants.map((item) => (
+                    <Link key={item.id} href="/tenants" className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.firstName} {item.lastName}</Link>
+                  )) : <p className="text-sm text-[var(--muted)]">No tenant matches.</p>}
+                </div>
+              </div>
+            </div>
+          </DetailSection>
+        ) : null}
+
+        <section className="ops-grid">
+          <StatCard label="Total properties" value={String(portal.metrics.totalProperties)} detail="Assigned assets" tone="brand" />
+          <StatCard label="Total units" value={String(portal.metrics.totalUnits)} detail="Managed inventory" />
+          <StatCard label="Occupied units" value={String(portal.metrics.occupiedUnits)} detail={`${Math.round(portal.metrics.occupancyRate * 100)}% occupancy`} tone="success" />
+          <StatCard label="Vacant units" value={String(vacantUnits)} detail="Vacant, notice, or turnover" tone={vacantUnits ? "warning" : "success"} />
+          <StatCard label="Monthly rent roll" value={formatCurrency(monthlyRentRoll)} detail="Scheduled unit rent" tone="brand" />
+          <StatCard label="Overdue rent" value={formatCurrency(portal.metrics.overdue)} detail={`${portal.overduePayments.length} unpaid charges`} tone={portal.metrics.overdue ? "danger" : "success"} />
+          <StatCard label="Pending applications" value={String(pendingApplicationCount)} detail={`${managerApplications.length} active application links`} tone={pendingApplicationCount ? "warning" : "default"} />
+          <StatCard label="Upcoming move-ins" value={String(upcomingMoveIns.length)} detail="Upcoming or invited leases" tone={upcomingMoveIns.length ? "brand" : "default"} />
+        </section>
+
+        <section className="ops-split">
+          <DetailSection
+            title="Tasks and alerts"
+            description="The highest-friction work that needs manager attention."
+            actions={<Link href="/maintenance" className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">Open maintenance</Link>}
+          >
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Open work orders</p>
+                <div className="mt-3">
+                  {urgentMaintenance.length ? urgentMaintenance.map((item) => {
+                    const property = portal.scope.properties.find((candidate) => candidate.id === item.propertyId);
+                    const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;
+                    return (
+                      <div key={item.id} className="activity-item">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold">{item.title}</p>
+                          <p className="mt-1 truncate text-xs text-[var(--muted)]">{property?.name ?? "Property"}{unit ? `, Unit ${unit.unitNumber}` : ""}</p>
+                        </div>
+                        <StatusBadge status={item.priority} />
+                      </div>
+                    );
+                  }) : <EmptyState title="No open work orders" description="Maintenance exceptions will appear here." />}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Collections follow-up</p>
+                <div className="mt-3">
+                  {recentOverdue.length ? recentOverdue.map((payment) => {
+                    const unit = portal.scope.units.find((candidate) => candidate.id === payment.unitId);
+                    const property = unit ? portal.scope.properties.find((candidate) => candidate.id === unit.propertyId) : null;
+                    return (
+                      <div key={payment.id} className="activity-item">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold">{payment.description}</p>
+                          <p className="mt-1 truncate text-xs text-[var(--muted)]">{property?.name ?? "Property"}{unit ? `, Unit ${unit.unitNumber}` : ""} - due {formatDate(payment.dueDate)}</p>
+                        </div>
+                        <p className="text-sm font-semibold text-[var(--danger)]">{formatCurrency(payment.balanceDue || payment.amount)}</p>
+                      </div>
+                    );
+                  }) : <EmptyState title="No overdue rent" description="Collections are clear for the current scope." />}
+                </div>
+              </div>
+            </div>
+          </DetailSection>
+
+          <DetailSection title="Recent activity" description="Payments, requests, notices, and system updates.">
+            <div>
+              {portal.recentActivity.length ? portal.recentActivity.slice(0, 8).map((item) => (
+                <div key={item.id} className="activity-item">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{item.title}</p>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{item.detail}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{item.kind}</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(item.date)}</p>
+                  </div>
+                </div>
+              )) : <EmptyState title="No recent activity" description="New operational updates will appear here." />}
+            </div>
+          </DetailSection>
+        </section>
+
+        <section className="ops-split">
+          <DetailSection
+            title="Application pipeline"
+            description="Latest applicants across published application links."
+            actions={<Link href="/applications" className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">View applications</Link>}
+          >
+            {recentSubmissions.length ? (
+              <DataTable columns={["Applicant", "Property / unit", "Submitted", "Status", "Fee"]} minWidth="44rem">
+                {recentSubmissions.map((submission) => {
+                  const application = managerApplications.find((item) => item.id === submission.applicationId);
+                  const property = application ? portal.scope.properties.find((item) => item.id === application.propertyId) : null;
+                  const unit = application?.unitId ? portal.scope.units.find((item) => item.id === application.unitId) : null;
+                  const applicants = store.applicationApplicants.filter((applicant) => applicant.submissionId === submission.id);
+                  const applicant = primaryApplicant(applicants);
+                  return (
+                    <tr key={submission.id} className="table-row">
+                      <td className="table-cell font-semibold">{applicant ? `${applicant.firstName} ${applicant.lastName}` : "Applicant"}</td>
+                      <td className="table-cell text-[var(--muted)]">{property?.name ?? "Property"}{unit ? ` / ${unit.unitNumber}` : ""}</td>
+                      <td className="table-cell text-[var(--muted)]">{formatDate(submission.submittedAt)}</td>
+                      <td className="table-cell"><StatusBadge status={submission.status} /></td>
+                      <td className="table-cell"><StatusBadge status={submission.feeStatus} /></td>
+                    </tr>
+                  );
+                })}
+              </DataTable>
+            ) : (
+              <EmptyState title="No application submissions" description="Published application activity will appear here." />
+            )}
+          </DetailSection>
+
+          <DetailSection
+            title="Quick navigation"
+            description="Fast paths into the portfolio tables designed for large inventories."
+          >
+            <div className="grid gap-2">
+              {[
+                { href: "/properties", label: "Properties", detail: `${portal.metrics.totalProperties} assets` },
+                { href: "/units", label: "Units", detail: `${portal.metrics.totalUnits} units` },
+                { href: "/tenants", label: "Tenants", detail: `${portal.scope.tenants.length} residents` },
+                { href: "/transactions", label: "Payments", detail: `${portal.scope.payments.length} ledger entries` },
+                { href: "/documents", label: "Documents", detail: `${portal.documents.length} recent files` }
+              ].map((item) => (
+                <Link key={item.href} href={item.href} className="flex items-center justify-between gap-3 rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm transition hover:bg-[var(--surface-hover)]">
+                  <span className="font-semibold text-[var(--text)]">{item.label}</span>
+                  <span className="text-xs text-[var(--muted)]">{item.detail}</span>
+                </Link>
+              ))}
+            </div>
+          </DetailSection>
+        </section>
+      </div>
+    );
+  }
+
   const dashboardCopy =
     user.role === "ADMIN"
       ? {
@@ -72,17 +269,11 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           description: "A clean operating view across occupancy, collections, renewals, maintenance, and team activity.",
           eyebrow: role.homeLabel
         }
-      : user.role === "MANAGER"
-        ? {
-            title: "Today's operating board",
-            description: "Your assigned properties, overdue balances, open service work, and renewal decisions in one focused workspace.",
-            eyebrow: role.homeLabel
-          }
-        : {
-            title: "Your rental home base",
-            description: "Track rent, lease status, service requests, notices, and messages without digging through separate portals.",
-            eyebrow: role.homeLabel
-          };
+      : {
+          title: "Your rental home base",
+          description: "Track rent, lease status, service requests, notices, and messages without digging through separate portals.",
+          eyebrow: role.homeLabel
+        };
 
   const heroMetrics =
     user.role === "TENANT"
@@ -105,15 +296,6 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </Link>
         <Link href="/settings">
           <Button><ShieldCheck className="h-4 w-4" /> Platform</Button>
-        </Link>
-      </>
-    ) : user.role === "MANAGER" ? (
-      <>
-        <Link href="/maintenance">
-          <Button variant="secondary"><Wrench className="h-4 w-4" /> Work orders</Button>
-        </Link>
-        <Link href="/leases">
-          <Button><FileText className="h-4 w-4" /> New lease</Button>
         </Link>
       </>
     ) : (
@@ -218,17 +400,6 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             <MetricCard label="Collected" value={formatCurrency(portal.metrics.collected)} hint={`Outstanding ${formatCurrency(portal.metrics.outstanding)}`} accent="success" />
             <MetricCard label="Maintenance" value={String(portal.metrics.maintenanceOpen)} hint="Open or in-progress service requests" accent="warning" />
             <MetricCard label="Expenses" value={formatCurrency(portal.metrics.monthExpenses)} hint="Current-month operating expense activity" />
-          </>
-        ) : user.role === "MANAGER" ? (
-          <>
-            <MetricCard label="Assigned properties" value={String(portal.metrics.totalProperties)} hint="Buildings currently in your operating scope" accent="brand" />
-            <MetricCard label="Assigned units" value={String(portal.metrics.totalUnits)} hint={`${portal.metrics.occupiedUnits} occupied right now`} />
-            <MetricCard label="Open maintenance" value={String(portal.metrics.maintenanceOpen)} hint="Issues waiting on triage or vendor progress" accent="warning" />
-            <MetricCard label="Overdue rent" value={formatCurrency(portal.metrics.overdue)} hint="Collections needing immediate follow-up" accent="warning" />
-            <MetricCard label="Renewals" value={String(renewalCount)} hint="Leases approaching within 60 days" />
-            <MetricCard label="Collected" value={formatCurrency(portal.metrics.collected)} hint="Payments collected inside your portfolio scope" accent="success" />
-            <MetricCard label="Announcements" value={String(portal.notifications.length)} hint="Messages and system updates in your queue" accent="brand" />
-            <MetricCard label="Occupancy" value={`${Math.round(portal.metrics.occupancyRate * 100)}%`} hint="Occupied share of your assigned units" accent="success" />
           </>
         ) : (
           <>

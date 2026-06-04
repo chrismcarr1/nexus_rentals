@@ -2,75 +2,45 @@ import { put } from "@vercel/blob";
 import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 
+import { getCurrentUser } from "@/lib/auth";
+import { getUploadStorageKey, validateUploadFile } from "@/lib/file-security";
+import { checkRateLimit } from "@/lib/rate-limit";
+
 export const runtime = "nodejs";
 
-const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
-const MAX_UPLOAD_SIZE_LABEL = "10 MB";
 const localUploadDir = path.join(process.cwd(), "public", "uploads");
-const allowedMimeTypes = new Set([
-  "image/jpeg",
-  "image/jpg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-]);
-const allowedExtensions = new Set(["jpg", "jpeg", "png", "webp", "gif", "pdf", "doc", "docx"]);
-const fallbackMimeTypeByExtension: Record<string, string> = {
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  webp: "image/webp",
-  gif: "image/gif",
-  pdf: "application/pdf",
-  doc: "application/msword",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-};
 
-function sanitizeFileName(name: string) {
-  return name.replace(/[^a-zA-Z0-9._-]/g, "-") || "upload";
-}
+async function saveLocalUpload(storageKey: string, bytes: Buffer) {
+  const uploadPath = path.join(process.cwd(), "public", storageKey);
 
-function getExtension(fileName: string) {
-  return path.extname(fileName).toLowerCase().replace(/^\./, "");
-}
-
-function validateUpload(file: File) {
-  const extension = getExtension(file.name);
-
-  if (!extension || !allowedExtensions.has(extension)) {
-    return `Unsupported file type. Upload a JPG, JPEG, PNG, WEBP, GIF, PDF, DOC, or DOCX file.`;
+  if (!uploadPath.startsWith(localUploadDir + path.sep)) {
+    throw new Error("Invalid upload path.");
   }
 
-  if (file.type && !allowedMimeTypes.has(file.type)) {
-    return `Unsupported file type. Upload a JPG, JPEG, PNG, WEBP, GIF, PDF, DOC, or DOCX file.`;
-  }
-
-  if (file.size <= 0) {
-    return "The selected file is empty.";
-  }
-
-  if (file.size > MAX_UPLOAD_SIZE_BYTES) {
-    return `File is too large. Upload files up to ${MAX_UPLOAD_SIZE_LABEL}.`;
-  }
-
-  return null;
-}
-
-async function saveLocalUpload(file: File) {
-  await mkdir(localUploadDir, { recursive: true });
-  const fileName = `${Date.now()}-${sanitizeFileName(file.name)}`;
-  const uploadPath = path.join(localUploadDir, fileName);
-  const bytes = await file.arrayBuffer();
-
-  await writeFile(uploadPath, Buffer.from(bytes));
-
-  return `/uploads/${fileName}`;
+  await mkdir(path.dirname(uploadPath), { recursive: true });
+  await writeFile(uploadPath, bytes);
+  return `/${storageKey.replace(/\\/g, "/")}`;
 }
 
 export async function POST(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return Response.json({ error: "Sign in before uploading files." }, { status: 401 });
+  }
+
+  const rateLimit = checkRateLimit({
+    key: `upload:${user.id}`,
+    limit: 30,
+    windowMs: 60 * 1000
+  });
+
+  if (!rateLimit.allowed) {
+    return Response.json(
+      { error: "Too many uploads. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfter) } }
+    );
+  }
+
   let data: FormData;
 
   try {
@@ -85,10 +55,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing file" }, { status: 400 });
   }
 
-  const validationError = validateUpload(file);
-  if (validationError) {
-    return Response.json({ error: validationError }, { status: 400 });
+  const validation = await validateUploadFile(file);
+  if (validation.error || !validation.bytes || !validation.contentType) {
+    return Response.json({ error: validation.error ?? "Invalid upload." }, { status: 400 });
   }
+
+  const storageKey = getUploadStorageKey(file.name, user);
 
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     // Vercel production functions cannot persist uploads to the local filesystem.
@@ -102,7 +74,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      const localPath = await saveLocalUpload(file);
+      const localPath = await saveLocalUpload(storageKey, validation.bytes);
 
       return Response.json({
         path: localPath,
@@ -116,12 +88,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const extension = getExtension(file.name);
-    const fileName = `uploads/${Date.now()}-${sanitizeFileName(file.name)}`;
-    const blob = await put(fileName, file, {
+    const blob = await put(storageKey, new Blob([validation.bytes], { type: validation.contentType }), {
       access: "public",
       addRandomSuffix: true,
-      contentType: file.type || fallbackMimeTypeByExtension[extension]
+      contentType: validation.contentType
     });
 
     return Response.json({

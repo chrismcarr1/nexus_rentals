@@ -1,16 +1,55 @@
+import { ExternalLink, RefreshCw } from "lucide-react";
+
 import { AddressFields, MAILING_ADDRESS_FORM_FIELDS } from "@/components/address-fields";
+import { DetailSection } from "@/components/detail-section";
 import { PageHeader } from "@/components/page-header";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { updateProfileAction, updateSettingsAction } from "@/lib/actions";
+import {
+  connectStripeAccountAction,
+  openStripeDashboardAction,
+  refreshStripeConnectStatusAction,
+  updateProfileAction,
+  updateSettingsAction
+} from "@/lib/actions";
 import { formatAddress, parseAddressText } from "@/lib/address";
 import { requireUser } from "@/lib/auth";
+import { getAppOrigin } from "@/lib/request-origin";
 import { getPortalContext } from "@/services/portal";
+
+function stripeSettingsMessage(status?: string) {
+  if (status === "connect-ready") return "Stripe payouts are connected and ready for tenant checkout.";
+  if (status === "connect-incomplete") return "Stripe setup started, but bank and payout details still need to be completed.";
+  if (status === "connect-refresh") return "Stripe setup link expired or was interrupted. Start setup again from this page.";
+  if (status === "connect-required") return "Set up Stripe payouts before tenants can pay rent online.";
+  if (status === "connect-refreshed") return "Stripe payout status was refreshed.";
+  if (status === "connect-not-enabled") return "This Stripe account has not been enabled for Connect yet. Sign up for Connect in Stripe, then try payout setup again.";
+  if (status === "connect-error") return "Stripe payout setup could not be opened or refreshed. Check your Stripe keys and try again.";
+  return null;
+}
 
 export default async function SettingsPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireUser();
   const portal = await getPortalContext(user);
   const params = (await searchParams) ?? {};
+  const appUrl = await getAppOrigin();
+  const stripeSetup = {
+    secretKey: Boolean(process.env.STRIPE_SECRET_KEY),
+    webhookSecret: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+    appUrl: Boolean(appUrl),
+    webhookUrl: `${appUrl}/api/stripe/webhook`
+  };
+  const stripeReady = stripeSetup.secretKey && stripeSetup.webhookSecret && stripeSetup.appUrl;
+  const managerConnect = {
+    accountId: user.stripeConnectedAccountId,
+    charges: Boolean(user.stripeChargesEnabled),
+    payouts: Boolean(user.stripePayoutsEnabled),
+    submitted: Boolean(user.stripeDetailsSubmitted),
+    ready: Boolean(user.stripeConnectedAccountId && user.stripeChargesEnabled && user.stripePayoutsEnabled && user.stripeOnboardingComplete)
+  };
+  const stripeMessage = stripeSettingsMessage(params.stripe);
 
   return (
     <div className="space-y-4">
@@ -31,6 +70,85 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
               : "Update your basic profile details and review the documents and notices most relevant to your tenancy."
         }
       />
+
+      {user.role !== "TENANT" ? (
+        <DetailSection
+          id="payments-stripe"
+          title="Payments / Stripe"
+          description="Stripe onboarding, payout readiness, and webhook configuration live here so collections work stays focused."
+          actions={<Badge tone={stripeReady && managerConnect.ready ? "success" : "warning"}>{stripeReady && managerConnect.ready ? "Stripe Connected" : "Setup Required"}</Badge>}
+        >
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.45fr)]">
+            <div className="space-y-4">
+              {stripeMessage ? (
+                <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--text)]">
+                  {stripeMessage}
+                </div>
+              ) : null}
+              <div className="ops-grid">
+                <div className="panel-muted p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Secret key</p>
+                  <p className="mt-2 text-sm font-semibold">{stripeSetup.secretKey ? "Configured" : "Missing STRIPE_SECRET_KEY"}</p>
+                </div>
+                <div className="panel-muted p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Webhook secret</p>
+                  <p className="mt-2 text-sm font-semibold">{stripeSetup.webhookSecret ? "Configured" : "Missing STRIPE_WEBHOOK_SECRET"}</p>
+                </div>
+                <div className="panel-muted p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Connected account</p>
+                  <p className="mt-2 truncate text-sm font-semibold">{managerConnect.accountId ?? "Not connected"}</p>
+                </div>
+                <div className="panel-muted p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Payout status</p>
+                  <p className="mt-2 text-sm font-semibold">
+                    {managerConnect.charges && managerConnect.payouts
+                      ? "Charges and payouts enabled"
+                      : managerConnect.submitted
+                        ? "Details submitted"
+                        : "Needs onboarding"}
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Stripe webhook URL</p>
+                <p className="mt-2 break-all font-mono text-xs text-[var(--text)]">{stripeSetup.webhookUrl}</p>
+              </div>
+            </div>
+            <div className="grid content-start gap-2">
+              {stripeReady ? (
+                <form action={connectStripeAccountAction}>
+                  <SubmitButton className="w-full" pendingLabel="Opening Stripe...">
+                    <ExternalLink className="h-4 w-4" />
+                    {managerConnect.accountId ? "Continue Stripe setup" : "Set up Stripe payouts"}
+                  </SubmitButton>
+                </form>
+              ) : (
+                <Button disabled className="w-full">
+                  <ExternalLink className="h-4 w-4" />
+                  Add Stripe env first
+                </Button>
+              )}
+              {managerConnect.accountId ? (
+                <>
+                  <form action={refreshStripeConnectStatusAction}>
+                    <SubmitButton className="w-full" variant="secondary" pendingLabel="Refreshing...">
+                      <RefreshCw className="h-4 w-4" />
+                      Refresh Stripe status
+                    </SubmitButton>
+                  </form>
+                  <form action={openStripeDashboardAction}>
+                    <SubmitButton className="w-full" variant="secondary" pendingLabel="Opening...">
+                      <ExternalLink className="h-4 w-4" />
+                      Stripe dashboard
+                    </SubmitButton>
+                  </form>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </DetailSection>
+      ) : null}
+
       <div className="content-split-tight">
         {user.role === "ADMIN" ? (
           <Card className="p-6">

@@ -2,6 +2,8 @@ import { readFile } from "fs/promises";
 import path from "path";
 import { z } from "zod";
 
+import { isAllowedStoredAssetPath, isRemoteAssetUrl } from "@/lib/file-security";
+
 type MaintenancePhotoDraftInput = {
   imagePaths: string[];
   notes?: string;
@@ -144,14 +146,6 @@ function getImageMimeType(imagePath: string) {
   return mimeTypeByExtension[extension] ?? "image/jpeg";
 }
 
-function isRemoteUrl(imagePath: string) {
-  return /^https?:\/\//i.test(imagePath);
-}
-
-function isDataUrl(imagePath: string) {
-  return /^data:image\//i.test(imagePath);
-}
-
 async function localImagePathToDataUrl(imagePath: string) {
   const cleanedPath = decodeURIComponent(cleanImagePath(imagePath));
   const normalizedPath = cleanedPath.replace(/^\/+/, "");
@@ -166,15 +160,11 @@ async function localImagePathToDataUrl(imagePath: string) {
 }
 
 async function toOpenAiImageContent(imagePath: string) {
-  if (isDataUrl(imagePath)) {
-    return {
-      type: "input_image",
-      image_url: imagePath,
-      detail: "high"
-    };
+  if (!isAllowedStoredAssetPath(imagePath)) {
+    throw new Error("Invalid maintenance image path.");
   }
 
-  if (isRemoteUrl(imagePath)) {
+  if (isRemoteAssetUrl(imagePath)) {
     return {
       type: "input_image",
       image_url: imagePath,

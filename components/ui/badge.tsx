@@ -10,7 +10,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold tracking-[0.02em]",
+        "inline-flex rounded-md px-2 py-0.5 text-xs font-semibold tracking-[0.02em]",
         tone === "default" && "border border-[var(--line-strong)] bg-[var(--panel)] text-[var(--muted-strong)]",
         tone === "success" && "border border-emerald-600/15 bg-emerald-600/10 text-emerald-800",
         tone === "warning" && "border border-amber-600/18 bg-amber-500/12 text-amber-800",

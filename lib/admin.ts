@@ -1,13 +1,16 @@
 type UserRole = "ADMIN" | "MANAGER" | "TENANT";
 
-export const SYSTEM_ADMIN_EMAIL = "chriscarr4433@gmail.com";
-
 export function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+export function getSystemAdminEmail() {
+  return process.env.SYSTEM_ADMIN_EMAIL ? normalizeEmail(process.env.SYSTEM_ADMIN_EMAIL) : "";
+}
+
 export function isSystemAdminEmail(email?: string | null) {
-  return Boolean(email && normalizeEmail(email) === SYSTEM_ADMIN_EMAIL);
+  const systemAdminEmail = getSystemAdminEmail();
+  return Boolean(email && systemAdminEmail && normalizeEmail(email) === systemAdminEmail);
 }
 
 export function getEffectiveUserRole(role: UserRole, email: string): UserRole {

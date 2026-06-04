@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
-  const redirectUrl = new URL("/transactions", request.url);
+  const redirectUrl = new URL("/settings", request.url);
   let status = "connect-required";
 
   try {
@@ -22,5 +22,6 @@ export async function GET(request: Request) {
   }
 
   redirectUrl.searchParams.set("stripe", status);
+  redirectUrl.hash = "payments-stripe";
   return NextResponse.redirect(redirectUrl);
 }

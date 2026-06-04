@@ -64,7 +64,7 @@ function hydrateLease(store: AppStore, lease: any) {
   const unit = lease.unitId ? store.units.find((item) => item.id === lease.unitId) : null;
   const property = findPropertyForLease(store, lease);
   return {
-    ...toDateFields(lease, ["startDate", "endDate", "createdAt", "updatedAt"]),
+    ...toDateFields(lease, ["startDate", "endDate", "moveInDate", "createdAt", "updatedAt"]),
     unit: unit ? hydrateUnitBare(store, unit) : null,
     property: property ? toDateFields(property, ["createdAt", "updatedAt"]) : null,
     tenants: (lease.tenantIds ?? [])
@@ -388,7 +388,7 @@ export const db: any = {
         return true;
       });
       items = sortItems(items, orderBy);
-      return items.map((lease) => (include ? hydrateLease(store, lease) : toDateFields(lease, ["startDate", "endDate", "createdAt", "updatedAt"])));
+      return items.map((lease) => (include ? hydrateLease(store, lease) : toDateFields(lease, ["startDate", "endDate", "moveInDate", "createdAt", "updatedAt"])));
     },
     async create({ data }: any) {
       const lease = {

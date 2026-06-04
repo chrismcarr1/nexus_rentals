@@ -3,19 +3,21 @@ import { cn } from "@/lib/utils";
 export function DataTable({
   columns,
   children,
-  className
+  className,
+  minWidth = "46rem"
 }: {
-  columns: string[];
+  columns: React.ReactNode[];
   children: React.ReactNode;
   className?: string;
+  minWidth?: string;
 }) {
   return (
     <div className={cn("data-table-scroll", className)}>
-      <table className="responsive-table text-left text-sm">
+      <table className="responsive-table text-left text-sm" style={{ minWidth }}>
         <thead className="border-b border-[var(--line)] text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
           <tr>
-            {columns.map((column) => (
-              <th key={column} className="pb-4 pr-4">
+            {columns.map((column, index) => (
+              <th key={typeof column === "string" ? column : index} className="pb-3 pr-4">
                 {column}
               </th>
             ))}
