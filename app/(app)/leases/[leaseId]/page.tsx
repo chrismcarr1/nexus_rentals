@@ -7,13 +7,20 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { deleteLeaseAction, updateLeaseAction } from "@/lib/actions";
+import { formatUnitAddress } from "@/lib/address";
 import { requireRoles } from "@/lib/auth";
+import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { UserRole } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
-function toDateInputValue(value: string | Date) {
+function toDateInputValue(value?: string | Date | null) {
+  if (!value) return "";
   return new Date(value).toISOString().slice(0, 10);
+}
+
+function formatDateOrUnset(value?: string | Date | null) {
+  return value ? formatDate(value) : "Not set";
 }
 
 export default async function ManageLeasePage({
@@ -32,9 +39,10 @@ export default async function ManageLeasePage({
   if (!lease) notFound();
 
   const unit = portal.scope.units.find((item) => item.id === lease.unitId);
-  const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) : null;
+  const property = portal.scope.properties.find((item) => item.id === (lease.propertyId ?? unit?.propertyId)) ?? null;
   const tenants = portal.scope.tenants.filter((tenant) => lease.tenantIds.includes(tenant.id));
   const returnTo = `/leases/${lease.id}`;
+  const safeDocumentPath = isAllowedStoredAssetPath(lease.documentPath, { allowDemo: true }) ? lease.documentPath : undefined;
 
   return (
     <div className="space-y-4">
@@ -43,7 +51,7 @@ export default async function ManageLeasePage({
         title={`${property?.name ?? "Property"} ${unit?.unitNumber ?? ""}`.trim()}
         description="Update lease terms, tenant assignment, status, document storage, or remove the lease from the tracker."
         actions={
-          <Link href="/leases" className="rounded-2xl border border-[var(--line-strong)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)]/30">
+          <Link href="/leases" className="rounded-xl border border-[var(--line-strong)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)]/30">
             Back to leases
           </Link>
         }
@@ -55,35 +63,51 @@ export default async function ManageLeasePage({
         </div>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      {query.moveIn === "created" ? (
+        <div className="rounded-2xl border border-emerald-600/15 bg-emerald-600/10 px-4 py-3 text-sm text-emerald-800">
+          New move-in created successfully.{" "}
+          {query.invite === "sent"
+            ? "The tenant portal invite email was sent."
+            : query.invite === "pending"
+              ? "A tenant portal invite was created and can be resent from the lease board if email delivery needs attention."
+              : "Portal invite was skipped for now."}
+        </div>
+      ) : null}
+
+      <div className="content-split-tight">
         <Card className="p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Lease record</p>
-              <h2 className="mt-2 text-2xl font-semibold">{tenants.map((tenant) => `${tenant.firstName} ${tenant.lastName}`).join(", ") || "Unassigned tenant"}</h2>
+              <h2 className="mt-2 text-2xl font-semibold">{tenants.map((tenant) => `${tenant.firstName} ${tenant.lastName}`).join(", ") || lease.tenantEmail || "Unassigned tenant"}</h2>
+              {property ? <p className="mt-2 text-sm text-[var(--muted)]">{formatUnitAddress(property, unit)}</p> : null}
             </div>
             <Badge>{lease.status}</Badge>
           </div>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <div className="panel-muted rounded-[24px] p-4">
+          <div className="card-grid-compact mt-5">
+            <div className="panel-muted p-4">
               <p className="text-sm text-[var(--muted)]">Term</p>
-              <p className="mt-2 font-semibold">{formatDate(lease.startDate)} to {formatDate(lease.endDate)}</p>
+              <p className="mt-2 font-semibold">{formatDateOrUnset(lease.startDate)} to {formatDateOrUnset(lease.endDate)}</p>
             </div>
-            <div className="panel-muted rounded-[24px] p-4">
+            <div className="panel-muted p-4">
               <p className="text-sm text-[var(--muted)]">Monthly rent</p>
               <p className="mt-2 font-semibold">{formatCurrency(lease.monthlyRent)}</p>
             </div>
-            <div className="panel-muted rounded-[24px] p-4">
+            <div className="panel-muted p-4">
               <p className="text-sm text-[var(--muted)]">Security deposit</p>
               <p className="mt-2 font-semibold">{formatCurrency(lease.securityDeposit)}</p>
             </div>
-            <div className="panel-muted rounded-[24px] p-4">
+            <div className="panel-muted p-4">
               <p className="text-sm text-[var(--muted)]">Due day</p>
               <p className="mt-2 font-semibold">Day {lease.dueDay}</p>
             </div>
+            <div className="panel-muted p-4">
+              <p className="text-sm text-[var(--muted)]">Move-in date</p>
+              <p className="mt-2 font-semibold">{formatDateOrUnset(lease.moveInDate)}</p>
+            </div>
           </div>
-          {lease.documentPath ? (
-            <a href={lease.documentPath} target="_blank" rel="noreferrer" className="mt-5 block truncate text-sm font-semibold text-[var(--brand)]">
+          {safeDocumentPath ? (
+            <a href={safeDocumentPath} target="_blank" rel="noreferrer" className="mt-5 block truncate text-sm font-semibold text-[var(--brand)]">
               Open current lease agreement
             </a>
           ) : null}
@@ -94,8 +118,9 @@ export default async function ManageLeasePage({
           <form action={updateLeaseAction} className="mt-6 space-y-4">
             <input type="hidden" name="leaseId" value={lease.id} />
             <input type="hidden" name="returnTo" value={returnTo} />
-            <input type="hidden" name="existingDocumentPath" value={lease.documentPath ?? ""} />
-            <select name="unitId" className="field" required defaultValue={lease.unitId}>
+            <input type="hidden" name="existingDocumentPath" value={safeDocumentPath ?? ""} />
+            <select name="unitId" className="field" required defaultValue={lease.unitId ?? ""}>
+              <option value="" disabled>Select unit</option>
               {portal.scope.units.map((unit) => {
                 const property = portal.scope.properties.find((item) => item.id === unit.propertyId);
                 return <option key={unit.id} value={unit.id}>{property?.name} {unit.unitNumber}</option>;
@@ -105,11 +130,11 @@ export default async function ManageLeasePage({
               <option value="" disabled>Select tenant</option>
               {portal.scope.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.firstName} {tenant.lastName}</option>)}
             </select>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="form-grid-2">
               <input name="startDate" type="date" required defaultValue={toDateInputValue(lease.startDate)} className="field" />
               <input name="endDate" type="date" required defaultValue={toDateInputValue(lease.endDate)} className="field" />
             </div>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="form-grid-3">
               <input name="monthlyRent" type="number" min="0" step="0.01" required defaultValue={lease.monthlyRent} placeholder="Monthly rent" className="field" />
               <input name="dueDay" type="number" min="1" max="28" required defaultValue={lease.dueDay} placeholder="Due day" className="field" />
               <input name="securityDeposit" type="number" min="0" step="0.01" required defaultValue={lease.securityDeposit} placeholder="Deposit" className="field" />

@@ -39,7 +39,7 @@ export default async function ManagerGuidePage() {
         title="Tips to being a good manager."
         description="A practical operating checklist for keeping residents informed, properties cared for, and decisions easy to defend."
       />
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="card-grid-3">
         {sections.map((section) => (
           <Card key={section.title} className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">{section.title}</p>

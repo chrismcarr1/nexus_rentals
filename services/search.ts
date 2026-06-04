@@ -1,3 +1,4 @@
+import { getAddressSearchText } from "@/lib/address";
 import { getOrganizationSnapshot } from "@/lib/store";
 
 type SearchScope = {
@@ -20,7 +21,7 @@ export async function globalSearch(organizationId: string, query?: string, scope
   return {
     properties: snapshot.properties
       .filter((item) => allowedPropertyIds.has(item.id))
-      .filter((item) => [item.name, item.city, item.addressLine1].some((value) => value.toLowerCase().includes(needle)))
+      .filter((item) => [item.name, getAddressSearchText(item)].some((value) => value.toLowerCase().includes(needle)))
       .slice(0, 6),
     units: snapshot.units
       .filter((item) => allowedUnitIds.has(item.id))

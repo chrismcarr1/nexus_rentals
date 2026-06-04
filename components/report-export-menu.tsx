@@ -1,38 +1,18 @@
 "use client";
 
 import { ChevronDown, Download, FileSpreadsheet, FileText } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useClickOutside } from "@/components/use-click-outside";
 
 export function ReportExportMenu() {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handlePointerDown(event: PointerEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, []);
+  useClickOutside(menuRef, () => setOpen(false), open);
 
   return (
-    <div ref={menuRef} className="relative" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <div ref={menuRef} className="relative">
       <Button
         type="button"
         variant="secondary"
@@ -49,7 +29,7 @@ export function ReportExportMenu() {
         <div className="surface-panel absolute right-0 top-[calc(100%+8px)] z-20 w-56 p-2" role="menu">
           <a
             href="/api/export/financials?format=csv"
-            className="flex items-start gap-3 rounded-2xl px-3 py-2.5 text-sm hover:bg-slate-100"
+            className="flex items-start gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100"
             download
             role="menuitem"
             onClick={() => setOpen(false)}
@@ -62,7 +42,7 @@ export function ReportExportMenu() {
           </a>
           <a
             href="/api/export/financials?format=xlsx"
-            className="flex items-start gap-3 rounded-2xl px-3 py-2.5 text-sm hover:bg-slate-100"
+            className="flex items-start gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100"
             download
             role="menuitem"
             onClick={() => setOpen(false)}

@@ -25,7 +25,7 @@ export default async function ProtectedLayout({ children }: Readonly<{ children:
           .map((request) => {
             const property = portal.scope.properties.find((item) => item.id === request.propertyId);
             const unit = request.unitId ? portal.scope.units.find((item) => item.id === request.unitId) : null;
-            const location = [property?.name, unit?.unitNumber ? `Unit ${unit.unitNumber}` : null].filter(Boolean).join(" · ");
+            const location = [property?.name, unit?.unitNumber ? `Unit ${unit.unitNumber}` : null].filter(Boolean).join(" - ");
 
             return {
               id: `maintenance-${request.id}`,
@@ -39,6 +39,7 @@ export default async function ProtectedLayout({ children }: Readonly<{ children:
     id: notification.id,
     title: notification.title,
     body: notification.body,
+    href: notification.href,
     label: "Alert"
   }));
   const alerts = [...maintenanceAlerts, ...notificationAlerts].slice(0, 6);

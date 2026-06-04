@@ -6,6 +6,15 @@ type PasswordResetEmailInput = {
   resetUrl: string;
 };
 
+type TenantInviteEmailInput = {
+  to: string;
+  managerName: string;
+  managerEmail: string;
+  propertyLabel: string;
+  inviteUrl: string;
+  expiresAt: string;
+};
+
 function getEmailFromAddress() {
   return process.env.RESET_EMAIL_FROM || "Nexus Rentals <no-reply@nexusrentals.local>";
 }
@@ -25,7 +34,7 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }: PasswordRes
   const safeResetUrl = escapeHtml(resetUrl);
 
   if (!apiKey) {
-    console.info(`[email] RESEND_API_KEY is not configured. Password reset link for ${to}: ${resetUrl}`);
+    console.info(`[email] RESEND_API_KEY is not configured. Password reset email was not sent for ${to}.`);
     return { sent: false };
   }
 
@@ -60,6 +69,58 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }: PasswordRes
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(`Password reset email failed: ${response.status} ${detail}`);
+  }
+
+  return { sent: true };
+}
+
+export async function sendTenantInviteEmail({ to, managerName, managerEmail, propertyLabel, inviteUrl, expiresAt }: TenantInviteEmailInput) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESET_EMAIL_FROM;
+
+  if (!apiKey || !from) {
+    return {
+      sent: false,
+      error: "Tenant invite email is not configured. Set RESEND_API_KEY and RESET_EMAIL_FROM before sending invites."
+    };
+  }
+
+  const safeManagerName = escapeHtml(managerName);
+  const safeManagerEmail = escapeHtml(managerEmail);
+  const safePropertyLabel = escapeHtml(propertyLabel);
+  const safeInviteUrl = escapeHtml(inviteUrl);
+  const safeExpiresAt = escapeHtml(expiresAt);
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from,
+      to,
+      subject: `You're invited to Nexus Rentals for ${propertyLabel}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
+          <h1 style="font-size: 22px;">Join your lease in Nexus Rentals</h1>
+          <p>${safeManagerName} (${safeManagerEmail}) invited you to connect to your lease for ${safePropertyLabel}.</p>
+          <p>This invite expires on ${safeExpiresAt}.</p>
+          <p>
+            <a href="${safeInviteUrl}" style="display: inline-block; border-radius: 12px; background: #1f6b5f; color: #ffffff; padding: 12px 18px; text-decoration: none; font-weight: 700;">
+              Accept invite
+            </a>
+          </p>
+          <p style="font-size: 12px; color: #5f6b7d;">${safeInviteUrl}</p>
+        </div>
+      `,
+      text: `${managerName} (${managerEmail}) invited you to connect to your lease for ${propertyLabel}.\n\nAccept the invite before ${expiresAt}:\n\n${inviteUrl}`
+    })
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Tenant invite email failed: ${response.status} ${detail}`);
   }
 
   return { sent: true };

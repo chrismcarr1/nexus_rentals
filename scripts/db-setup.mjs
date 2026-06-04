@@ -1,10 +1,17 @@
 import { config } from "dotenv";
+import { randomBytes } from "crypto";
 
 import bcrypt from "bcryptjs";
 import postgres from "postgres";
+import { formatAddress, normalizeAddress } from "../lib/address.ts";
 
 config({ path: ".env.local" });
 config();
+
+if (process.env.ALLOW_DEMO_SEED !== "true") {
+  console.error("Refusing to seed demo users without explicit opt-in. Set ALLOW_DEMO_SEED=true when you intentionally want demo data.");
+  process.exit(1);
+}
 
 const databaseUrl = process.env.DATABASE_URL?.startsWith("postgres://")
   ? `postgresql://${process.env.DATABASE_URL.slice("postgres://".length)}`
@@ -57,20 +64,58 @@ function shiftMonths(date, amount) {
   return next;
 }
 
+function generatePassword() {
+  return `${randomBytes(18).toString("base64url")}Aa1!`;
+}
+
 async function main() {
   const now = new Date();
+  const demoPasswords = {
+    operator: generatePassword(),
+    manager: generatePassword(),
+    tenant: generatePassword()
+  };
+  const organizationMailingAddress = normalizeAddress({
+    addressLine1: "240 Valencia Street",
+    addressLine2: "Suite 500",
+    city: "San Francisco",
+    state: "CA",
+    postalCode: "94103",
+    country: "US"
+  });
+  const harborAddress = normalizeAddress({
+    addressLine1: "880 Mission Bay Blvd",
+    city: "San Francisco",
+    state: "CA",
+    postalCode: "94158",
+    country: "US"
+  });
+  const mapleAddress = normalizeAddress({
+    addressLine1: "1416 Maple Terrace",
+    city: "Oakland",
+    state: "CA",
+    postalCode: "94612",
+    country: "US"
+  });
+  const cedarAddress = normalizeAddress({
+    addressLine1: "522 Cedar Street",
+    city: "Berkeley",
+    state: "CA",
+    postalCode: "94709",
+    country: "US"
+  });
 
   const store = {
-    organizations: [{ id: "org_nexus", name: "Nexus Rentals", email: "contact@nexusrentals.local", phone: "(415) 555-0190", mailingAddress: "240 Valencia Street, Suite 500, San Francisco, CA 94103", logoPath: "/demo/logo-mark.svg", createdAt: iso(now), updatedAt: iso(now) }],
+    organizations: [{ id: "org_nexus", name: "Nexus Rentals", email: "contact@nexusrentals.local", phone: "(415) 555-0190", mailingAddress: formatAddress(organizationMailingAddress), logoPath: "/demo/logo-mark.svg", createdAt: iso(now), updatedAt: iso(now) }],
     users: [
-      { id: "user_admin", organizationId: "org_nexus", email: "demo@nexusrentals.local", passwordHash: await bcrypt.hash("DemoPass123!", 12), firstName: "Avery", lastName: "Stone", role: "ADMIN", isActive: true, title: "Principal Operator", phone: "(415) 555-0132", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "user_manager", organizationId: "org_nexus", email: "manager@nexusrentals.local", passwordHash: await bcrypt.hash("ManagerPass123!", 12), firstName: "Jordan", lastName: "Lee", role: "MANAGER", isActive: true, title: "Property Manager", phone: "(415) 555-0177", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "user_tenant", organizationId: "org_nexus", email: "tenant@nexusrentals.local", passwordHash: await bcrypt.hash("TenantPass123!", 12), firstName: "Sam", lastName: "Carter", role: "TENANT", isActive: true, title: "Resident", createdAt: iso(now), updatedAt: iso(now) }
+      { id: "user_admin", organizationId: "org_nexus", email: "demo@nexusrentals.local", passwordHash: await bcrypt.hash(demoPasswords.operator, 12), firstName: "Avery", lastName: "Stone", role: "MANAGER", isActive: true, title: "Principal Operator", phone: "(415) 555-0132", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "user_manager", organizationId: "org_nexus", email: "manager@nexusrentals.local", passwordHash: await bcrypt.hash(demoPasswords.manager, 12), firstName: "Jordan", lastName: "Lee", role: "MANAGER", isActive: true, title: "Property Manager", phone: "(415) 555-0177", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "user_tenant", organizationId: "org_nexus", email: "tenant@nexusrentals.local", passwordHash: await bcrypt.hash(demoPasswords.tenant, 12), firstName: "Sam", lastName: "Carter", role: "TENANT", isActive: true, title: "Resident", createdAt: iso(now), updatedAt: iso(now) }
     ],
     properties: [
-      { id: "prop_harbor", organizationId: "org_nexus", managerId: "user_manager", name: "Harbor Point Residences", addressLine1: "880 Mission Bay Blvd", city: "San Francisco", state: "CA", postalCode: "94158", status: "ACTIVE", description: "A mixed-use mid-rise asset with renovated interiors and strong waterfront demand.", amenities: "Fitness studio, secure package room, rooftop lounge, EV charging", notes: "Premium Class A demo property with high occupancy.", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "prop_maple", organizationId: "org_nexus", managerId: "user_manager", name: "Maple Terrace Townhomes", addressLine1: "1416 Maple Terrace", city: "Oakland", state: "CA", postalCode: "94612", status: "ACTIVE", description: "Townhome cluster with stable long-term residents and lower turnover.", amenities: "Private garages, dog run, community patio", notes: "Strong family occupancy, maintenance-heavy landscaping.", createdAt: iso(now), updatedAt: iso(now) },
-      { id: "prop_cedar", organizationId: "org_nexus", name: "Cedar Heights Flats", addressLine1: "522 Cedar Street", city: "Berkeley", state: "CA", postalCode: "94709", status: "ACTIVE", description: "Small-format student and graduate housing with high lease velocity.", amenities: "Bike storage, parcel lockers, study lounge", notes: "Targeted to graduate students and faculty.", createdAt: iso(now), updatedAt: iso(now) }
+      { id: "prop_harbor", organizationId: "org_nexus", managerId: "user_manager", name: "Harbor Point Residences", ...harborAddress, status: "ACTIVE", description: "A mixed-use mid-rise asset with renovated interiors and strong waterfront demand.", amenities: "Fitness studio, secure package room, rooftop lounge, EV charging", notes: "Premium Class A demo property with high occupancy.", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "prop_maple", organizationId: "org_nexus", managerId: "user_manager", name: "Maple Terrace Townhomes", ...mapleAddress, status: "ACTIVE", description: "Townhome cluster with stable long-term residents and lower turnover.", amenities: "Private garages, dog run, community patio", notes: "Strong family occupancy, maintenance-heavy landscaping.", createdAt: iso(now), updatedAt: iso(now) },
+      { id: "prop_cedar", organizationId: "org_nexus", name: "Cedar Heights Flats", ...cedarAddress, status: "ACTIVE", description: "Small-format student and graduate housing with high lease velocity.", amenities: "Bike storage, parcel lockers, study lounge", notes: "Targeted to graduate students and faculty.", createdAt: iso(now), updatedAt: iso(now) }
     ],
     units: [
       { id: "unit_3a", propertyId: "prop_harbor", unitNumber: "3A", nickname: "Bay View", unitType: "Apartment", bedrooms: 2, bathrooms: 2, squareFeet: 1040, monthlyRent: 4250, depositAmount: 4250, occupancyStatus: "OCCUPIED", leaseStatus: "ACTIVE", amenities: "Water view, balcony, quartz kitchen", createdAt: iso(now), updatedAt: iso(now) },
@@ -94,6 +139,7 @@ async function main() {
       { id: "lease_1d", unitId: "unit_1d", tenantIds: ["tenant_elena"], startDate: iso(shiftMonths(now, -3)), endDate: iso(shiftMonths(now, 9)), monthlyRent: 2795, dueDay: 1, securityDeposit: 2700, recurringCharges: "Internet 60", status: "ACTIVE", createdAt: iso(now), updatedAt: iso(now) },
       { id: "lease_15", unitId: "unit_15", tenantIds: [], startDate: iso(shiftMonths(now, -16)), endDate: iso(shiftDays(now, -8)), monthlyRent: 3495, dueDay: 1, securityDeposit: 3400, recurringCharges: "Parking 125", status: "EXPIRED", notes: "Former tenant moved out; awaiting full turn invoice.", createdAt: iso(now), updatedAt: iso(now) }
     ],
+    tenantInvites: [],
     payments: [
       { id: "pay_1", unitId: "unit_3a", leaseId: "lease_3a", description: "April rent", amount: 4250, dueDate: iso(shiftDays(now, -17)), paidDate: iso(shiftDays(now, -16)), status: "PAID", lateFeeAmount: 0, balanceDue: 0, categoryTag: "Rent", createdAt: iso(now), updatedAt: iso(now) },
       { id: "pay_2", unitId: "unit_5c", leaseId: "lease_5c", description: "April rent", amount: 3395, dueDate: iso(shiftDays(now, -17)), status: "LATE", lateFeeAmount: 95, balanceDue: 3490, categoryTag: "Rent", createdAt: iso(now), updatedAt: iso(now) },
@@ -114,6 +160,8 @@ async function main() {
     ],
     inspections: [{ id: "insp_15", unitId: "unit_15", leaseId: "lease_15", inspectionDate: iso(shiftDays(now, -5)), type: "Move-out", notes: "Flooring gouges, wall patching, and entry door frame damage observed.", createdAt: iso(now), updatedAt: iso(now) }],
     damageAssessments: [{ id: "assess_15", inspectionId: "insp_15", createdById: "user_manager", summary: "High-severity turnover assessment with likely flooring damage, wall damage, and door/window damage impacts.", damageCategories: "flooring damage, wall damage, door/window damage", severity: "HIGH", confidenceScore: 0.88, estimatedLow: 1850, estimatedHigh: 4200, wearAndTear: false, explanation: "Observed issues exceed routine wear thresholds and likely require localized framing repair, patch/paint, and plank replacement in a visible traffic zone. Estimate is directional and should be validated by contractor bids.", recommendedNext: "Obtain two contractor estimates, preserve photo documentation, and reconcile against security deposit schedule before issuing the final accounting.", createdAt: iso(now), updatedAt: iso(now) }],
+    discussionThreads: [],
+    discussionMessages: [],
     uploadedFiles: [
       { id: "file_prop_cover_1", propertyId: "prop_harbor", kind: "PROPERTY_IMAGE", label: "Cover image", path: "/demo/property-cover.svg", mimeType: "image/svg+xml", createdAt: iso(now) },
       { id: "file_prop_cover_2", propertyId: "prop_maple", kind: "PROPERTY_IMAGE", label: "Cover image", path: "/demo/property-cover.svg", mimeType: "image/svg+xml", createdAt: iso(now) },
@@ -137,7 +185,7 @@ async function main() {
       { id: "note_3", organizationId: "org_nexus", type: "MAINTENANCE_OPEN", title: "Maintenance item still open", body: "Dishwasher leak review has not been scheduled with a vendor yet.", isRead: false, createdAt: iso(now) },
       { id: "note_4", organizationId: "org_nexus", type: "DAMAGE_ASSESSMENT", title: "New AI assessment available", body: "Turnover estimate for Maple Terrace unit 15 is ready for review.", isRead: false, createdAt: iso(now) }
     ],
-    passwordResetTokens: [{ id: "reset_demo", userId: "user_admin", token: "demo-reset-token", expiresAt: iso(shiftDays(now, 2)), createdAt: iso(now) }]
+    passwordResetTokens: []
   };
 
   await sql`
@@ -154,7 +202,10 @@ async function main() {
   `;
 
   console.log("Hosted Postgres datastore initialized.");
-  console.log("Admin: demo@nexusrentals.local / DemoPass123!");
+  console.log("Demo credentials generated for this seed run:");
+  console.log(`Operator: demo@nexusrentals.local / ${demoPasswords.operator}`);
+  console.log(`Manager: manager@nexusrentals.local / ${demoPasswords.manager}`);
+  console.log(`Tenant: tenant@nexusrentals.local / ${demoPasswords.tenant}`);
   await sql.end();
 }
 

@@ -12,8 +12,8 @@ export function EmptyState({
   return (
     <Card className="border-dashed p-8 text-center">
       <div className="mx-auto flex max-w-md flex-col items-center">
-        <div className="h-14 w-14 rounded-3xl bg-[var(--accent-soft)]" />
-        <h3 className="mt-5 text-xl font-semibold tracking-[-0.02em]">{title}</h3>
+        <div className="h-1.5 w-16 rounded-sm bg-[var(--brand)]" />
+        <h3 className="mt-5 text-xl font-semibold">{title}</h3>
         <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{description}</p>
         {action ? <div className="mt-5">{action}</div> : null}
       </div>

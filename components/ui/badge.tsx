@@ -10,11 +10,11 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex rounded-full border px-3 py-1 text-xs font-semibold tracking-[0.02em]",
-        tone === "default" && "border-slate-200 bg-slate-100 text-slate-700",
-        tone === "success" && "border-emerald-200 bg-emerald-50 text-emerald-800",
-        tone === "warning" && "border-amber-200 bg-amber-50 text-amber-900",
-        tone === "danger" && "border-red-200 bg-red-50 text-red-800"
+        "inline-flex rounded-md px-2 py-0.5 text-xs font-semibold tracking-[0.02em]",
+        tone === "default" && "border border-[var(--line-strong)] bg-[var(--panel)] text-[var(--muted-strong)]",
+        tone === "success" && "border border-emerald-600/15 bg-emerald-600/10 text-emerald-800",
+        tone === "warning" && "border border-amber-600/18 bg-amber-500/12 text-amber-800",
+        tone === "danger" && "border border-red-600/15 bg-red-600/10 text-red-700"
       )}
     >
       {children}

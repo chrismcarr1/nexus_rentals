@@ -2,22 +2,48 @@
 
 import { createHash, randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { getEffectiveUserRole, isSystemAdminEmail, normalizeEmail } from "@/lib/admin";
+import {
+  applicationStatusLabels,
+  getApplicationAddressLabel,
+  getApplicationBundle,
+  getSubmissionBundle,
+  managerOwnsApplication,
+  primaryApplicant,
+  publicApplicationPath
+} from "@/lib/applications";
+import {
+  MAILING_ADDRESS_FORM_FIELDS,
+  STANDARD_ADDRESS_FORM_FIELDS,
+  formatUnitAddress,
+  readAddressFormData,
+  validateAddress,
+  validateOptionalAddress
+} from "@/lib/address";
 import { clearSession, createSession, requireRoles, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { sendPasswordResetEmail } from "@/lib/email";
+import { sendDiscussionMessage } from "@/lib/discussions";
+import { sendPasswordResetEmail, sendTenantInviteEmail } from "@/lib/email";
+import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmittedAssetPath } from "@/lib/file-security";
+import { INVITE_TTL_MS, ensureLeaseConnectionIntegrity, generateInviteToken, hashInviteToken, isActiveLeaseStatus } from "@/lib/lease-connections";
 import { hashPassword, verifyPassword } from "@/lib/password";
-import { FileKind, UserRole, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
+import { getAppOrigin } from "@/lib/request-origin";
+import { FileKind, UserRole, createId, nowIso, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
+import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe } from "@/lib/stripe";
+import { createStripeExpressAccount, isStripeConnectReady, syncStripeConnectedAccount } from "@/lib/stripe-connect";
 import {
   damageAssessmentSchema,
   expenseSchema,
+  applicationSubmissionSchema,
   leaseSchema,
   loginSchema,
   maintenanceSchema,
+  newMoveInSchema,
   paymentSchema,
   propertySchema,
+  rentalApplicationSchema,
   requestResetSchema,
   resetPasswordSchema,
   settingsSchema,
@@ -41,9 +67,34 @@ function hasId(items: Array<{ id: string }>, id?: string | null) {
   return Boolean(id && items.some((item) => item.id === id));
 }
 
+function readAssetPaths(formData: FormData, key: string) {
+  return formData.getAll(key).map(String).map((value) => value.trim()).filter(Boolean);
+}
+
+function requireSubmittedAssetPaths(formData: FormData, key: string, user: { id: string; organizationId: string }, errorPath: string, max = 12) {
+  const rawPaths = readAssetPaths(formData, key);
+  if (rawPaths.length > max || rawPaths.some((path) => !isAllowedSubmittedAssetPath(path, user))) {
+    redirect(errorPath);
+  }
+  return filterSubmittedAssetPaths(rawPaths, user, max);
+}
+
+function requireOptionalSubmittedAssetPath(value: string | undefined, user: { id: string; organizationId: string }, errorPath: string) {
+  if (!value) return undefined;
+  if (!isAllowedSubmittedAssetPath(value, user)) {
+    redirect(errorPath);
+  }
+  return value.trim();
+}
+
 function getLeaseReturnPath(formData: FormData) {
   const returnTo = getOptionalString(formData, "returnTo");
   return returnTo?.startsWith("/leases/") ? returnTo : "/leases";
+}
+
+function getInviteRedirect(formData: FormData) {
+  const inviteToken = getOptionalString(formData, "inviteToken");
+  return inviteToken ? `/invite/${encodeURIComponent(inviteToken)}` : null;
 }
 
 function invalidLeasePath(returnTo: string) {
@@ -51,43 +102,192 @@ function invalidLeasePath(returnTo: string) {
 }
 
 function leaseDrivenUnitState(leases: Array<{ status: LeaseStatus }>): { leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus } {
-  if (leases.some((lease) => lease.status === "ACTIVE")) return { leaseStatus: "ACTIVE", occupancyStatus: "OCCUPIED" };
-  if (leases.some((lease) => lease.status === "UPCOMING")) return { leaseStatus: "UPCOMING", occupancyStatus: "VACANT" };
+  if (leases.some((lease) => lease.status === "ACTIVE" || lease.status === "active")) return { leaseStatus: "ACTIVE", occupancyStatus: "OCCUPIED" };
+  if (leases.some((lease) => lease.status === "UPCOMING" || lease.status === "invited")) return { leaseStatus: "UPCOMING", occupancyStatus: "VACANT" };
   if (leases.some((lease) => lease.status === "TERMINATED")) return { leaseStatus: "TERMINATED", occupancyStatus: "VACANT" };
   return { leaseStatus: "EXPIRED", occupancyStatus: "VACANT" };
+}
+
+function getBoolean(formData: FormData, key: string) {
+  const value = String(formData.get(key) ?? "");
+  return value === "true" || value === "on" || value === "1";
+}
+
+function getStringList(formData: FormData, key: string) {
+  return formData.getAll(key).map(String).map((value) => value.trim()).filter(Boolean);
+}
+
+function createPublicSlug() {
+  return randomBytes(18).toString("base64url");
+}
+
+function toIsoDate(value: string) {
+  return new Date(value).toISOString();
+}
+
+function dateOnlyTime(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function getMoveInLeaseStatus(startDate: string): LeaseStatus {
+  return dateOnlyTime(startDate) <= dateOnlyTime(new Date()) ? "ACTIVE" : "UPCOMING";
+}
+
+function getMoveInOccupancyStatus(moveInDate: string): UnitOccupancyStatus {
+  return dateOnlyTime(moveInDate) <= dateOnlyTime(new Date()) ? "OCCUPIED" : "VACANT";
+}
+
+function isUnitReserved(status: string) {
+  return isActiveLeaseStatus(status) || status === "draft";
+}
+
+function getNextNexusLeaseId(existingIds: string[], nextIndex: number) {
+  let index = nextIndex;
+  let candidate = `NXR-${String(index).padStart(5, "0")}`;
+  while (existingIds.includes(candidate)) {
+    index += 1;
+    candidate = `NXR-${String(index).padStart(5, "0")}`;
+  }
+  return candidate;
 }
 
 function hashResetToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-async function getAppOrigin() {
-  const headerStore = await headers();
-  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
-  const proto = headerStore.get("x-forwarded-proto") ?? "http";
-  const headerOrigin = host ? `${proto}://${host}` : null;
-  const configuredOrigin = process.env.APP_URL?.replace(/\/$/, "");
+function getPaymentMonth(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 7);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
 
-  if (process.env.NODE_ENV === "production" && configuredOrigin) return configuredOrigin;
-  return headerOrigin ?? configuredOrigin ?? "http://localhost:3000";
+function getLeaseManager(portal: Awaited<ReturnType<typeof getPortalContext>>, lease: any, payment?: { unitId?: string }) {
+  const unit = lease?.unitId
+    ? portal.scope.units.find((item) => item.id === lease.unitId)
+    : payment?.unitId
+      ? portal.scope.units.find((item) => item.id === payment.unitId)
+      : null;
+  const property = lease?.propertyId
+    ? portal.scope.properties.find((item) => item.id === lease.propertyId)
+    : unit
+      ? portal.scope.properties.find((item) => item.id === unit.propertyId)
+      : null;
+  const managerId = lease?.managerUserId ?? property?.managerId;
+  const candidates = [...portal.users, ...portal.managers];
+  return candidates.find((candidate) => candidate.id === managerId) ?? candidates.find((candidate) => candidate.role === UserRole.MANAGER) ?? null;
+}
+
+function isStripeConnectSignupError(error: unknown) {
+  return error instanceof Error && error.message.includes("signed up for Connect");
+}
+
+export async function connectStripeAccountAction() {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const appUrl = await getAppOrigin();
+  let accountId = user.stripeConnectedAccountId;
+  let accountLinkUrl: string | null = null;
+
+  try {
+    if (accountId) {
+      await syncStripeConnectedAccount(user);
+    } else {
+      const account = await createStripeExpressAccount(user);
+      accountId = account.id;
+    }
+
+    const accountLink = await getStripe().accountLinks.create({
+      account: accountId,
+      refresh_url: `${appUrl}/settings?stripe=connect-refresh#payments-stripe`,
+      return_url: `${appUrl}/api/stripe/connect/return`,
+      type: "account_onboarding"
+    });
+    accountLinkUrl = accountLink.url;
+  } catch (error) {
+    console.error("[stripe] Failed to start manager Connect onboarding", error);
+    if (isStripeConnectSignupError(error)) {
+      redirect("/settings?stripe=connect-not-enabled#payments-stripe");
+    }
+    redirect("/settings?stripe=connect-error#payments-stripe");
+  }
+
+  if (!accountLinkUrl) {
+    redirect("/settings?stripe=connect-error#payments-stripe");
+  }
+
+  redirect(accountLinkUrl);
+}
+
+export async function refreshStripeConnectStatusAction() {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  let status = "connect-refreshed";
+
+  try {
+    if (!user.stripeConnectedAccountId) {
+      status = "connect-required";
+    } else {
+      const updatedUser = await syncStripeConnectedAccount(user);
+      status = isStripeConnectReady(updatedUser) ? "connect-ready" : "connect-incomplete";
+    }
+  } catch (error) {
+    console.error("[stripe] Failed to refresh manager Connect status", error);
+    status = "connect-error";
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/dashboard");
+  redirect(`/settings?stripe=${status}#payments-stripe`);
+}
+
+export async function openStripeDashboardAction() {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  let loginUrl: string | null = null;
+
+  if (!user.stripeConnectedAccountId) {
+    redirect("/settings?stripe=connect-required#payments-stripe");
+  }
+
+  try {
+    await syncStripeConnectedAccount(user);
+    const loginLink = await getStripe().accounts.createLoginLink(user.stripeConnectedAccountId);
+    loginUrl = loginLink.url;
+  } catch (error) {
+    console.error("[stripe] Failed to open manager Stripe dashboard", error);
+    redirect("/settings?stripe=connect-error#payments-stripe");
+  }
+
+  if (!loginUrl) {
+    redirect("/settings?stripe=connect-error#payments-stripe");
+  }
+
+  redirect(loginUrl);
 }
 
 export async function signupAction(formData: FormData) {
+  const mailingAddressResult = validateOptionalAddress(readAddressFormData(formData, MAILING_ADDRESS_FORM_FIELDS, "mailingAddress"));
+  if (!mailingAddressResult.success) {
+    redirect("/signup?error=invalid-address");
+  }
+
   const result = signupSchema.safeParse({
     businessName: getString(formData, "businessName"),
-    role: getString(formData, "role"),
+    role: getOptionalString(formData, "inviteToken") ? "TENANT" : getString(formData, "role"),
     firstName: getString(formData, "firstName"),
     lastName: getString(formData, "lastName"),
     email: getString(formData, "email"),
     password: getString(formData, "password"),
-    phone: getOptionalString(formData, "phone"),
-    mailingAddress: getOptionalString(formData, "mailingAddress")
+    confirmPassword: getString(formData, "confirmPassword"),
+    phone: getOptionalString(formData, "phone")
   });
   if (!result.success) {
     redirect("/signup?error=invalid-form");
   }
 
   const parsed = result.data;
+
+  if (isSystemAdminEmail(parsed.email)) {
+    redirect("/signup?error=reserved-admin");
+  }
 
   let existingUser;
   try {
@@ -106,7 +306,7 @@ export async function signupAction(formData: FormData) {
       name: parsed.businessName,
       email: parsed.email,
       phone: parsed.phone,
-      mailingAddress: parsed.mailingAddress
+      mailingAddress: mailingAddressResult.formattedAddress
     }
   });
 
@@ -137,9 +337,14 @@ export async function signupAction(formData: FormData) {
   await createSession({
     sub: user.id,
     organizationId: organization.id,
-    role: user.role,
+    role: getEffectiveUserRole(user.role, user.email),
     email: user.email
   });
+
+  const inviteRedirect = getInviteRedirect(formData);
+  if (inviteRedirect) {
+    redirect(inviteRedirect);
+  }
 
   redirect("/dashboard");
 }
@@ -163,16 +368,25 @@ export async function loginAction(formData: FormData) {
     redirect("/login?error=server");
   }
 
-  if (!user || !(await verifyPassword(parsed.password, user.passwordHash))) {
+  if (!user || user.isActive === false || !(await verifyPassword(parsed.password, user.passwordHash))) {
     redirect("/login?error=invalid-credentials");
   }
 
   await createSession({
     sub: user.id,
     organizationId: user.organizationId,
-    role: user.role,
+    role: getEffectiveUserRole(user.role, user.email),
     email: user.email
   });
+
+  if (isSystemAdminEmail(user.email)) {
+    redirect("/admin");
+  }
+
+  const inviteRedirect = getInviteRedirect(formData);
+  if (inviteRedirect) {
+    redirect(inviteRedirect);
+  }
 
   redirect("/dashboard");
 }
@@ -214,25 +428,17 @@ export async function requestResetAction(formData: FormData) {
     }
   });
 
-  let resetEmailSent = false;
-
   try {
-    const emailResult = await sendPasswordResetEmail({
+    await sendPasswordResetEmail({
       to: user.email,
       name: user.firstName || "there",
       resetUrl
     });
-    resetEmailSent = emailResult.sent;
   } catch (error) {
     console.error("[auth] Password reset email failed", error);
   }
 
-  const devResetLink =
-    process.env.NODE_ENV !== "production" && !resetEmailSent
-      ? `&devResetLink=${encodeURIComponent(resetUrl)}`
-      : "";
-
-  redirect(`/forgot-password?success=1${devResetLink}`);
+  redirect("/forgot-password?success=1");
 }
 
 export async function resetPasswordAction(formData: FormData) {
@@ -250,9 +456,7 @@ export async function resetPasswordAction(formData: FormData) {
   const { token, password } = result.data;
   const tokenHash = hashResetToken(token);
 
-  const record =
-    (await db.passwordResetToken.findUnique({ where: { token: tokenHash } })) ??
-    (await db.passwordResetToken.findUnique({ where: { token } }));
+  const record = await db.passwordResetToken.findUnique({ where: { token: tokenHash } });
   if (!record || record.usedAt || record.expiresAt < new Date()) {
     redirect("/reset-password?error=invalid-token");
   }
@@ -271,26 +475,33 @@ export async function resetPasswordAction(formData: FormData) {
 
 export async function createPropertyAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
-  const parsed = propertySchema.parse({
+  const addressResult = validateAddress(readAddressFormData(formData, STANDARD_ADDRESS_FORM_FIELDS));
+  if (!addressResult.success) {
+    redirect("/properties?error=invalid-address");
+  }
+
+  const result = propertySchema.safeParse({
     name: getString(formData, "name"),
-    addressLine1: getString(formData, "addressLine1"),
-    city: getString(formData, "city"),
-    state: getString(formData, "state"),
-    postalCode: getString(formData, "postalCode"),
-    addressLine2: getOptionalString(formData, "addressLine2"),
     description: getOptionalString(formData, "description"),
     amenities: getOptionalString(formData, "amenities"),
     notes: getOptionalString(formData, "notes"),
     managerId: getOptionalString(formData, "managerId")
   });
-  const imagePaths = formData.getAll("imagePaths").map(String).filter(Boolean);
-  const fallbackImagePath = getOptionalString(formData, "imagePath");
+  if (!result.success) {
+    redirect("/properties?error=invalid-property");
+  }
+
+  const parsed = result.data;
+  const address = addressResult.address;
+  const imagePaths = requireSubmittedAssetPaths(formData, "imagePaths", user, "/properties?error=invalid-upload");
+  const fallbackImagePath = requireOptionalSubmittedAssetPath(getOptionalString(formData, "imagePath"), user, "/properties?error=invalid-upload");
   const uploadedPaths = imagePaths.length ? imagePaths : fallbackImagePath ? [fallbackImagePath] : [];
 
   await db.property.create({
     data: {
       organizationId: user.organizationId,
       ...parsed,
+      ...address,
       managerId: user.role === UserRole.MANAGER ? user.id : parsed.managerId,
       amenities: parsed.amenities ?? "",
       files: uploadedPaths.length
@@ -321,31 +532,38 @@ export async function updatePropertyAction(formData: FormData) {
     redirect("/properties");
   }
 
-  const parsed = propertySchema.parse({
+  const addressResult = validateAddress(readAddressFormData(formData, STANDARD_ADDRESS_FORM_FIELDS));
+  if (!addressResult.success) {
+    redirect(`/properties/${propertyId}?error=invalid-address`);
+  }
+
+  const result = propertySchema.safeParse({
     name: getString(formData, "name"),
-    addressLine1: getString(formData, "addressLine1"),
-    city: getString(formData, "city"),
-    state: getString(formData, "state"),
-    postalCode: getString(formData, "postalCode"),
-    addressLine2: getOptionalString(formData, "addressLine2"),
     description: getOptionalString(formData, "description"),
     amenities: getOptionalString(formData, "amenities"),
     notes: getOptionalString(formData, "notes"),
     managerId: getOptionalString(formData, "managerId")
   });
-  const imagePaths = formData.getAll("imagePaths").map(String).filter(Boolean);
-  const fallbackImagePath = getOptionalString(formData, "imagePath");
+  if (!result.success) {
+    redirect(`/properties/${propertyId}?error=invalid-property`);
+  }
+
+  const parsed = result.data;
+  const address = addressResult.address;
+  const imagePaths = requireSubmittedAssetPaths(formData, "imagePaths", user, `/properties/${propertyId}?error=invalid-upload`);
+  const fallbackImagePath = requireOptionalSubmittedAssetPath(getOptionalString(formData, "imagePath"), user, `/properties/${propertyId}?error=invalid-upload`);
   const uploadedPaths = imagePaths.length ? imagePaths : fallbackImagePath ? [fallbackImagePath] : [];
 
   await db.property.update({
     where: { id: propertyId },
     data: {
       name: parsed.name,
-      addressLine1: parsed.addressLine1,
-      addressLine2: parsed.addressLine2,
-      city: parsed.city,
-      state: parsed.state,
-      postalCode: parsed.postalCode,
+      addressLine1: address.addressLine1,
+      addressLine2: address.addressLine2,
+      city: address.city,
+      state: address.state,
+      postalCode: address.postalCode,
+      country: address.country,
       description: parsed.description,
       amenities: parsed.amenities ?? "",
       notes: parsed.notes,
@@ -411,20 +629,28 @@ export async function deletePropertyAction(formData: FormData) {
 
   await updateStore((store) => {
     const unitIds = store.units.filter((unit) => unit.propertyId === propertyId).map((unit) => unit.id);
-    const leaseIds = store.leases.filter((lease) => unitIds.includes(lease.unitId)).map((lease) => lease.id);
+    const leaseIds = store.leases
+      .filter((lease) => lease.propertyId === propertyId || (lease.unitId ? unitIds.includes(lease.unitId) : false))
+      .map((lease) => lease.id);
     const inspectionIds = store.inspections.filter((inspection) => unitIds.includes(inspection.unitId)).map((inspection) => inspection.id);
     const assessmentIds = store.damageAssessments.filter((assessment) => inspectionIds.includes(assessment.inspectionId)).map((assessment) => assessment.id);
+    const discussionThreadIds = store.discussionThreads
+      .filter((thread) => thread.propertyId === propertyId || leaseIds.includes(thread.leaseId))
+      .map((thread) => thread.id);
 
     return {
       ...store,
       properties: store.properties.filter((item) => item.id !== propertyId),
       units: store.units.filter((unit) => unit.propertyId !== propertyId),
       leases: store.leases.filter((lease) => !leaseIds.includes(lease.id)),
+      tenantInvites: store.tenantInvites.filter((invite) => !leaseIds.includes(invite.leaseId)),
       payments: store.payments.filter((payment) => !unitIds.includes(payment.unitId) && (!payment.leaseId || !leaseIds.includes(payment.leaseId))),
       expenses: store.expenses.filter((expense) => expense.propertyId !== propertyId && (!expense.unitId || !unitIds.includes(expense.unitId))),
       maintenanceRequests: store.maintenanceRequests.filter((request) => request.propertyId !== propertyId && (!request.unitId || !unitIds.includes(request.unitId))),
       inspections: store.inspections.filter((inspection) => !inspectionIds.includes(inspection.id)),
       damageAssessments: store.damageAssessments.filter((assessment) => !assessmentIds.includes(assessment.id)),
+      discussionThreads: store.discussionThreads.filter((thread) => !discussionThreadIds.includes(thread.id)),
+      discussionMessages: store.discussionMessages.filter((message) => !discussionThreadIds.includes(message.threadId)),
       uploadedFiles: store.uploadedFiles.filter((file) => {
         if (file.propertyId === propertyId) return false;
         if (file.unitId && unitIds.includes(file.unitId)) return false;
@@ -459,7 +685,7 @@ export async function createUnitAction(formData: FormData) {
     amenities: getOptionalString(formData, "amenities"),
     notes: getOptionalString(formData, "notes")
   });
-  const imagePath = getOptionalString(formData, "imagePath");
+  const imagePath = requireOptionalSubmittedAssetPath(getOptionalString(formData, "imagePath"), user, "/properties?error=invalid-upload");
 
   if (!hasId(portal.scope.properties, parsed.propertyId)) {
     redirect("/properties");
@@ -513,9 +739,661 @@ export async function createTenantAction(formData: FormData) {
   redirect("/tenants");
 }
 
+export async function createRentalApplicationAction(formData: FormData) {
+  const user = await requireRoles([UserRole.MANAGER]);
+  const result = rentalApplicationSchema.safeParse({
+    title: getString(formData, "title"),
+    propertyId: getString(formData, "propertyId"),
+    unitId: getOptionalString(formData, "unitId"),
+    monthlyRent: getString(formData, "monthlyRent"),
+    securityDeposit: getString(formData, "securityDeposit"),
+    availableMoveInDate: getString(formData, "availableMoveInDate"),
+    applicationFee: getString(formData, "applicationFee"),
+    requiredFields: getStringList(formData, "requiredFields"),
+    requiredDocuments: getStringList(formData, "requiredDocuments"),
+    screeningQuestions: getStringList(formData, "screeningQuestions"),
+    allowCoApplicants: getBoolean(formData, "allowCoApplicants"),
+    allowPets: getBoolean(formData, "allowPets"),
+    publishNow: getString(formData, "intent") === "publish"
+  });
+
+  if (!result.success) {
+    redirect("/applications/new?error=invalid");
+  }
+
+  const parsed = result.data;
+  let applicationId = "";
+
+  try {
+    await updateStore((store) => {
+      const property = store.properties.find(
+        (item) => item.id === parsed.propertyId && item.organizationId === user.organizationId && item.managerId === user.id
+      );
+      if (!property) throw new Error("Property not found in your manager portfolio.");
+
+      const unit = parsed.unitId ? store.units.find((item) => item.id === parsed.unitId && item.propertyId === property.id) : null;
+      if (parsed.unitId && !unit) throw new Error("Unit not found for this property.");
+
+      const now = nowIso();
+      const id = createId("app");
+      applicationId = id;
+      const application = {
+        id,
+        organizationId: user.organizationId,
+        managerUserId: user.id,
+        propertyId: property.id,
+        unitId: unit?.id,
+        publicSlug: createPublicSlug(),
+        title: parsed.title,
+        monthlyRent: parsed.monthlyRent,
+        securityDeposit: parsed.securityDeposit,
+        availableMoveInDate: toIsoDate(parsed.availableMoveInDate),
+        applicationFee: parsed.applicationFee,
+        requiredFields: Array.from(new Set(parsed.requiredFields)),
+        allowCoApplicants: parsed.allowCoApplicants,
+        allowPets: parsed.allowPets,
+        status: parsed.publishNow ? "PUBLISHED" as const : "DRAFT" as const,
+        publishedAt: parsed.publishNow ? now : undefined,
+        createdAt: now,
+        updatedAt: now
+      };
+      const questions = parsed.screeningQuestions.map((prompt, index) => ({
+        id: createId("appq"),
+        applicationId: id,
+        prompt,
+        required: true,
+        sortOrder: index,
+        createdAt: now,
+        updatedAt: now
+      }));
+      const documents = parsed.requiredDocuments.map((label) => ({
+        id: createId("appdoc"),
+        applicationId: id,
+        label,
+        required: true,
+        status: "REQUESTED" as const,
+        createdAt: now,
+        updatedAt: now
+      }));
+
+      return {
+        ...store,
+        rentalApplications: [...store.rentalApplications, application],
+        applicationQuestions: [...store.applicationQuestions, ...questions],
+        applicationDocuments: [...store.applicationDocuments, ...documents]
+      };
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not create the application.";
+    redirect(`/applications/new?error=${encodeURIComponent(message)}`);
+  }
+
+  revalidatePath("/applications");
+  redirect(`/applications/${applicationId}?created=1`);
+}
+
+export async function updateRentalApplicationPublicationAction(formData: FormData) {
+  const user = await requireRoles([UserRole.MANAGER]);
+  const applicationId = getString(formData, "applicationId");
+  const intent = getString(formData, "intent");
+
+  await updateStore((store) => {
+    const application = store.rentalApplications.find((item) => item.id === applicationId);
+    if (!application || !managerOwnsApplication(store, user, application)) {
+      throw new Error("Application not found.");
+    }
+    const now = nowIso();
+    const status = intent === "publish" ? "PUBLISHED" as const : "DRAFT" as const;
+    return {
+      ...store,
+      rentalApplications: store.rentalApplications.map((item) =>
+        item.id === application.id
+          ? {
+              ...item,
+              status,
+              publishedAt: status === "PUBLISHED" ? item.publishedAt ?? now : item.publishedAt,
+              updatedAt: now
+            }
+          : item
+      )
+    };
+  });
+
+  revalidatePath("/applications");
+  revalidatePath(`/applications/${applicationId}`);
+  redirect(`/applications/${applicationId}?updated=1`);
+}
+
+export async function submitRentalApplicationAction(formData: FormData) {
+  const publicSlug = getString(formData, "publicSlug");
+  let redirectSlug = publicSlug;
+
+  try {
+    await updateStore((store) => {
+      const application = store.rentalApplications.find((item) => item.publicSlug === publicSlug && item.status === "PUBLISHED");
+      if (!application) throw new Error("This application is no longer accepting submissions.");
+
+      const questions = store.applicationQuestions
+        .filter((question) => question.applicationId === application.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      const requiredDocuments = store.applicationDocuments.filter((document) => document.applicationId === application.id && !document.submissionId);
+      const questionAnswers = questions.map((question) => ({
+        questionId: question.id,
+        prompt: question.prompt,
+        answer: getString(formData, `question_${question.id}`).trim()
+      }));
+      const result = applicationSubmissionSchema.safeParse({
+        publicSlug,
+        firstName: getString(formData, "firstName"),
+        lastName: getString(formData, "lastName"),
+        email: getString(formData, "email"),
+        phone: getOptionalString(formData, "phone"),
+        dateOfBirth: getOptionalString(formData, "dateOfBirth"),
+        currentAddress: getOptionalString(formData, "currentAddress"),
+        monthlyIncome: getOptionalString(formData, "monthlyIncome"),
+        employment: getOptionalString(formData, "employment"),
+        rentalHistory: getOptionalString(formData, "rentalHistory"),
+        references: getOptionalString(formData, "references"),
+        pets: getOptionalString(formData, "pets"),
+        vehicles: getOptionalString(formData, "vehicles"),
+        coApplicantFirstName: getOptionalString(formData, "coApplicantFirstName"),
+        coApplicantLastName: getOptionalString(formData, "coApplicantLastName"),
+        coApplicantEmail: getOptionalString(formData, "coApplicantEmail"),
+        coApplicantPhone: getOptionalString(formData, "coApplicantPhone"),
+        documentNotes: getOptionalString(formData, "documentNotes"),
+        authorizationAccepted: getBoolean(formData, "authorizationAccepted"),
+        questionAnswers
+      });
+
+      if (!result.success) throw new Error("Review the required application fields.");
+      const parsed = result.data;
+      const requiredFields = new Set(application.requiredFields);
+      const missingRequired =
+        (requiredFields.has("phone") && !parsed.phone) ||
+        (requiredFields.has("currentAddress") && !parsed.currentAddress) ||
+        (requiredFields.has("employment") && !parsed.employment) ||
+        (requiredFields.has("income") && !parsed.monthlyIncome) ||
+        (requiredFields.has("rentalHistory") && !parsed.rentalHistory) ||
+        (requiredFields.has("references") && !parsed.references) ||
+        (application.allowPets && requiredFields.has("pets") && !parsed.pets);
+      if (missingRequired) throw new Error("Complete all required application sections.");
+      if (!parsed.authorizationAccepted) throw new Error("Authorization is required before submitting.");
+      if (questions.some((question) => question.required && !questionAnswers.find((answer) => answer.questionId === question.id)?.answer)) {
+        throw new Error("Answer all required screening questions.");
+      }
+
+      const now = nowIso();
+      const submissionId = createId("appsub");
+      const primaryApplicant = {
+        id: createId("applicant"),
+        submissionId,
+        type: "PRIMARY" as const,
+        firstName: parsed.firstName,
+        lastName: parsed.lastName,
+        email: normalizeEmail(parsed.email),
+        phone: parsed.phone,
+        dateOfBirth: parsed.dateOfBirth,
+        createdAt: now,
+        updatedAt: now
+      };
+      const coApplicant =
+        application.allowCoApplicants && parsed.coApplicantFirstName && parsed.coApplicantLastName && parsed.coApplicantEmail
+          ? {
+              id: createId("applicant"),
+              submissionId,
+              type: "CO_APPLICANT" as const,
+              firstName: parsed.coApplicantFirstName,
+              lastName: parsed.coApplicantLastName,
+              email: normalizeEmail(parsed.coApplicantEmail),
+              phone: parsed.coApplicantPhone,
+              createdAt: now,
+              updatedAt: now
+            }
+          : null;
+      const submission = {
+        id: submissionId,
+        applicationId: application.id,
+        organizationId: application.organizationId,
+        managerUserId: application.managerUserId,
+        propertyId: application.propertyId,
+        unitId: application.unitId,
+        status: "SUBMITTED" as const,
+        feeStatus: application.applicationFee > 0 ? "UNPAID" as const : "NOT_REQUIRED" as const,
+        submittedAt: now,
+        currentAddress: parsed.currentAddress,
+        monthlyIncome: parsed.monthlyIncome,
+        employment: parsed.employment,
+        rentalHistory: parsed.rentalHistory,
+        references: parsed.references,
+        pets: application.allowPets ? parsed.pets : undefined,
+        vehicles: parsed.vehicles,
+        documentNotes: parsed.documentNotes,
+        authorizationAccepted: parsed.authorizationAccepted,
+        answers: questionAnswers,
+        createdAt: now,
+        updatedAt: now
+      };
+      const submittedDocuments = requiredDocuments.map((document) => ({
+        id: createId("appdoc"),
+        applicationId: application.id,
+        submissionId,
+        label: document.label,
+        required: document.required,
+        status: "REQUESTED" as const,
+        notes: parsed.documentNotes,
+        createdAt: now,
+        updatedAt: now
+      }));
+
+      redirectSlug = application.publicSlug;
+
+      return {
+        ...store,
+        applicationSubmissions: [...store.applicationSubmissions, submission],
+        applicationApplicants: [...store.applicationApplicants, primaryApplicant, ...(coApplicant ? [coApplicant] : [])],
+        applicationDocuments: [...store.applicationDocuments, ...submittedDocuments],
+        notifications: [
+          ...store.notifications,
+          {
+            id: createId("note"),
+            organizationId: application.organizationId,
+            userId: application.managerUserId,
+            type: "SYSTEM" as const,
+            title: "New rental application submitted",
+            body: `${primaryApplicant.firstName} ${primaryApplicant.lastName} submitted ${application.title}.`,
+            href: `/applications/${application.id}/submissions/${submissionId}`,
+            isRead: false,
+            createdAt: now
+          }
+        ]
+      };
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not submit the application.";
+    redirect(`/apply/${encodeURIComponent(redirectSlug)}?error=${encodeURIComponent(message)}`);
+  }
+
+  revalidatePath("/applications");
+  redirect(`/apply/${encodeURIComponent(redirectSlug)}?submitted=1`);
+}
+
+export async function updateApplicationSubmissionStatusAction(formData: FormData) {
+  const user = await requireRoles([UserRole.MANAGER]);
+  const applicationId = getString(formData, "applicationId");
+  const submissionId = getString(formData, "submissionId");
+  const status = getString(formData, "status");
+  const note = getOptionalString(formData, "note");
+  const allowedStatuses = new Set(["UNDER_REVIEW", "APPROVED", "REJECTED", "WITHDRAWN", "CONVERTED_TO_LEASE"]);
+
+  if (!allowedStatuses.has(status)) {
+    redirect(`/applications/${applicationId}/submissions/${submissionId}?error=invalid-status`);
+  }
+
+  await updateStore((store) => {
+    const bundle = getSubmissionBundle(store, submissionId);
+    if (!bundle || bundle.application.id !== applicationId || !managerOwnsApplication(store, user, bundle.application)) {
+      throw new Error("Application submission not found.");
+    }
+    const now = nowIso();
+    return {
+      ...store,
+      applicationSubmissions: store.applicationSubmissions.map((submission) =>
+        submission.id === submissionId ? { ...submission, status: status as any, updatedAt: now } : submission
+      ),
+      applicationNotes: note
+        ? [
+            ...store.applicationNotes,
+            {
+              id: createId("appnote"),
+              applicationId,
+              submissionId,
+              managerUserId: user.id,
+              body: note,
+              createdAt: now
+            }
+          ]
+        : store.applicationNotes
+    };
+  });
+
+  revalidatePath("/applications");
+  revalidatePath(`/applications/${applicationId}`);
+  revalidatePath(`/applications/${applicationId}/submissions/${submissionId}`);
+  redirect(`/applications/${applicationId}/submissions/${submissionId}?updated=1`);
+}
+
+export async function addApplicationNoteAction(formData: FormData) {
+  const user = await requireRoles([UserRole.MANAGER]);
+  const applicationId = getString(formData, "applicationId");
+  const submissionId = getString(formData, "submissionId");
+  const body = getString(formData, "body").trim();
+
+  if (!body) {
+    redirect(`/applications/${applicationId}/submissions/${submissionId}`);
+  }
+
+  await updateStore((store) => {
+    const bundle = getSubmissionBundle(store, submissionId);
+    if (!bundle || bundle.application.id !== applicationId || !managerOwnsApplication(store, user, bundle.application)) {
+      throw new Error("Application submission not found.");
+    }
+    return {
+      ...store,
+      applicationNotes: [
+        ...store.applicationNotes,
+        {
+          id: createId("appnote"),
+          applicationId,
+          submissionId,
+          managerUserId: user.id,
+          body,
+          createdAt: nowIso()
+        }
+      ]
+    };
+  });
+
+  revalidatePath(`/applications/${applicationId}/submissions/${submissionId}`);
+  redirect(`/applications/${applicationId}/submissions/${submissionId}?note=added`);
+}
+
+export async function createMoveInAction(formData: FormData) {
+  const user = await requireRoles([UserRole.MANAGER]);
+  const result = newMoveInSchema.safeParse({
+    propertyId: getString(formData, "propertyId"),
+    unitId: getString(formData, "unitId"),
+    tenantFirstName: getString(formData, "tenantFirstName"),
+    tenantLastName: getString(formData, "tenantLastName"),
+    tenantEmail: getString(formData, "tenantEmail"),
+    tenantPhone: getOptionalString(formData, "tenantPhone"),
+    employer: getOptionalString(formData, "employer"),
+    emergencyName: getOptionalString(formData, "emergencyName"),
+    emergencyPhone: getOptionalString(formData, "emergencyPhone"),
+    startDate: getString(formData, "startDate"),
+    endDate: getString(formData, "endDate"),
+    moveInDate: getString(formData, "moveInDate"),
+    monthlyRent: getString(formData, "monthlyRent"),
+    securityDeposit: getString(formData, "securityDeposit"),
+    dueDay: getString(formData, "dueDay"),
+    firstRentDueDate: getString(formData, "firstRentDueDate"),
+    securityDepositDueDate: getString(formData, "securityDepositDueDate"),
+    createFirstRentCharge: getBoolean(formData, "createFirstRentCharge"),
+    createSecurityDepositCharge: getBoolean(formData, "createSecurityDepositCharge"),
+    additionalChargeDescription: getOptionalString(formData, "additionalChargeDescription"),
+    additionalChargeAmount: getOptionalString(formData, "additionalChargeAmount"),
+    additionalChargeDueDate: getOptionalString(formData, "additionalChargeDueDate"),
+    recurringCharges: getOptionalString(formData, "recurringCharges"),
+    lateFeePolicy: getOptionalString(formData, "lateFeePolicy"),
+    notes: getOptionalString(formData, "notes"),
+    sendInvite: getBoolean(formData, "sendInvite"),
+    applicationSubmissionId: getOptionalString(formData, "applicationSubmissionId")
+  });
+
+  if (!result.success) {
+    redirect("/move-ins/new?error=invalid");
+  }
+
+  const parsed = result.data;
+  const tenantEmail = normalizeEmail(parsed.tenantEmail);
+  const rawInviteToken = parsed.sendInvite ? generateInviteToken() : null;
+  let createdLeaseId = "";
+  let inviteEmailInput: {
+    to: string;
+    managerName: string;
+    managerEmail: string;
+    propertyLabel: string;
+    inviteUrl: string;
+    expiresAt: string;
+  } | null = null;
+  let inviteStatus = parsed.sendInvite ? "pending" : "skipped";
+
+  try {
+    await updateStore((store) => {
+      const property = store.properties.find(
+        (item) => item.id === parsed.propertyId && item.organizationId === user.organizationId && item.managerId === user.id
+      );
+      if (!property) throw new Error("Property not found in your manager portfolio.");
+
+      const sourceSubmission = parsed.applicationSubmissionId
+        ? store.applicationSubmissions.find((submission) => submission.id === parsed.applicationSubmissionId)
+        : null;
+      if (parsed.applicationSubmissionId) {
+        const sourceApplication = sourceSubmission
+          ? store.rentalApplications.find((application) => application.id === sourceSubmission.applicationId)
+          : null;
+        if (!sourceSubmission || !sourceApplication || !managerOwnsApplication(store, user, sourceApplication) || sourceSubmission.status !== "APPROVED") {
+          throw new Error("Only approved applications can be converted to move-ins.");
+        }
+      }
+
+      const unit = store.units.find((item) => item.id === parsed.unitId && item.propertyId === property.id);
+      if (!unit) throw new Error("Available unit not found for this property.");
+      if (!["VACANT", "TURNOVER"].includes(unit.occupancyStatus)) {
+        throw new Error("Choose a vacant or turnover unit for a new move-in.");
+      }
+      if (store.leases.some((lease) => lease.unitId === unit.id && isUnitReserved(lease.status))) {
+        throw new Error("This unit already has an active, upcoming, invited, or draft lease.");
+      }
+
+      const now = nowIso();
+      const existingTenant = store.tenants.find(
+        (tenant) => tenant.organizationId === user.organizationId && normalizeEmail(tenant.email ?? "") === tenantEmail
+      );
+      const tenantId = existingTenant?.id ?? createId("tenant");
+      const tenant = {
+        id: tenantId,
+        organizationId: user.organizationId,
+        firstName: parsed.tenantFirstName,
+        lastName: parsed.tenantLastName,
+        email: tenantEmail,
+        phone: parsed.tenantPhone || existingTenant?.phone,
+        employer: parsed.employer || existingTenant?.employer,
+        emergencyName: parsed.emergencyName || existingTenant?.emergencyName,
+        emergencyPhone: parsed.emergencyPhone || existingTenant?.emergencyPhone,
+        notes: existingTenant?.notes,
+        createdAt: existingTenant?.createdAt ?? now,
+        updatedAt: now
+      };
+      const tenantUser = store.users.find(
+        (candidate) => candidate.organizationId === user.organizationId && candidate.role === UserRole.TENANT && normalizeEmail(candidate.email) === tenantEmail
+      );
+      const leaseStatus = getMoveInLeaseStatus(parsed.startDate);
+      const occupancyStatus = getMoveInOccupancyStatus(parsed.moveInDate);
+      const leaseId = createId("lease");
+      const moveInNote = `Move-in date: ${parsed.moveInDate}`;
+      const notes = [moveInNote, parsed.notes].filter(Boolean).join("\n\n");
+      const lease = {
+        id: leaseId,
+        nexusLeaseId: getNextNexusLeaseId(store.leases.map((item) => item.nexusLeaseId ?? ""), store.leases.length + 1),
+        managerUserId: user.id,
+        tenantUserId: tenantUser?.id,
+        tenantEmail,
+        propertyId: property.id,
+        unitId: unit.id,
+        tenantIds: [tenantId],
+        startDate: toIsoDate(parsed.startDate),
+        endDate: toIsoDate(parsed.endDate),
+        moveInDate: toIsoDate(parsed.moveInDate),
+        monthlyRent: parsed.monthlyRent,
+        dueDay: parsed.dueDay,
+        securityDeposit: parsed.securityDeposit,
+        recurringCharges: parsed.recurringCharges ?? "",
+        lateFeePolicy: parsed.lateFeePolicy,
+        notes,
+        status: rawInviteToken ? "invited" : leaseStatus,
+        createdAt: now,
+        updatedAt: now
+      };
+      const payments = [];
+
+      if (parsed.createFirstRentCharge) {
+        payments.push({
+          id: createId("payment"),
+          unitId: unit.id,
+          leaseId,
+          description: "First month's rent",
+          amount: parsed.monthlyRent,
+          dueDate: toIsoDate(parsed.firstRentDueDate),
+          status: "PENDING" as const,
+          lateFeeAmount: 0,
+          balanceDue: parsed.monthlyRent,
+          categoryTag: "Rent",
+          createdAt: now,
+          updatedAt: now
+        });
+      }
+      if (parsed.createSecurityDepositCharge && parsed.securityDeposit > 0) {
+        payments.push({
+          id: createId("payment"),
+          unitId: unit.id,
+          leaseId,
+          description: "Security deposit",
+          amount: parsed.securityDeposit,
+          dueDate: toIsoDate(parsed.securityDepositDueDate),
+          status: "PENDING" as const,
+          lateFeeAmount: 0,
+          balanceDue: parsed.securityDeposit,
+          categoryTag: "Deposit",
+          createdAt: now,
+          updatedAt: now
+        });
+      }
+      if ((parsed.additionalChargeAmount ?? 0) > 0 && parsed.additionalChargeDescription) {
+        payments.push({
+          id: createId("payment"),
+          unitId: unit.id,
+          leaseId,
+          description: parsed.additionalChargeDescription,
+          amount: parsed.additionalChargeAmount!,
+          dueDate: toIsoDate(parsed.additionalChargeDueDate || parsed.moveInDate),
+          status: "PENDING" as const,
+          lateFeeAmount: 0,
+          balanceDue: parsed.additionalChargeAmount!,
+          categoryTag: "Move-in",
+          createdAt: now,
+          updatedAt: now
+        });
+      }
+
+      const invite =
+        rawInviteToken
+          ? {
+              id: createId("invite"),
+              leaseId,
+              managerUserId: user.id,
+              tenantEmail,
+              tokenHash: hashInviteToken(rawInviteToken),
+              status: "pending" as const,
+              expiresAt: new Date(Date.now() + INVITE_TTL_MS).toISOString(),
+              createdAt: now,
+              updatedAt: now
+            }
+          : null;
+      const notifications =
+        tenantUser && payments.length
+          ? [
+              {
+                id: createId("note"),
+                organizationId: user.organizationId,
+                userId: tenantUser.id,
+                type: "RENT_DUE" as const,
+                title: "Move-in charges are ready",
+                body: `${payments.length} move-in charge${payments.length === 1 ? "" : "s"} were added to your resident ledger.`,
+                href: "/transactions",
+                isRead: false,
+                createdAt: now
+              }
+            ]
+          : [];
+
+      createdLeaseId = leaseId;
+      if (invite && rawInviteToken) {
+        inviteEmailInput = {
+          to: invite.tenantEmail,
+          managerName: `${user.firstName} ${user.lastName}`.trim() || user.email,
+          managerEmail: user.email,
+          propertyLabel: [property.name, unit.unitNumber ? `Unit ${unit.unitNumber}` : null, formatUnitAddress(property, unit)].filter(Boolean).join(", "),
+          inviteUrl: "",
+          expiresAt: invite.expiresAt
+        };
+      }
+
+      return {
+        ...store,
+        tenants: existingTenant ? store.tenants.map((item) => (item.id === tenantId ? tenant : item)) : [...store.tenants, tenant],
+        leases: [...store.leases, lease],
+        payments: [...store.payments, ...payments],
+        tenantInvites: invite ? [...store.tenantInvites, invite] : store.tenantInvites,
+        notifications: [...store.notifications, ...notifications],
+        units: store.units.map((item) =>
+          item.id === unit.id
+            ? {
+                ...item,
+                monthlyRent: parsed.monthlyRent,
+                depositAmount: parsed.securityDeposit,
+                leaseStatus,
+                occupancyStatus,
+                updatedAt: now
+              }
+            : item
+        ),
+        applicationSubmissions: sourceSubmission
+          ? store.applicationSubmissions.map((submission) =>
+              submission.id === sourceSubmission.id ? { ...submission, status: "CONVERTED_TO_LEASE" as const, updatedAt: now } : submission
+            )
+          : store.applicationSubmissions,
+        applicationNotes: sourceSubmission
+          ? [
+              ...store.applicationNotes,
+              {
+                id: createId("appnote"),
+                applicationId: sourceSubmission.applicationId,
+                submissionId: sourceSubmission.id,
+                managerUserId: user.id,
+                body: `Converted to lease ${lease.nexusLeaseId}.`,
+                createdAt: now
+              }
+            ]
+          : store.applicationNotes
+      };
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not create the move-in.";
+    redirect(`/move-ins/new?error=${encodeURIComponent(message)}`);
+  }
+
+  if (rawInviteToken && inviteEmailInput) {
+    try {
+      const origin = await getAppOrigin();
+      const inviteUrl = `${origin}/invite/${encodeURIComponent(rawInviteToken)}`;
+      const emailResult = await sendTenantInviteEmail({
+        ...inviteEmailInput,
+        inviteUrl,
+        expiresAt: new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(inviteEmailInput.expiresAt))
+      });
+      inviteStatus = emailResult.sent ? "sent" : "pending";
+    } catch (error) {
+      console.warn("[move-in] Tenant invite email was not sent", error);
+      inviteStatus = "pending";
+    }
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/leases");
+  revalidatePath(`/leases/${createdLeaseId}`);
+  revalidatePath("/tenants");
+  revalidatePath("/transactions");
+  revalidatePath("/properties");
+  if (parsed.applicationSubmissionId) {
+    revalidatePath("/applications");
+  }
+  redirect(`/leases/${createdLeaseId}?moveIn=created&invite=${inviteStatus}`);
+}
+
 export async function createLeaseAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
+  const documentPath = requireOptionalSubmittedAssetPath(getOptionalString(formData, "documentPath"), user, "/leases?error=invalid-upload");
   const result = leaseSchema.safeParse({
     unitId: getString(formData, "unitId"),
     tenantId: getString(formData, "tenantId"),
@@ -527,7 +1405,7 @@ export async function createLeaseAction(formData: FormData) {
     recurringCharges: getOptionalString(formData, "recurringCharges"),
     lateFeePolicy: getOptionalString(formData, "lateFeePolicy"),
     notes: getOptionalString(formData, "notes"),
-    documentPath: getOptionalString(formData, "documentPath"),
+    documentPath,
     status: getString(formData, "status")
   });
   if (!result.success) {
@@ -540,8 +1418,18 @@ export async function createLeaseAction(formData: FormData) {
     redirect("/leases?error=invalid-lease");
   }
 
+  const unit = portal.scope.units.find((item) => item.id === parsed.unitId);
+  const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) : null;
+  const tenant = portal.scope.tenants.find((item) => item.id === parsed.tenantId);
+  const tenantUser = tenant?.email ? portal.users.find((item) => item.email.toLowerCase() === tenant.email?.toLowerCase()) : null;
+
   await db.lease.create({
     data: {
+      nexusLeaseId: `NXR-${Date.now().toString(36).toUpperCase()}`,
+      propertyId: property?.id,
+      managerUserId: property?.managerId ?? (user.role === UserRole.MANAGER ? user.id : undefined),
+      tenantUserId: tenantUser?.id,
+      tenantEmail: tenant?.email,
       unitId: parsed.unitId,
       startDate: new Date(parsed.startDate),
       endDate: new Date(parsed.endDate),
@@ -578,6 +1466,11 @@ export async function updateLeaseAction(formData: FormData) {
   const leaseId = getString(formData, "leaseId");
   const returnTo = getLeaseReturnPath(formData);
   const existingLease = portal.scope.leases.find((lease) => lease.id === leaseId);
+  const newDocumentPath = requireOptionalSubmittedAssetPath(getOptionalString(formData, "documentPath"), user, invalidLeasePath(returnTo));
+  const existingDocumentPath =
+    existingLease?.documentPath && isAllowedStoredAssetPath(existingLease.documentPath, { allowDemo: true })
+      ? existingLease.documentPath
+      : undefined;
   const result = leaseSchema.safeParse({
     unitId: getString(formData, "unitId"),
     tenantId: getString(formData, "tenantId"),
@@ -589,7 +1482,7 @@ export async function updateLeaseAction(formData: FormData) {
     recurringCharges: getOptionalString(formData, "recurringCharges"),
     lateFeePolicy: getOptionalString(formData, "lateFeePolicy"),
     notes: getOptionalString(formData, "notes"),
-    documentPath: getOptionalString(formData, "documentPath") ?? getOptionalString(formData, "existingDocumentPath"),
+    documentPath: newDocumentPath ?? existingDocumentPath,
     status: getString(formData, "status")
   });
 
@@ -606,10 +1499,23 @@ export async function updateLeaseAction(formData: FormData) {
   await updateStore((store) => {
     const updatedAt = new Date().toISOString();
     const affectedUnitIds = new Set([existingLease.unitId, parsed.unitId]);
+    const updatedUnit = store.units.find((unit) => unit.id === parsed.unitId);
+    const updatedProperty = store.properties.find((property) => property.id === updatedUnit?.propertyId);
+    const updatedTenant = store.tenants.find((tenant) => tenant.id === parsed.tenantId);
+    const updatedTenantUser = updatedTenant?.email
+      ? store.users.find((candidate) => candidate.organizationId === user.organizationId && candidate.email.toLowerCase() === updatedTenant.email?.toLowerCase())
+      : null;
+    const discussionThreadIdsToRemove = store.discussionThreads
+      .filter((thread) => thread.leaseId === leaseId && thread.tenantId !== parsed.tenantId)
+      .map((thread) => thread.id);
     const leases = store.leases.map((lease) =>
       lease.id === leaseId
         ? {
             ...lease,
+            propertyId: updatedProperty?.id ?? lease.propertyId,
+            managerUserId: lease.managerUserId ?? updatedProperty?.managerId ?? (user.role === UserRole.MANAGER ? user.id : undefined),
+            tenantUserId: updatedTenantUser?.id ?? lease.tenantUserId,
+            tenantEmail: updatedTenant?.email ?? lease.tenantEmail,
             unitId: parsed.unitId,
             tenantIds: [parsed.tenantId],
             startDate: new Date(parsed.startDate).toISOString(),
@@ -639,7 +1545,20 @@ export async function updateLeaseAction(formData: FormData) {
         };
       }),
       payments: store.payments.map((payment) => (payment.leaseId === leaseId ? { ...payment, unitId: parsed.unitId, updatedAt } : payment)),
-      inspections: store.inspections.map((inspection) => (inspection.leaseId === leaseId ? { ...inspection, unitId: parsed.unitId, updatedAt } : inspection))
+      inspections: store.inspections.map((inspection) => (inspection.leaseId === leaseId ? { ...inspection, unitId: parsed.unitId, updatedAt } : inspection)),
+      discussionThreads: store.discussionThreads
+        .filter((thread) => !discussionThreadIdsToRemove.includes(thread.id))
+        .map((thread) =>
+          thread.leaseId === leaseId
+            ? {
+                ...thread,
+                propertyId: updatedProperty?.id ?? thread.propertyId,
+                unitId: updatedUnit?.id,
+                updatedAt
+              }
+            : thread
+        ),
+      discussionMessages: store.discussionMessages.filter((message) => !discussionThreadIdsToRemove.includes(message.threadId))
     };
   });
 
@@ -664,6 +1583,7 @@ export async function deleteLeaseAction(formData: FormData) {
   await updateStore((store) => {
     const updatedAt = new Date().toISOString();
     const leases = store.leases.filter((lease) => lease.id !== leaseId);
+    const discussionThreadIds = store.discussionThreads.filter((thread) => thread.leaseId === leaseId).map((thread) => thread.id);
 
     return {
       ...store,
@@ -677,7 +1597,9 @@ export async function deleteLeaseAction(formData: FormData) {
         };
       }),
       payments: store.payments.map((payment) => (payment.leaseId === leaseId ? { ...payment, leaseId: undefined, updatedAt } : payment)),
-      inspections: store.inspections.map((inspection) => (inspection.leaseId === leaseId ? { ...inspection, leaseId: undefined, updatedAt } : inspection))
+      inspections: store.inspections.map((inspection) => (inspection.leaseId === leaseId ? { ...inspection, leaseId: undefined, updatedAt } : inspection)),
+      discussionThreads: store.discussionThreads.filter((thread) => !discussionThreadIds.includes(thread.id)),
+      discussionMessages: store.discussionMessages.filter((message) => !discussionThreadIds.includes(message.threadId))
     };
   });
 
@@ -703,17 +1625,23 @@ export async function createPaymentAction(formData: FormData) {
     categoryTag: getOptionalString(formData, "categoryTag")
   });
 
-  if (!hasId(portal.scope.units, parsed.unitId) || (parsed.leaseId && !hasId(portal.scope.leases, parsed.leaseId))) {
-    redirect("/transactions");
-  }
-  if (parsed.leaseId && portal.scope.leases.find((lease) => lease.id === parsed.leaseId)?.unitId !== parsed.unitId) {
+  const selectedLease = parsed.leaseId ? portal.scope.leases.find((lease) => lease.id === parsed.leaseId) : null;
+  const paymentUnitId = selectedLease?.unitId ?? parsed.unitId;
+
+  if (!hasId(portal.scope.units, paymentUnitId) || (parsed.leaseId && !selectedLease)) {
     redirect("/transactions");
   }
 
+  const inferredLease = selectedLease
+    ? selectedLease
+    : portal.scope.leases
+        .filter((lease) => lease.unitId === paymentUnitId && ["ACTIVE", "UPCOMING", "active", "invited"].includes(lease.status))
+        .sort((a, b) => (b.startDate ?? b.createdAt ?? "").localeCompare(a.startDate ?? a.createdAt ?? ""))[0];
+
   await db.payment.create({
     data: {
-      unitId: parsed.unitId,
-      leaseId: parsed.leaseId,
+      unitId: paymentUnitId,
+      leaseId: inferredLease?.id,
       description: parsed.description,
       amount: parsed.amount,
       dueDate: new Date(parsed.dueDate),
@@ -725,9 +1653,36 @@ export async function createPaymentAction(formData: FormData) {
     }
   });
 
+  if (inferredLease?.tenantUserId && parsed.status !== "PAID") {
+    await db.notification.create({
+      data: {
+        organizationId: user.organizationId,
+        userId: inferredLease.tenantUserId,
+        type: "RENT_DUE",
+        title: "Rent payment requested",
+        body: `${parsed.description} for $${parsed.amount.toFixed(2)} is ready to pay online.`,
+        href: "/transactions"
+      }
+    });
+  }
+
   revalidatePath("/transactions");
   revalidatePath("/dashboard");
-  redirect("/transactions");
+  redirect(
+    inferredLease
+      ? `/transactions?${parsed.status === "PAID" ? "tab=paid&" : ""}stripe=payment-linked`
+      : `/transactions?${parsed.status === "PAID" ? "tab=paid&" : ""}stripe=payment-unlinked`
+  );
+}
+
+export async function linkRentPaymentsToLeasesAction() {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  await ensureLeaseConnectionIntegrity(user.organizationId);
+
+  revalidatePath("/transactions");
+  revalidatePath("/dashboard");
+  revalidatePath("/leases");
+  redirect("/transactions?stripe=payments-linked");
 }
 
 export async function createExpenseAction(formData: FormData) {
@@ -774,6 +1729,18 @@ export async function createMaintenanceAction(formData: FormData) {
     unitId: getOptionalString(formData, "unitId"),
     title: getString(formData, "title"),
     description: getString(formData, "description"),
+    category: getOptionalString(formData, "category"),
+    location: getOptionalString(formData, "location"),
+    issueStartedAt: getOptionalString(formData, "issueStartedAt"),
+    entryPermission: getOptionalString(formData, "entryPermission"),
+    accessNotes: getOptionalString(formData, "accessNotes"),
+    contactPreference: getOptionalString(formData, "contactPreference"),
+    contactName: getOptionalString(formData, "contactName"),
+    contactPhone: getOptionalString(formData, "contactPhone"),
+    preferredWindow: getOptionalString(formData, "preferredWindow"),
+    safetyConcern: getOptionalString(formData, "safetyConcern"),
+    petsOnSite: getOptionalString(formData, "petsOnSite"),
+    imagePaths: requireSubmittedAssetPaths(formData, "imagePaths", user, "/maintenance?error=invalid-upload", 3),
     status: getString(formData, "status"),
     priority: getString(formData, "priority"),
     estimatedCost: getOptionalString(formData, "estimatedCost"),
@@ -798,8 +1765,12 @@ export async function createMaintenanceAction(formData: FormData) {
     data: {
       ...parsed,
       unitId: parsed.unitId || null,
+      entryPermission: parsed.entryPermission ?? "REQUEST_APPROVAL",
+      contactPreference: parsed.contactPreference ?? "APP",
+      safetyConcern: parsed.safetyConcern ?? "NO",
+      petsOnSite: parsed.petsOnSite ?? "UNKNOWN",
       status: user.role === UserRole.TENANT ? "OPEN" : parsed.status,
-      estimatedCost: user.role === UserRole.TENANT ? null : parsed.estimatedCost ?? null,
+      estimatedCost: parsed.estimatedCost ?? null,
       actualCost: user.role === UserRole.TENANT ? null : parsed.actualCost ?? null,
       assignedTo: user.role === UserRole.TENANT ? null : parsed.assignedTo,
       timeline:
@@ -814,12 +1785,21 @@ export async function createMaintenanceAction(formData: FormData) {
 
 export async function updateSettingsAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN]);
-  const parsed = settingsSchema.parse({
+  const mailingAddressResult = validateOptionalAddress(readAddressFormData(formData, MAILING_ADDRESS_FORM_FIELDS, "mailingAddress"));
+  if (!mailingAddressResult.success) {
+    redirect("/settings?error=invalid-address");
+  }
+
+  const result = settingsSchema.safeParse({
     name: getString(formData, "name"),
     email: getString(formData, "email"),
-    phone: getOptionalString(formData, "phone"),
-    mailingAddress: getOptionalString(formData, "mailingAddress")
+    phone: getOptionalString(formData, "phone")
   });
+  if (!result.success) {
+    redirect("/settings?error=invalid-settings");
+  }
+
+  const parsed = result.data;
 
   await db.organization.update({
     where: { id: user.organizationId },
@@ -827,7 +1807,7 @@ export async function updateSettingsAction(formData: FormData) {
       name: parsed.name,
       email: parsed.email,
       phone: parsed.phone,
-      mailingAddress: parsed.mailingAddress
+      mailingAddress: mailingAddressResult.formattedAddress
     }
   });
 
@@ -886,11 +1866,142 @@ export async function payRentAction(formData: FormData) {
   redirect("/transactions");
 }
 
+export async function createStripeCheckoutAction(formData: FormData) {
+  const user = await requireRoles([UserRole.TENANT]);
+  const paymentId = getString(formData, "paymentId");
+  const portal = await getPortalContext(user);
+  const payment = portal.scope.payments.find((item) => item.id === paymentId);
+
+  if (!payment) {
+    redirect("/transactions?stripe=invalid-payment");
+  }
+
+  if (payment.status === "PAID") {
+    redirect("/transactions?stripe=already-paid");
+  }
+
+  const lease =
+    payment.leaseId
+      ? portal.scope.leases.find((item) => item.id === payment.leaseId)
+      : portal.currentLease?.unitId === payment.unitId
+        ? portal.currentLease
+        : portal.scope.leases.find((item) =>
+            item.unitId === payment.unitId && ["ACTIVE", "UPCOMING", "active", "invited"].includes(item.status)
+          );
+  const leaseId = lease?.id;
+
+  const manager = getLeaseManager(portal, lease, payment);
+  let connectedManager = manager;
+  let stripeDestinationAccountId: string | undefined;
+  let applicationFeeAmountCents = 0;
+
+  if (manager?.stripeConnectedAccountId) {
+    try {
+      connectedManager = await syncStripeConnectedAccount(manager);
+    } catch (error) {
+      console.error("[stripe] Failed to verify manager Connect account before checkout; falling back to platform Checkout", error);
+    }
+
+    if (isStripeConnectReady(connectedManager)) {
+      stripeDestinationAccountId = connectedManager?.stripeConnectedAccountId;
+      applicationFeeAmountCents = NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS;
+    }
+  }
+
+  const amountDue = payment.balanceDue || payment.amount;
+  const amountCents = Math.round(amountDue * 100);
+  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    redirect("/transactions?stripe=invalid-amount");
+  }
+  if (applicationFeeAmountCents > 0 && amountCents <= applicationFeeAmountCents) {
+    redirect("/transactions?stripe=amount-below-platform-fee");
+  }
+
+  const paymentMonth = getPaymentMonth(payment.dueDate);
+  const appUrl = await getAppOrigin();
+
+  if (
+    (!payment.leaseId && leaseId) ||
+    payment.stripeDestinationAccountId !== stripeDestinationAccountId ||
+    payment.stripeApplicationFeeAmountCents !== applicationFeeAmountCents
+  ) {
+    await db.payment.update({
+      where: { id: payment.id },
+      data: {
+        ...(!payment.leaseId && leaseId ? { leaseId } : {}),
+        stripeDestinationAccountId,
+        stripeApplicationFeeAmountCents: applicationFeeAmountCents
+      }
+    });
+  }
+
+  const metadata = {
+    source: "nexus_rent_payment",
+    organizationId: user.organizationId,
+    paymentId: payment.id,
+    userId: user.id,
+    tenantId: portal.currentTenant?.id ?? "",
+    managerUserId: connectedManager?.id ?? "",
+    stripeDestinationAccountId: stripeDestinationAccountId ?? "",
+    applicationFeeAmountCents: String(applicationFeeAmountCents),
+    leaseId: leaseId ?? "",
+    unitId: payment.unitId,
+    paymentMonth,
+    amountCents: String(amountCents)
+  };
+
+  let sessionUrl: string | null = null;
+  const paymentIntentData: any = { metadata };
+
+  if (stripeDestinationAccountId) {
+    paymentIntentData.application_fee_amount = applicationFeeAmountCents;
+    paymentIntentData.transfer_data = {
+      destination: stripeDestinationAccountId
+    };
+  }
+
+  try {
+    const session = await getStripe().checkout.sessions.create({
+      mode: "payment",
+      customer_email: user.email,
+      client_reference_id: payment.id,
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: "usd",
+            unit_amount: amountCents,
+            product_data: {
+              name: payment.description || `Rent payment ${paymentMonth}`,
+              description: `Rent for unit ${payment.unitId} (${paymentMonth})`
+            }
+          }
+        }
+      ],
+      metadata,
+      payment_intent_data: paymentIntentData,
+      success_url: `${appUrl}/transactions?stripe=success&payment=${encodeURIComponent(payment.id)}`,
+      cancel_url: `${appUrl}/transactions?stripe=cancelled&payment=${encodeURIComponent(payment.id)}`
+    });
+
+    sessionUrl = session.url;
+  } catch (error) {
+    console.error("[stripe] Failed to create checkout session", error);
+    redirect("/transactions?stripe=checkout-error");
+  }
+
+  if (!sessionUrl) {
+    redirect("/transactions?stripe=missing-session-url");
+  }
+
+  redirect(sessionUrl);
+}
+
 export async function addUnitAssetAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
   const unitId = getString(formData, "unitId");
-  const path = getString(formData, "path");
+  const path = requireOptionalSubmittedAssetPath(getString(formData, "path"), user, "/properties");
   const kind = getString(formData, "kind") as FileKind;
 
   if (!hasId(portal.scope.units, unitId) || !path) {
@@ -913,8 +2024,8 @@ export async function addUnitAssetAction(formData: FormData) {
 export async function createDamageAssessmentAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
-  const imagePaths = formData.getAll("imagePaths").map(String);
-  const baselinePaths = formData.getAll("baselinePaths").map(String);
+  const imagePaths = requireSubmittedAssetPaths(formData, "imagePaths", user, "/ai-assessments?error=invalid-upload", 12);
+  const baselinePaths = requireSubmittedAssetPaths(formData, "baselinePaths", user, "/ai-assessments?error=invalid-upload", 12);
   const parsed = damageAssessmentSchema.parse({
     unitId: getString(formData, "unitId"),
     leaseId: getOptionalString(formData, "leaseId"),
@@ -992,4 +2103,25 @@ export async function createDamageAssessmentAction(formData: FormData) {
   revalidatePath("/ai-assessments");
   revalidatePath("/dashboard");
   redirect("/ai-assessments");
+}
+
+export async function sendDiscussionMessageAction(formData: FormData) {
+  const user = await requireRoles([UserRole.MANAGER, UserRole.TENANT]);
+  const leaseId = getString(formData, "leaseId");
+  const tenantId = getString(formData, "tenantId");
+  const conversationKey = getString(formData, "conversationKey");
+  const body = getString(formData, "body");
+  let result: Awaited<ReturnType<typeof sendDiscussionMessage>>;
+
+  try {
+    result = await sendDiscussionMessage({ user, leaseId, tenantId, body });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not send message.";
+    const suffix = conversationKey ? `&conversation=${encodeURIComponent(conversationKey)}` : "";
+    redirect(`/messages?error=${encodeURIComponent(message)}${suffix}`);
+  }
+
+  revalidatePath("/messages");
+  revalidatePath("/dashboard");
+  redirect(`/messages?conversation=${encodeURIComponent(result.conversationKey)}`);
 }

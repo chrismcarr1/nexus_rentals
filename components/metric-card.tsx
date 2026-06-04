@@ -1,4 +1,14 @@
+import { Activity, CircleDollarSign, Sparkles, TriangleAlert, type LucideIcon } from "lucide-react";
+
 import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+
+const accentIcons: Record<"default" | "brand" | "success" | "warning", LucideIcon> = {
+  default: Activity,
+  brand: Sparkles,
+  success: CircleDollarSign,
+  warning: TriangleAlert
+};
 
 export function MetricCard({
   label,
@@ -11,24 +21,18 @@ export function MetricCard({
   hint: string;
   accent?: "default" | "brand" | "success" | "warning";
 }) {
+  const Icon = accentIcons[accent];
+
   return (
-    <Card className="p-5 lg:p-6">
+    <Card className="metric-card">
       <div className="flex items-start justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">{label}</p>
-          <p className="mt-4 text-3xl font-semibold tracking-[-0.03em] text-[var(--text)]">{value}</p>
+          <p className="mt-4 break-words text-3xl font-semibold tracking-normal text-[var(--text)]">{value}</p>
         </div>
-        <span
-          className={
-            accent === "brand"
-              ? "h-3 w-3 rounded-full bg-[var(--brand)]"
-              : accent === "success"
-                ? "h-3 w-3 rounded-full bg-[var(--success)]"
-                : accent === "warning"
-                  ? "h-3 w-3 rounded-full bg-[var(--warning)]"
-                  : "h-3 w-3 rounded-full bg-slate-300"
-          }
-        />
+        <span className={cn("metric-icon", `metric-accent-${accent}`)}>
+          <Icon className="h-4 w-4" />
+        </span>
       </div>
       <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{hint}</p>
     </Card>

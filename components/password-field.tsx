@@ -23,7 +23,7 @@ export function PasswordField({ label, className, inputClassName, id, ...props }
         <input
           id={inputId}
           type={visible ? "text" : "password"}
-          className={cn("w-full rounded-2xl border border-[var(--line)] bg-white px-4 py-3 pr-12", inputClassName)}
+          className={cn("w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 pr-12", inputClassName)}
           {...props}
         />
         <button

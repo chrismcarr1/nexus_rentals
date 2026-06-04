@@ -22,7 +22,7 @@ export default async function AiAssessmentsPage() {
         title="Move-out photo review tied to inspections and unit records."
         description="Upload inspection photos, optionally add baseline images, and generate a structured local estimate with severity, confidence, categories, cost range, and recommended next steps."
       />
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+      <div className="content-split">
         <div className="space-y-4">
           <Card className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Assessment history</p>
@@ -36,7 +36,7 @@ export default async function AiAssessmentsPage() {
                 const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) : null;
 
                 return (
-                  <div key={assessment.id} className="rounded-[24px] border border-[var(--line)] bg-white/70 p-5">
+                  <div key={assessment.id} className="panel-muted p-5">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <p className="font-semibold">
@@ -50,7 +50,7 @@ export default async function AiAssessmentsPage() {
                     <p className="mt-4 text-lg font-semibold">
                       {formatCurrency(assessment.estimatedLow)} - {formatCurrency(assessment.estimatedHigh)}
                     </p>
-                    <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <div className="form-grid-3 mt-3">
                       <div className="rounded-2xl bg-stone-900/5 px-3 py-2 text-sm">
                         <p className="text-stone-400">Confidence</p>
                         <p className="font-semibold">{Math.round(assessment.confidenceScore * 100)}%</p>

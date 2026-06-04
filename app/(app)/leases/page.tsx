@@ -1,24 +1,88 @@
-import Link from "next/link";
-import { MoreHorizontal } from "lucide-react";
+import { CalendarDays, FileText, Home, Mail, Phone, ShieldCheck, Wallet } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { EmptyState } from "@/components/empty-state";
-import { PageHeader } from "@/components/page-header";
-import { SingleUploadInput } from "@/components/upload-inputs";
+import { LeaseConnectionManager } from "@/components/lease-connection-manager";
+import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { SubmitButton } from "@/components/ui/submit-button";
-import { createLeaseAction } from "@/lib/actions";
+import { formatAddress, formatUnitAddress } from "@/lib/address";
 import { requireUser } from "@/lib/auth";
+import { isAllowedStoredAssetPath } from "@/lib/file-security";
+import { getManagerLeaseRows } from "@/lib/lease-connections";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
+
+function formatDateOrUnset(value?: string | null) {
+  return value ? formatDate(value) : "Not set";
+}
+
+function formatCurrencyOrUnset(value?: number | null) {
+  return value == null ? "Not set" : formatCurrency(value);
+}
+
+function leaseStatusTone(status?: string | null): "default" | "success" | "warning" | "danger" {
+  if (status === "ACTIVE" || status === "active") return "success";
+  if (status === "UPCOMING" || status === "draft" || status === "invited") return "warning";
+  if (status === "EXPIRED" || status === "TERMINATED" || status === "ended" || status === "cancelled") return "danger";
+  return "default";
+}
+
+function daysUntil(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return Math.ceil((date.getTime() - today.getTime()) / 86_400_000);
+}
+
+function LeaseMetric({
+  label,
+  value,
+  detail,
+  icon
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="rounded-md border border-[var(--line)] bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
+          <p className="mt-2 truncate text-lg font-semibold text-[var(--text)]">{value}</p>
+        </div>
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[rgba(13,143,123,0.18)] bg-[var(--accent-soft)] text-[var(--brand)]">
+          {icon}
+        </span>
+      </div>
+      <p className="mt-3 text-sm leading-5 text-[var(--muted)]">{detail}</p>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 border-t border-[var(--line)] py-3 first:border-t-0 first:pt-0 last:pb-0">
+      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-[var(--text)]">{value}</p>
+    </div>
+  );
+}
 
 export default async function LeasesPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireUser();
   const portal = await getPortalContext(user);
   const params = (await searchParams) ?? {};
-  const canCreateLease = portal.scope.units.length > 0 && portal.scope.tenants.length > 0;
 
   if (user.role === "TENANT") {
-    const leaseDocuments = portal.currentLease?.documentPath
+    const currentManager = portal.currentLease?.managerUserId
+      ? portal.managers.find((manager) => manager.id === portal.currentLease?.managerUserId) ?? null
+      : null;
+    const leaseDocuments = portal.currentLease?.documentPath && isAllowedStoredAssetPath(portal.currentLease.documentPath, { allowDemo: true })
       ? [
           {
             id: `${portal.currentLease.id}-agreement`,
@@ -28,162 +92,158 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
           }
         ]
       : [];
-    const documents = [...leaseDocuments, ...portal.documents];
+    const documents = [...leaseDocuments, ...portal.documents].filter((file) => isAllowedStoredAssetPath(file.path, { allowDemo: true }));
+    const leaseDaysRemaining = daysUntil(portal.currentLease?.endDate);
 
     return (
       <div className="space-y-4">
-        <PageHeader
-          eyebrow="My lease"
-          title="Lease terms, documents, and home details."
-          description="A simplified resident lease view with dates, monthly charges, and access to the most relevant files for your tenancy."
-        />
-        {!portal.currentLease || !portal.currentUnit || !portal.currentProperty ? (
-          <EmptyState title="No active lease on file" description="Your resident account does not currently have an active or upcoming lease attached." />
+        {!portal.currentLease || !portal.currentProperty ? (
+          <EmptyState title="No active lease connected yet" description="Open your manager's invite link and accept it with this tenant account to connect your lease." />
         ) : (
-          <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-            <Card className="p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Lease summary</p>
-              <h2 className="mt-2 text-2xl font-semibold">{portal.currentProperty.name} {portal.currentUnit.unitNumber}</h2>
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <div className="panel-muted rounded-[24px] p-4">
-                  <p className="text-sm text-[var(--muted)]">Term</p>
-                  <p className="mt-2 font-semibold">{formatDate(portal.currentLease.startDate)} to {formatDate(portal.currentLease.endDate)}</p>
-                </div>
-                <div className="panel-muted rounded-[24px] p-4">
-                  <p className="text-sm text-[var(--muted)]">Monthly rent</p>
-                  <p className="mt-2 font-semibold">{formatCurrency(portal.currentLease.monthlyRent)}</p>
-                </div>
-                <div className="panel-muted rounded-[24px] p-4">
-                  <p className="text-sm text-[var(--muted)]">Security deposit</p>
-                  <p className="mt-2 font-semibold">{formatCurrency(portal.currentLease.securityDeposit)}</p>
-                </div>
-                <div className="panel-muted rounded-[24px] p-4">
-                  <p className="text-sm text-[var(--muted)]">Due day</p>
-                  <p className="mt-2 font-semibold">Day {portal.currentLease.dueDay} of each month</p>
-                </div>
-              </div>
-              <div className="mt-5 rounded-[24px] border border-[var(--line)] p-4 text-sm leading-7 text-[var(--muted)]">
-                <p>Recurring charges: {portal.currentLease.recurringCharges || "None listed"}</p>
-                <p>Late fee policy: {portal.currentLease.lateFeePolicy || "Refer to management for policy details"}</p>
-                <p>Current lease status: {portal.currentLease.status}</p>
-              </div>
-            </Card>
-            <Card className="p-6">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Documents and contacts</p>
-              <div className="mt-4 space-y-3">
-                {documents.length ? documents.map((file) => (
-                  <div key={file.id} className="panel-muted rounded-[24px] p-4">
-                    <p className="font-semibold">{file.label || file.kind}</p>
-                    <a href={file.path} target="_blank" rel="noreferrer" className="mt-1 block truncate text-sm font-medium text-[var(--brand)]">
-                      Open document
-                    </a>
+          <>
+            <Card className="overflow-hidden">
+              <div className="border-b border-[rgba(13,143,123,0.18)] bg-[var(--accent-soft)] p-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="min-w-0">
+                    <p className="section-kicker">My lease</p>
+                    <h1 className="mt-2 text-3xl font-semibold text-[var(--text)]">
+                      {portal.currentProperty.name}
+                      {portal.currentUnit?.unitNumber ? ` Unit ${portal.currentUnit.unitNumber}` : ""}
+                    </h1>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted-strong)]">{formatUnitAddress(portal.currentProperty, portal.currentUnit)}</p>
                   </div>
-                )) : <EmptyState title="No lease documents uploaded" description="Documents can be added later by management without changing the resident experience." />}
+                  <div className="flex flex-wrap gap-2">
+                    <Badge tone={leaseStatusTone(portal.currentLease.status)}>{portal.currentLease.status}</Badge>
+                    {leaseDaysRemaining != null && leaseDaysRemaining >= 0 ? <Badge>{leaseDaysRemaining} days left</Badge> : null}
+                  </div>
+                </div>
+              </div>
+              <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
+                <LeaseMetric
+                  label="Monthly rent"
+                  value={formatCurrencyOrUnset(portal.currentLease.monthlyRent)}
+                  detail={`Due day ${portal.currentLease.dueDay} of each month`}
+                  icon={<Wallet className="h-4 w-4" />}
+                />
+                <LeaseMetric
+                  label="Lease term"
+                  value={`${formatDateOrUnset(portal.currentLease.startDate)} to ${formatDateOrUnset(portal.currentLease.endDate)}`}
+                  detail="Current agreement dates"
+                  icon={<CalendarDays className="h-4 w-4" />}
+                />
+                <LeaseMetric
+                  label="Deposit"
+                  value={formatCurrencyOrUnset(portal.currentLease.securityDeposit)}
+                  detail="Security deposit on record"
+                  icon={<ShieldCheck className="h-4 w-4" />}
+                />
+                <LeaseMetric
+                  label="Home"
+                  value={portal.currentUnit?.unitNumber ? `Unit ${portal.currentUnit.unitNumber}` : "Assigned home"}
+                  detail={portal.currentProperty.name}
+                  icon={<Home className="h-4 w-4" />}
+                />
               </div>
             </Card>
-          </div>
+
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(300px,0.88fr)]">
+              <Card className="p-5">
+                <p className="section-kicker">Lease details</p>
+                <h2 className="mt-2 text-2xl font-semibold text-[var(--text)]">Terms and billing notes</h2>
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  <DetailRow label="Recurring charges" value={portal.currentLease.recurringCharges || "None listed"} />
+                  <DetailRow label="Late fee policy" value={portal.currentLease.lateFeePolicy || "Refer to management for policy details"} />
+                  <DetailRow label="Lease status" value={portal.currentLease.status} />
+                  <DetailRow label="Property address" value={formatUnitAddress(portal.currentProperty, portal.currentUnit)} />
+                </div>
+              </Card>
+
+              <Card className="p-5">
+                <p className="section-kicker">Manager contact</p>
+                <h2 className="mt-2 text-2xl font-semibold text-[var(--text)]">{currentManager ? `${currentManager.firstName} ${currentManager.lastName}` : "Property manager"}</h2>
+                <div className="mt-4 rounded-md border border-[var(--line)] bg-[var(--surface)] p-3">
+                  <p className="inline-flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--text)]">
+                    <Mail className="h-4 w-4 shrink-0 text-[var(--brand)]" />
+                    <span className="break-all">{currentManager?.email ?? "Manager contact will appear after the invite is accepted."}</span>
+                  </p>
+                  {currentManager?.phone ? (
+                    <p className="mt-2 inline-flex items-center gap-2 text-sm text-[var(--muted)]">
+                      <Phone className="h-4 w-4 text-[var(--brand)]" />
+                      {currentManager.phone}
+                    </p>
+                  ) : null}
+                </div>
+              </Card>
+            </div>
+
+            <Card className="p-5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="section-kicker">Documents</p>
+                  <h2 className="mt-2 text-2xl font-semibold text-[var(--text)]">Lease files</h2>
+                </div>
+                <p className="text-sm text-[var(--muted)]">{documents.length} available</p>
+              </div>
+              {documents.length ? (
+                <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {documents.map((file) => (
+                    <a
+                      key={file.id}
+                      href={file.path}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex min-w-0 items-center gap-3 rounded-md border border-[var(--line)] bg-[var(--surface)] p-4 transition hover:bg-[var(--surface-hover)]"
+                    >
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[rgba(13,143,123,0.18)] bg-white text-[var(--brand)]">
+                        <FileText className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-[var(--text)]">{file.label || file.kind}</span>
+                        <span className="mt-1 block text-xs font-medium text-[var(--brand)]">Open document</span>
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-5">
+                  <EmptyState title="No lease documents uploaded" description="Documents can be added later by management without changing the resident experience." />
+                </div>
+              )}
+            </Card>
+          </>
         )}
       </div>
     );
   }
 
+  const initialLeases = await getManagerLeaseRows(user);
+
   return (
     <div className="space-y-4">
-      <PageHeader
-        eyebrow="Lease operations"
-        title="Leasing activity, renewals, and occupancy risk."
-        description="Track active and upcoming leases, monitor upcoming expirations, and create new agreements for units in your current scope."
+      {params.error === "invalid-lease" ? (
+        <div className="rounded-md border border-amber-600/18 bg-amber-500/12 px-4 py-3 text-sm text-amber-800">
+          Review the lease details before creating a tenant invite.
+        </div>
+      ) : null}
+      <LeaseConnectionManager
+        properties={portal.scope.properties.map((property) => ({
+          id: property.id,
+          name: property.name,
+          addressLine1: property.addressLine1,
+          addressLine2: property.addressLine2,
+          city: property.city,
+          state: property.state,
+          postalCode: property.postalCode,
+          country: property.country,
+          formattedAddress: formatAddress(property)
+        }))}
+        units={portal.scope.units.map((unit) => ({
+          id: unit.id,
+          propertyId: unit.propertyId,
+          unitNumber: unit.unitNumber
+        }))}
+        initialLeases={initialLeases}
       />
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card className="p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Lease tracker</p>
-          <div className="mt-5 space-y-3">
-            {portal.scope.leases.map((lease) => {
-              const unit = portal.scope.units.find((item) => item.id === lease.unitId);
-              const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) : null;
-              const tenants = portal.scope.tenants.filter((tenant) => lease.tenantIds.includes(tenant.id));
-
-              return (
-                <div key={lease.id} className="panel-muted relative rounded-[24px] p-4 pr-14">
-                  <details className="absolute right-3 top-3">
-                    <summary
-                      aria-label="Lease actions"
-                      className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full border border-[var(--line)] bg-white text-[var(--muted)] transition hover:text-[var(--text)] [&::-webkit-details-marker]:hidden"
-                    >
-                      <MoreHorizontal className="h-5 w-5" />
-                    </summary>
-                    <div className="absolute right-0 z-10 mt-2 w-44 rounded-2xl border border-[var(--line)] bg-white p-1 shadow-[0_18px_45px_rgba(15,23,42,0.12)]">
-                      <Link href={`/leases/${lease.id}`} className="block rounded-xl px-3 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--panel)]">
-                        Manage lease
-                      </Link>
-                    </div>
-                  </details>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold">{property?.name} {unit?.unitNumber}</p>
-                      <p className="text-sm text-[var(--muted)]">{tenants.map((row) => `${row.firstName} ${row.lastName}`).join(", ") || "Unassigned tenant"}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold">{formatCurrency(lease.monthlyRent)}</p>
-                      <p className="text-sm text-[var(--muted)]">{lease.status}</p>
-                    </div>
-                  </div>
-                  <p className="mt-3 text-sm text-[var(--muted)]">{formatDate(lease.startDate)} - {formatDate(lease.endDate)}</p>
-                  {lease.documentPath ? (
-                    <a href={lease.documentPath} target="_blank" rel="noreferrer" className="mt-3 block truncate text-sm font-medium text-[var(--brand)]">
-                      View lease agreement
-                    </a>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-        <Card className="p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Create lease</p>
-          {params.error === "invalid-lease" ? (
-            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Choose a unit, tenant, lease dates, rent amount, due day, and deposit before creating the lease.
-            </div>
-          ) : null}
-          {!canCreateLease ? (
-            <EmptyState title="Need a unit and tenant first" description="Create at least one unit and one tenant in your scope before adding a lease." />
-          ) : (
-            <form action={createLeaseAction} className="mt-6 space-y-4">
-              <select name="unitId" className="field" required defaultValue="">
-                <option value="" disabled>Select unit</option>
-                {portal.scope.units.map((unit) => {
-                  const property = portal.scope.properties.find((item) => item.id === unit.propertyId);
-                  return <option key={unit.id} value={unit.id}>{property?.name} {unit.unitNumber}</option>;
-                })}
-              </select>
-              <select name="tenantId" className="field" required defaultValue="">
-                <option value="" disabled>Select tenant</option>
-                {portal.scope.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.firstName} {tenant.lastName}</option>)}
-              </select>
-              <div className="grid gap-4 md:grid-cols-2">
-                <input name="startDate" type="date" required className="field" />
-                <input name="endDate" type="date" required className="field" />
-              </div>
-              <div className="grid gap-4 md:grid-cols-3">
-                <input name="monthlyRent" type="number" min="0" step="0.01" required placeholder="Monthly rent" className="field" />
-                <input name="dueDay" type="number" min="1" max="28" required placeholder="Due day" className="field" />
-                <input name="securityDeposit" type="number" min="0" step="0.01" required placeholder="Deposit" className="field" />
-              </div>
-              <textarea name="recurringCharges" placeholder="Recurring charges" className="field min-h-24" />
-              <input name="lateFeePolicy" placeholder="Late fee policy" className="field" />
-              <SingleUploadInput name="documentPath" label="Upload lease agreement" accept=".pdf,.doc,.docx,image/*" />
-              <select name="status" className="field" required defaultValue="ACTIVE">
-                <option value="ACTIVE">Active</option>
-                <option value="UPCOMING">Upcoming</option>
-                <option value="EXPIRED">Expired</option>
-                <option value="TERMINATED">Terminated</option>
-              </select>
-              <SubmitButton>Create lease</SubmitButton>
-            </form>
-          )}
-        </Card>
-      </div>
     </div>
   );
 }

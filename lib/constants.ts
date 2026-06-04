@@ -4,6 +4,7 @@ import {
   CreditCard,
   Gauge,
   Home,
+  MessageSquare,
   Receipt,
   Settings,
   Sparkles,
@@ -18,6 +19,7 @@ export const appNav = [
   { href: "/transactions", label: "Transactions", icon: CreditCard },
   { href: "/expenses", label: "Expenses", icon: Receipt },
   { href: "/maintenance", label: "Maintenance", icon: ClipboardList },
+  { href: "/messages", label: "Messages", icon: MessageSquare },
   { href: "/ai-assessments", label: "AI Assessments", icon: Sparkles },
   { href: "/reports", label: "Reports", icon: Gauge },
   { href: "/settings", label: "Settings", icon: Settings }

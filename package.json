@@ -17,12 +17,12 @@
     "db:generate": "node -e \"console.log('No generation step required for hosted JSON document store.')\"",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:push": "node scripts/db-migrate.mjs",
-    "db:seed": "node scripts/db-setup.mjs",
-    "db:setup": "node scripts/db-setup.mjs",
+    "db:seed": "tsx scripts/db-setup.mjs",
+    "db:setup": "tsx scripts/db-setup.mjs",
     "test": "vitest run --pool=threads --maxWorkers=1"
   },
   "dependencies": {
-    "@vercel/blob": "^1.1.1",
+    "@vercel/blob": "^2.4.0",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -30,11 +30,12 @@
     "fast-check": "^4.7.0",
     "jose": "^5.9.6",
     "lucide-react": "^0.511.0",
-    "next": "15.5.15",
+    "next": "^15.5.19",
     "postgres": "^3.4.9",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "recharts": "^2.15.3",
+    "stripe": "^22.2.0",
     "tailwind-merge": "^3.3.0",
     "zod": "^3.24.3"
   },
@@ -46,6 +47,9 @@
     "tailwindcss": "^4.1.4",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
-    "vitest": "^3.1.1"
+    "vitest": "^4.1.8"
+  },
+  "overrides": {
+    "postcss": "8.5.10"
   }
 }

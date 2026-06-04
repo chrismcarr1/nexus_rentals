@@ -3,7 +3,17 @@ import "server-only";
 import { addDays, differenceInCalendarDays, endOfMonth, isAfter, isBefore, startOfMonth } from "date-fns";
 import { cache } from "react";
 
+import { getEffectiveUserRole } from "@/lib/admin";
+import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
 import { getOrganizationSnapshot, type Notification, type UserRole } from "@/lib/store";
+
+function leaseIsVisibleCurrent(status: string) {
+  return status === "ACTIVE" || status === "UPCOMING" || status === "active" || status === "invited";
+}
+
+function leaseIsActive(status: string) {
+  return status === "ACTIVE" || status === "active";
+}
 
 type AppUser = {
   id: string;
@@ -15,7 +25,12 @@ type AppUser = {
 };
 
 export const getPortalContext = cache(async (user: AppUser) => {
+  await ensureLeaseConnectionIntegrity(user.organizationId);
   const snapshot = await getOrganizationSnapshot(user.organizationId);
+  const effectiveUsers = snapshot.users.map((candidate) => ({
+    ...candidate,
+    role: getEffectiveUserRole(candidate.role, candidate.email)
+  }));
   const now = new Date();
   const monthStart = startOfMonth(now);
   const monthEnd = endOfMonth(now);
@@ -27,23 +42,36 @@ export const getPortalContext = cache(async (user: AppUser) => {
       : null;
 
   const tenantLeaseIds =
-    tenantProfile
-      ? snapshot.leases.filter((lease) => lease.tenantIds.includes(tenantProfile.id)).map((lease) => lease.id)
+    user.role === "TENANT"
+      ? snapshot.leases
+          .filter((lease) => lease.tenantUserId === user.id || (tenantProfile ? lease.tenantIds.includes(tenantProfile.id) : false))
+          .map((lease) => lease.id)
       : [];
-  const tenantUnitIds = snapshot.leases.filter((lease) => tenantLeaseIds.includes(lease.id)).map((lease) => lease.unitId);
+  const tenantLeases = snapshot.leases.filter((lease) => tenantLeaseIds.includes(lease.id));
+  const tenantUnitIds = tenantLeases.map((lease) => lease.unitId).filter(Boolean) as string[];
+  const tenantPropertyIds = tenantLeases
+    .map((lease) => {
+      if (lease.propertyId) return lease.propertyId;
+      const unit = lease.unitId ? snapshot.units.find((candidate) => candidate.id === lease.unitId) : null;
+      return unit?.propertyId;
+    })
+    .filter(Boolean) as string[];
 
   const propertyIds =
     user.role === "ADMIN"
       ? snapshot.properties.map((property) => property.id)
       : user.role === "MANAGER"
         ? snapshot.properties.filter((property) => property.managerId === user.id).map((property) => property.id)
-        : Array.from(new Set(snapshot.units.filter((unit) => tenantUnitIds.includes(unit.id)).map((unit) => unit.propertyId)));
+        : Array.from(new Set(tenantPropertyIds));
 
-  const unitIds = snapshot.units.filter((unit) => propertyIds.includes(unit.propertyId)).map((unit) => unit.id);
+  const unitIds =
+    user.role === "TENANT"
+      ? Array.from(new Set(tenantUnitIds))
+      : snapshot.units.filter((unit) => propertyIds.includes(unit.propertyId)).map((unit) => unit.id);
   const leaseIds =
     user.role === "TENANT"
       ? tenantLeaseIds
-      : snapshot.leases.filter((lease) => unitIds.includes(lease.unitId)).map((lease) => lease.id);
+      : snapshot.leases.filter((lease) => (lease.unitId && unitIds.includes(lease.unitId)) || (lease.propertyId && propertyIds.includes(lease.propertyId))).map((lease) => lease.id);
   const tenantIds =
     user.role === "TENANT"
       ? tenantProfile
@@ -58,7 +86,11 @@ export const getPortalContext = cache(async (user: AppUser) => {
     tenants: snapshot.tenants.filter((tenant) => tenantIds.includes(tenant.id)),
     payments: snapshot.payments.filter((payment) => unitIds.includes(payment.unitId)),
     expenses: snapshot.expenses.filter((expense) => propertyIds.includes(expense.propertyId)),
-    maintenance: snapshot.maintenanceRequests.filter((item) => propertyIds.includes(item.propertyId)),
+    maintenance: snapshot.maintenanceRequests.filter((item) => {
+      if (!propertyIds.includes(item.propertyId)) return false;
+      if (user.role !== "TENANT") return true;
+      return item.unitId ? unitIds.includes(item.unitId) : true;
+    }),
     inspections: snapshot.inspections.filter((inspection) => unitIds.includes(inspection.unitId)),
     assessments: snapshot.damageAssessments.filter((assessment) => {
       const inspection = snapshot.inspections.find((item) => item.id === assessment.inspectionId);
@@ -82,22 +114,24 @@ export const getPortalContext = cache(async (user: AppUser) => {
 
   const users =
     user.role === "ADMIN"
-      ? snapshot.users
+      ? effectiveUsers
       : user.role === "MANAGER"
-        ? snapshot.users.filter((candidate) => candidate.role === "MANAGER" || candidate.role === "TENANT")
-        : snapshot.users.filter((candidate) => candidate.id === user.id);
+        ? effectiveUsers.filter((candidate) => candidate.role === "MANAGER" || candidate.role === "TENANT")
+        : effectiveUsers.filter((candidate) => candidate.id === user.id);
 
-  const managers = snapshot.users.filter((candidate) => candidate.role === "MANAGER");
+  const managers = effectiveUsers.filter((candidate) => candidate.role === "MANAGER");
   const notifications = snapshot.notifications.filter((notification) => !notification.userId || notification.userId === user.id);
   const currentLease =
-    tenantProfile
+    user.role === "TENANT"
       ? scoped.leases
-          .filter((lease) => lease.tenantIds.includes(tenantProfile.id))
-          .sort((a, b) => a.endDate.localeCompare(b.endDate))
-          .find((lease) => lease.status === "ACTIVE" || lease.status === "UPCOMING") ?? null
+          .filter((lease) => lease.tenantUserId === user.id || (tenantProfile ? lease.tenantIds.includes(tenantProfile.id) : false))
+          .sort((a, b) => (a.endDate ?? "").localeCompare(b.endDate ?? ""))
+          .find((lease) => leaseIsVisibleCurrent(lease.status)) ?? null
       : null;
   const currentUnit = currentLease ? scoped.units.find((unit) => unit.id === currentLease.unitId) ?? null : null;
-  const currentProperty = currentUnit ? scoped.properties.find((property) => property.id === currentUnit.propertyId) ?? null : null;
+  const currentProperty = currentLease
+    ? scoped.properties.find((property) => property.id === (currentLease.propertyId ?? currentUnit?.propertyId)) ?? null
+    : null;
 
   const collected = scoped.payments
     .filter((payment) => payment.paidDate && isAfter(new Date(payment.paidDate), monthStart) && isBefore(new Date(payment.paidDate), monthEnd))
@@ -113,14 +147,14 @@ export const getPortalContext = cache(async (user: AppUser) => {
   const occupiedUnits = scoped.units.filter((unit) => unit.occupancyStatus === "OCCUPIED").length;
   const maintenanceOpen = scoped.maintenance.filter((item) => item.status === "OPEN" || item.status === "IN_PROGRESS");
   const expiringLeases = scoped.leases
-    .filter((lease) => lease.status === "ACTIVE")
-    .sort((a, b) => a.endDate.localeCompare(b.endDate))
+    .filter((lease) => leaseIsActive(lease.status) && lease.endDate)
+    .sort((a, b) => (a.endDate ?? "").localeCompare(b.endDate ?? ""))
     .map((lease) => ({
       ...lease,
-      daysRemaining: differenceInCalendarDays(new Date(lease.endDate), now)
+      daysRemaining: differenceInCalendarDays(new Date(lease.endDate!), now)
     }));
   const recurringRent = scoped.leases
-    .filter((lease) => lease.status === "ACTIVE" || lease.status === "UPCOMING")
+    .filter((lease) => leaseIsVisibleCurrent(lease.status))
     .reduce((sum, lease) => sum + lease.monthlyRent, 0);
   const monthExpenses = scoped.expenses
     .filter((expense) => isAfter(new Date(expense.incurredAt), monthStart) && isBefore(new Date(expense.incurredAt), monthEnd))

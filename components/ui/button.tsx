@@ -10,14 +10,14 @@ export function Button({ className, variant = "primary", ...props }: ButtonProps
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center rounded-2xl border px-4 py-2.5 text-sm font-semibold transition duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60",
+        "inline-flex min-h-10 items-center justify-center gap-2 rounded-md border px-3.5 py-2 text-sm font-semibold transition duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60",
         variant === "primary" &&
-          "border-[var(--brand)] bg-[linear-gradient(180deg,#1f6b5f,#174a43)] text-white shadow-[0_18px_35px_rgba(22,74,67,0.28)] hover:-translate-y-0.5 hover:shadow-[0_22px_44px_rgba(22,74,67,0.34)]",
+          "border-[var(--brand)] bg-[var(--brand)] text-white shadow-[0_10px_22px_rgba(13,143,123,0.18)] hover:bg-[var(--brand-strong)]",
         variant === "secondary" &&
-          "border-[var(--line-strong)] bg-[var(--panel-strong)] text-[var(--text)] shadow-[0_14px_30px_rgba(15,23,42,0.07)] hover:-translate-y-0.5 hover:border-[var(--brand)]/20 hover:bg-white",
-        variant === "ghost" && "border-transparent bg-transparent text-[var(--muted)] hover:bg-[var(--panel)] hover:text-[var(--text)]",
+          "border-[var(--line-strong)] bg-[var(--panel)] text-[var(--text)] shadow-[0_1px_0_rgba(255,255,255,0.9)_inset] hover:border-[var(--brand)] hover:bg-[var(--surface-hover)]",
+        variant === "ghost" && "border-transparent bg-transparent text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]",
         variant === "danger" &&
-          "border-[var(--danger)] bg-[linear-gradient(180deg,#d13b32,#b42318)] text-white shadow-[0_18px_35px_rgba(180,35,24,0.22)] hover:-translate-y-0.5 hover:shadow-[0_22px_44px_rgba(180,35,24,0.28)]",
+          "border-[var(--danger)] bg-[var(--danger)] text-white shadow-[0_10px_22px_rgba(220,38,38,0.16)] hover:bg-red-700",
         className
       )}
       {...props}

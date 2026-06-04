@@ -2,6 +2,14 @@ import { endOfMonth, isAfter, isBefore, startOfMonth } from "date-fns";
 
 import { db } from "@/lib/db";
 
+function leaseCountsAsCurrent(status: string) {
+  return status === "ACTIVE" || status === "UPCOMING" || status === "active" || status === "invited";
+}
+
+function leaseCountsAsActive(status: string) {
+  return status === "ACTIVE" || status === "active";
+}
+
 export async function getDashboardSnapshot(organizationId: string) {
   const now = new Date();
   const monthStart = startOfMonth(now);
@@ -66,10 +74,10 @@ export async function getDashboardSnapshot(organizationId: string) {
     .filter((expense) => isAfter(expense.incurredAt, monthStart) && isBefore(expense.incurredAt, monthEnd))
     .reduce((sum, expense) => sum + expense.amount, 0);
   const depositsHeld = leases
-    .filter((lease) => lease.status === "ACTIVE" || lease.status === "UPCOMING")
+    .filter((lease) => leaseCountsAsCurrent(lease.status))
     .reduce((sum, lease) => sum + lease.securityDeposit, 0);
   const upcomingLeaseExpirations = leases
-    .filter((lease) => lease.status === "ACTIVE")
+    .filter((lease) => leaseCountsAsActive(lease.status) && lease.endDate)
     .sort((a, b) => a.endDate.getTime() - b.endDate.getTime())
     .slice(0, 5);
   const netOperatingCashFlow = rentCollectedThisMonth - monthExpenses;

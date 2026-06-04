@@ -1,7 +1,9 @@
 import { DataTable } from "@/components/data-table";
+import { DetailSection } from "@/components/detail-section";
+import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { ReportExportMenu } from "@/components/report-export-menu";
-import { Card } from "@/components/ui/card";
+import { StatCard } from "@/components/stat-card";
 import { requireRoles } from "@/lib/auth";
 import { UserRole } from "@/lib/store";
 import { formatCurrency } from "@/lib/utils";
@@ -9,68 +11,100 @@ import { getReportsSnapshot } from "@/services/finance";
 import { getPortalContext } from "@/services/portal";
 
 export default async function ReportsPage() {
-  const user = await requireRoles([UserRole.ADMIN]);
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
-  const report = await getReportsSnapshot(user.organizationId);
+  const adminReport = user.role === "ADMIN" ? await getReportsSnapshot(user.organizationId) : null;
+
+  const byProperty = user.role === "ADMIN"
+    ? adminReport!.byProperty
+    : portal.scope.properties.map((property) => {
+        const units = portal.scope.units.filter((unit) => unit.propertyId === property.id);
+        const payments = portal.scope.payments.filter((payment) => units.some((unit) => unit.id === payment.unitId));
+        const expenses = portal.scope.expenses.filter((expense) => expense.propertyId === property.id);
+        const collected = payments.filter((payment) => payment.status === "PAID").reduce((sum, payment) => sum + payment.amount, 0);
+        const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+
+        return {
+          propertyId: property.id,
+          name: property.name,
+          units: units.length,
+          recurringRent: units.reduce((sum, unit) => sum + unit.monthlyRent, 0),
+          collected,
+          totalExpenses,
+          net: collected - totalExpenses,
+          occupancyRate: units.length ? units.filter((unit) => unit.occupancyStatus === "OCCUPIED").length / units.length : 0
+        };
+      });
+
+  const metrics = user.role === "ADMIN"
+    ? {
+        collected: adminReport!.metrics.rentCollectedThisMonth,
+        outstanding: adminReport!.metrics.outstanding,
+        expenses: adminReport!.metrics.monthExpenses,
+        net: adminReport!.metrics.netOperatingCashFlow
+      }
+    : {
+        collected: portal.metrics.collected,
+        outstanding: portal.metrics.outstanding,
+        expenses: portal.metrics.monthExpenses,
+        net: portal.metrics.collected - portal.metrics.monthExpenses
+      };
 
   return (
     <div className="space-y-4">
       <PageHeader
-        eyebrow="Executive reporting"
-        title="Financial reporting, compliance context, and audit visibility."
-        description="A higher-level reporting view for admins with portfolio summaries, export actions, recent operational activity, and document/compliance awareness."
-        actions={<ReportExportMenu />}
+        eyebrow={user.role === "ADMIN" ? "Executive reporting" : "Manager reporting"}
+        title="Reports"
+        description={user.role === "ADMIN" ? "Portfolio summaries, exports, recent operational activity, and compliance visibility." : "Scoped portfolio summaries for assigned properties, rent roll, collections, expenses, and operating activity."}
+        actions={user.role === "ADMIN" ? <ReportExportMenu /> : null}
       />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="p-5"><p className="text-sm text-[var(--muted)]">Collected</p><p className="mt-3 text-3xl font-semibold">{formatCurrency(report.metrics.rentCollectedThisMonth)}</p></Card>
-        <Card className="p-5"><p className="text-sm text-[var(--muted)]">Outstanding</p><p className="mt-3 text-3xl font-semibold">{formatCurrency(report.metrics.outstanding)}</p></Card>
-        <Card className="p-5"><p className="text-sm text-[var(--muted)]">Expenses</p><p className="mt-3 text-3xl font-semibold">{formatCurrency(report.metrics.monthExpenses)}</p></Card>
-        <Card className="p-5"><p className="text-sm text-[var(--muted)]">Net cash flow</p><p className="mt-3 text-3xl font-semibold">{formatCurrency(report.metrics.netOperatingCashFlow)}</p></Card>
-      </div>
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card className="p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">By property</p>
-          <DataTable columns={["Property", "Units", "Occupancy", "Collected", "Expenses", "Net"]} className="mt-5">
-            {report.byProperty.map((row) => (
-              <tr key={row.propertyId} className="table-row">
-                <td className="py-4 pr-4 font-semibold">{row.name}</td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{row.units}</td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{Math.round(row.occupancyRate * 100)}%</td>
-                <td className="py-4 pr-4 font-semibold">{formatCurrency(row.collected)}</td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{formatCurrency(row.totalExpenses)}</td>
-                <td className="py-4 pr-4 font-semibold">{formatCurrency(row.net)}</td>
-              </tr>
-            ))}
-          </DataTable>
-        </Card>
-        <div className="space-y-4">
-          <Card className="p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Documents and compliance</p>
-            <div className="mt-4 space-y-3">
-              {portal.documents.map((file) => (
-                <div key={file.id} className="panel-muted rounded-[24px] p-4">
-                  <p className="font-semibold">{file.label || file.kind}</p>
-                  <p className="mt-1 text-sm text-[var(--muted)]">{file.path}</p>
-                </div>
+
+      <section className="ops-grid">
+        <StatCard label="Collected" value={formatCurrency(metrics.collected)} detail="Current month" tone="success" />
+        <StatCard label="Outstanding" value={formatCurrency(metrics.outstanding)} detail="Open balances" tone={metrics.outstanding ? "warning" : "success"} />
+        <StatCard label="Expenses" value={formatCurrency(metrics.expenses)} detail="Current month spend" />
+        <StatCard label="Net cash flow" value={formatCurrency(metrics.net)} detail="Collected less expenses" tone={metrics.net >= 0 ? "brand" : "danger"} />
+      </section>
+
+      <section className="ops-split">
+        <DetailSection title="Property performance" description="Portfolio-level rollups by property.">
+          {byProperty.length ? (
+            <DataTable columns={["Property", "Units", "Occupancy", "Rent roll", "Collected", "Expenses", "Net"]} minWidth="64rem">
+              {byProperty.map((row) => (
+                <tr key={row.propertyId} className="table-row">
+                  <td className="table-cell font-semibold">{row.name}</td>
+                  <td className="table-cell text-[var(--muted)]">{row.units}</td>
+                  <td className="table-cell text-[var(--muted)]">{Math.round(row.occupancyRate * 100)}%</td>
+                  <td className="table-cell font-semibold">{formatCurrency(row.recurringRent)}</td>
+                  <td className="table-cell font-semibold">{formatCurrency(row.collected)}</td>
+                  <td className="table-cell text-[var(--muted)]">{formatCurrency(row.totalExpenses)}</td>
+                  <td className="table-cell font-semibold">{formatCurrency(row.net)}</td>
+                </tr>
               ))}
-            </div>
-          </Card>
-          <Card className="p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Recent activity feed</p>
-            <div className="mt-4 space-y-3">
+            </DataTable>
+          ) : (
+            <EmptyState title="No report data" description="Create properties and units to populate property performance reporting." />
+          )}
+        </DetailSection>
+
+        <DetailSection title="Recent activity feed" description="Latest operational activity in scope.">
+          {portal.recentActivity.length ? (
+            <div>
               {portal.recentActivity.map((item) => (
-                <div key={item.id} className="panel-muted rounded-[24px] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold">{item.title}</p>
-                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{item.kind}</span>
+                <div key={item.id} className="activity-item">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{item.title}</p>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{item.detail}</p>
                   </div>
-                  <p className="mt-1 text-sm text-[var(--muted)]">{item.detail}</p>
+                  <p className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{item.kind}</p>
                 </div>
               ))}
             </div>
-          </Card>
-        </div>
-      </div>
+          ) : (
+            <EmptyState title="No recent activity" description="Payments, maintenance, and notices will appear here." />
+          )}
+        </DetailSection>
+      </section>
     </div>
   );
 }

@@ -1,17 +1,47 @@
 import Link from "next/link";
+import {
+  ArrowRight,
+  BellRing,
+  Building2,
+  ClipboardList,
+  CreditCard,
+  FileText,
+  Home,
+  MessageSquare,
+  Plus,
+  ReceiptText,
+  ShieldCheck,
+  Sparkles,
+  Wrench
+} from "lucide-react";
 
 import { CashFlowChart } from "@/components/charts/cash-flow-chart";
+import { DataTable } from "@/components/data-table";
+import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
+import { QuickActionMenu } from "@/components/quick-action-menu";
+import { StatCard } from "@/components/stat-card";
+import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { createStripeCheckoutAction } from "@/lib/actions";
+import { managerOwnsApplication, primaryApplicant } from "@/lib/applications";
 import { requireUser } from "@/lib/auth";
 import { getRoleConfig } from "@/lib/rbac";
+import { readStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getDashboardSnapshot } from "@/services/finance";
-import { badgeToneFromMaintenance, badgeToneFromPayment, getNotificationLabel, getPortalContext } from "@/services/portal";
+import {
+  badgeToneFromMaintenance,
+  badgeToneFromPayment,
+  badgeToneFromPriority,
+  getNotificationLabel,
+  getPortalContext
+} from "@/services/portal";
 import { globalSearch } from "@/services/search";
 
 export default async function DashboardPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
@@ -38,83 +68,328 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           expenses: row.expenses * Math.max(portal.metrics.totalProperties, 1) / Math.max(snapshot.metrics.totalProperties, 1)
         }));
 
+  const collectionRate = portal.metrics.recurringRent
+    ? Math.min(100, Math.round((portal.metrics.collected / portal.metrics.recurringRent) * 100))
+    : 0;
+  const renewalCount = portal.expiringLeases.filter((lease) => lease.daysRemaining <= 60).length;
+  const tenantBalance = portal.nextPayment?.balanceDue ?? portal.nextPayment?.amount ?? 0;
+
+  if (user.role === "MANAGER") {
+    const store = await readStore();
+    const managerApplications = store.rentalApplications
+      .filter((application) => managerOwnsApplication(store, user, application))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const managerSubmissions = store.applicationSubmissions
+      .filter((submission) => managerApplications.some((application) => application.id === submission.applicationId))
+      .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
+    const pendingApplicationCount = managerSubmissions.filter((submission) => submission.status === "SUBMITTED" || submission.status === "UNDER_REVIEW").length;
+    const vacantUnits = portal.scope.units.filter((unit) => unit.occupancyStatus !== "OCCUPIED").length;
+    const monthlyRentRoll = portal.scope.units.reduce((sum, unit) => sum + unit.monthlyRent, 0);
+    const upcomingMoveIns = portal.scope.leases.filter((lease) => {
+      if (lease.moveInDate) return new Date(lease.moveInDate).getTime() >= Date.now();
+      return lease.status === "UPCOMING" || lease.status === "invited";
+    });
+    const urgentMaintenance = [...portal.maintenanceOpen].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)).slice(0, 5);
+    const recentOverdue = portal.overduePayments.slice(0, 5);
+    const recentSubmissions = managerSubmissions.slice(0, 5);
+
+    return (
+      <div className="dashboard-page">
+        <PageHeader
+          eyebrow={role.homeLabel}
+          title="Manager operations dashboard"
+          description="Search the portfolio, scan exceptions, and act on leasing, rent, maintenance, and move-in work from one dense command view."
+          actions={<QuickActionMenu role={user.role} />}
+        />
+
+        {params.q && searchResults ? (
+          <DetailSection title={`Search results for "${params.q}"`} description="Jump directly into matching records.">
+            <div className="grid gap-3 lg:grid-cols-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Properties</p>
+                <div className="mt-2 space-y-1">
+                  {searchResults.properties.length ? searchResults.properties.map((item) => (
+                    <Link key={item.id} href={`/properties/${item.id}`} className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.name}</Link>
+                  )) : <p className="text-sm text-[var(--muted)]">No property matches.</p>}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Units</p>
+                <div className="mt-2 space-y-1">
+                  {searchResults.units.length ? searchResults.units.map((item) => (
+                    <Link key={item.id} href={`/units/${item.id}`} className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.property.name} {item.unitNumber}</Link>
+                  )) : <p className="text-sm text-[var(--muted)]">No unit matches.</p>}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Tenants</p>
+                <div className="mt-2 space-y-1">
+                  {searchResults.tenants.length ? searchResults.tenants.map((item) => (
+                    <Link key={item.id} href="/tenants" className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.firstName} {item.lastName}</Link>
+                  )) : <p className="text-sm text-[var(--muted)]">No tenant matches.</p>}
+                </div>
+              </div>
+            </div>
+          </DetailSection>
+        ) : null}
+
+        <section className="ops-grid">
+          <StatCard label="Total properties" value={String(portal.metrics.totalProperties)} detail="Assigned assets" tone="brand" />
+          <StatCard label="Total units" value={String(portal.metrics.totalUnits)} detail="Managed inventory" />
+          <StatCard label="Occupied units" value={String(portal.metrics.occupiedUnits)} detail={`${Math.round(portal.metrics.occupancyRate * 100)}% occupancy`} tone="success" />
+          <StatCard label="Vacant units" value={String(vacantUnits)} detail="Vacant, notice, or turnover" tone={vacantUnits ? "warning" : "success"} />
+          <StatCard label="Monthly rent roll" value={formatCurrency(monthlyRentRoll)} detail="Scheduled unit rent" tone="brand" />
+          <StatCard label="Overdue rent" value={formatCurrency(portal.metrics.overdue)} detail={`${portal.overduePayments.length} unpaid charges`} tone={portal.metrics.overdue ? "danger" : "success"} />
+          <StatCard label="Pending applications" value={String(pendingApplicationCount)} detail={`${managerApplications.length} active application links`} tone={pendingApplicationCount ? "warning" : "default"} />
+          <StatCard label="Upcoming move-ins" value={String(upcomingMoveIns.length)} detail="Upcoming or invited leases" tone={upcomingMoveIns.length ? "brand" : "default"} />
+        </section>
+
+        <section className="ops-split">
+          <DetailSection
+            title="Tasks and alerts"
+            description="The highest-friction work that needs manager attention."
+            actions={<Link href="/maintenance" className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">Open maintenance</Link>}
+          >
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Open work orders</p>
+                <div className="mt-3">
+                  {urgentMaintenance.length ? urgentMaintenance.map((item) => {
+                    const property = portal.scope.properties.find((candidate) => candidate.id === item.propertyId);
+                    const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;
+                    return (
+                      <div key={item.id} className="activity-item">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold">{item.title}</p>
+                          <p className="mt-1 truncate text-xs text-[var(--muted)]">{property?.name ?? "Property"}{unit ? `, Unit ${unit.unitNumber}` : ""}</p>
+                        </div>
+                        <StatusBadge status={item.priority} />
+                      </div>
+                    );
+                  }) : <EmptyState title="No open work orders" description="Maintenance exceptions will appear here." />}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Collections follow-up</p>
+                <div className="mt-3">
+                  {recentOverdue.length ? recentOverdue.map((payment) => {
+                    const unit = portal.scope.units.find((candidate) => candidate.id === payment.unitId);
+                    const property = unit ? portal.scope.properties.find((candidate) => candidate.id === unit.propertyId) : null;
+                    return (
+                      <div key={payment.id} className="activity-item">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold">{payment.description}</p>
+                          <p className="mt-1 truncate text-xs text-[var(--muted)]">{property?.name ?? "Property"}{unit ? `, Unit ${unit.unitNumber}` : ""} - due {formatDate(payment.dueDate)}</p>
+                        </div>
+                        <p className="text-sm font-semibold text-[var(--danger)]">{formatCurrency(payment.balanceDue || payment.amount)}</p>
+                      </div>
+                    );
+                  }) : <EmptyState title="No overdue rent" description="Collections are clear for the current scope." />}
+                </div>
+              </div>
+            </div>
+          </DetailSection>
+
+          <DetailSection title="Recent activity" description="Payments, requests, notices, and system updates.">
+            <div>
+              {portal.recentActivity.length ? portal.recentActivity.slice(0, 8).map((item) => (
+                <div key={item.id} className="activity-item">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{item.title}</p>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{item.detail}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{item.kind}</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(item.date)}</p>
+                  </div>
+                </div>
+              )) : <EmptyState title="No recent activity" description="New operational updates will appear here." />}
+            </div>
+          </DetailSection>
+        </section>
+
+        <section className="ops-split">
+          <DetailSection
+            title="Application pipeline"
+            description="Latest applicants across published application links."
+            actions={<Link href="/applications" className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">View applications</Link>}
+          >
+            {recentSubmissions.length ? (
+              <DataTable columns={["Applicant", "Property / unit", "Submitted", "Status", "Fee"]} minWidth="44rem">
+                {recentSubmissions.map((submission) => {
+                  const application = managerApplications.find((item) => item.id === submission.applicationId);
+                  const property = application ? portal.scope.properties.find((item) => item.id === application.propertyId) : null;
+                  const unit = application?.unitId ? portal.scope.units.find((item) => item.id === application.unitId) : null;
+                  const applicants = store.applicationApplicants.filter((applicant) => applicant.submissionId === submission.id);
+                  const applicant = primaryApplicant(applicants);
+                  return (
+                    <tr key={submission.id} className="table-row">
+                      <td className="table-cell font-semibold">{applicant ? `${applicant.firstName} ${applicant.lastName}` : "Applicant"}</td>
+                      <td className="table-cell text-[var(--muted)]">{property?.name ?? "Property"}{unit ? ` / ${unit.unitNumber}` : ""}</td>
+                      <td className="table-cell text-[var(--muted)]">{formatDate(submission.submittedAt)}</td>
+                      <td className="table-cell"><StatusBadge status={submission.status} /></td>
+                      <td className="table-cell"><StatusBadge status={submission.feeStatus} /></td>
+                    </tr>
+                  );
+                })}
+              </DataTable>
+            ) : (
+              <EmptyState title="No application submissions" description="Published application activity will appear here." />
+            )}
+          </DetailSection>
+
+          <DetailSection
+            title="Quick navigation"
+            description="Fast paths into the portfolio tables designed for large inventories."
+          >
+            <div className="grid gap-2">
+              {[
+                { href: "/properties", label: "Properties", detail: `${portal.metrics.totalProperties} assets` },
+                { href: "/units", label: "Units", detail: `${portal.metrics.totalUnits} units` },
+                { href: "/tenants", label: "Tenants", detail: `${portal.scope.tenants.length} residents` },
+                { href: "/transactions", label: "Payments", detail: `${portal.scope.payments.length} ledger entries` },
+                { href: "/documents", label: "Documents", detail: `${portal.documents.length} recent files` }
+              ].map((item) => (
+                <Link key={item.href} href={item.href} className="flex items-center justify-between gap-3 rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm transition hover:bg-[var(--surface-hover)]">
+                  <span className="font-semibold text-[var(--text)]">{item.label}</span>
+                  <span className="text-xs text-[var(--muted)]">{item.detail}</span>
+                </Link>
+              ))}
+            </div>
+          </DetailSection>
+        </section>
+      </div>
+    );
+  }
+
+  const dashboardCopy =
+    user.role === "ADMIN"
+      ? {
+          title: "Portfolio command center",
+          description: "A clean operating view across occupancy, collections, renewals, maintenance, and team activity.",
+          eyebrow: role.homeLabel
+        }
+      : {
+          title: "Your rental home base",
+          description: "Track rent, lease status, service requests, notices, and messages without digging through separate portals.",
+          eyebrow: role.homeLabel
+        };
+
+  const heroMetrics =
+    user.role === "TENANT"
+      ? [
+          { label: "Balance", value: formatCurrency(tenantBalance), detail: portal.nextPayment ? `Due ${formatDate(portal.nextPayment.dueDate)}` : "Paid up" },
+          { label: "Lease", value: portal.currentLease?.status ?? "Review", detail: portal.currentUnit ? `Unit ${portal.currentUnit.unitNumber}` : "Contact management" },
+          { label: "Requests", value: String(portal.scope.maintenance.length), detail: "Maintenance records" }
+        ]
+      : [
+          { label: "Occupancy", value: `${Math.round(portal.metrics.occupancyRate * 100)}%`, detail: `${portal.metrics.occupiedUnits}/${portal.metrics.totalUnits} units` },
+          { label: "Collections", value: `${collectionRate}%`, detail: `${formatCurrency(portal.metrics.collected)} this month` },
+          { label: "Open work", value: String(portal.metrics.maintenanceOpen), detail: `${renewalCount} renewals due` }
+        ];
+
+  const primaryActions =
+    user.role === "ADMIN" ? (
+      <>
+        <Link href="/reports">
+          <Button variant="secondary"><FileText className="h-4 w-4" /> Reports</Button>
+        </Link>
+        <Link href="/settings">
+          <Button><ShieldCheck className="h-4 w-4" /> Platform</Button>
+        </Link>
+      </>
+    ) : (
+      <>
+        <Link href="/maintenance">
+          <Button variant="secondary"><Wrench className="h-4 w-4" /> Request service</Button>
+        </Link>
+        {portal.nextPayment ? (
+          <form action={createStripeCheckoutAction}>
+            <input type="hidden" name="paymentId" value={portal.nextPayment.id} />
+            <SubmitButton pendingLabel="Opening Stripe..."><CreditCard className="h-4 w-4" /> Pay rent</SubmitButton>
+          </form>
+        ) : (
+          <Button disabled><CreditCard className="h-4 w-4" /> Paid up</Button>
+        )}
+      </>
+    );
+
   return (
-    <div className="space-y-4">
-      <PageHeader
-        eyebrow={role.homeLabel}
-        title={
-          user.role === "ADMIN"
-            ? "Portfolio visibility and operating control."
-            : user.role === "MANAGER"
-              ? "Assigned-property operations, prioritized for execution."
-              : "Everything you need for rent, maintenance, and lease self-service."
-        }
-        description={
-          user.role === "ADMIN"
-            ? "Track occupancy, collections, leasing risk, maintenance volume, and team activity from one dashboard."
-            : user.role === "MANAGER"
-              ? "Stay on top of overdue rent, work orders, expiring leases, and resident follow-up for the properties currently assigned to you."
-              : "Review your balance, next payment, active lease details, service requests, and recent building announcements without the operational noise."
-        }
-        actions={
-          user.role === "ADMIN" ? (
-            <>
-              <Link href="/reports">
-                <Button variant="secondary">Open reporting</Button>
-              </Link>
-              <Link href="/settings">
-                <Button>Manage platform</Button>
-              </Link>
-            </>
-          ) : user.role === "MANAGER" ? (
-            <>
-              <Link href="/maintenance">
-                <Button variant="secondary">Review work orders</Button>
-              </Link>
-              <Link href="/leases">
-                <Button>Renewal queue</Button>
-              </Link>
-            </>
-          ) : (
-            <>
-              <Link href="/maintenance">
-                <Button variant="secondary">Submit request</Button>
-              </Link>
-              <Link href="/transactions">
-                <Button>Pay rent</Button>
-              </Link>
-            </>
-          )
-        }
-      />
+    <div className="dashboard-page">
+      <section className="dashboard-hero">
+        <div className="surface-panel dashboard-hero-main">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(13,143,123,0.18)] bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">
+              <Sparkles className="h-3.5 w-3.5" />
+              {dashboardCopy.eyebrow}
+            </div>
+            <h1 className="page-title mt-5 font-semibold text-[var(--text)]">{dashboardCopy.title}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)] lg:text-[15px]">{dashboardCopy.description}</p>
+          </div>
+          <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="hero-kpi-strip min-w-0 flex-1">
+              {heroMetrics.map((metric) => (
+                <div key={metric.label} className="hero-kpi">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{metric.label}</p>
+                  <p className="mt-2 text-2xl font-semibold text-[var(--text)]">{metric.value}</p>
+                  <p className="mt-1 truncate text-xs text-[var(--muted)]">{metric.detail}</p>
+                </div>
+              ))}
+            </div>
+            <div className="page-actions shrink-0">{primaryActions}</div>
+          </div>
+        </div>
+        <div className="surface-panel dashboard-hero-media">
+          <div className="relative h-full overflow-hidden rounded-md">
+            <img src="/demo/property-cover.svg" alt="" />
+            <div className="absolute bottom-3 left-3 right-3 rounded-md border border-white/70 bg-white/90 p-3 shadow-[0_14px_28px_rgba(20,33,30,0.12)]">
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--accent-blue)] text-[var(--info)]">
+                  <Building2 className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[var(--text)]">{user.organization.name}</p>
+                  <p className="truncate text-xs text-[var(--muted)]">{portal.metrics.totalProperties} properties - {portal.metrics.totalUnits} units</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {params.q && searchResults ? (
-        <Card className="p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Search results</p>
-          <div className="mt-4 grid gap-3 lg:grid-cols-3">
-            <div className="panel-muted rounded-[24px] p-4">
+        <Card className="p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="section-kicker">Search results</p>
+              <h2 className="mt-1 text-xl font-semibold">Matches for "{params.q}"</h2>
+            </div>
+            <Badge tone="default">Global search</Badge>
+          </div>
+          <div className="card-grid-3 mt-4">
+            <div className="panel-muted p-4">
               <p className="text-sm font-semibold">Properties</p>
               <div className="mt-3 space-y-2">
-                {searchResults.properties.length ? searchResults.properties.map((item) => <Link key={item.id} href={`/properties/${item.id}`} className="block rounded-xl bg-white px-3 py-2 text-sm">{item.name}</Link>) : <p className="text-sm text-[var(--muted)]">No property matches.</p>}
+                {searchResults.properties.length ? searchResults.properties.map((item) => <Link key={item.id} href={`/properties/${item.id}`} className="block rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm transition hover:border-[var(--brand)]">{item.name}</Link>) : <p className="text-sm text-[var(--muted)]">No property matches.</p>}
               </div>
             </div>
-            <div className="panel-muted rounded-[24px] p-4">
+            <div className="panel-muted p-4">
               <p className="text-sm font-semibold">Units</p>
               <div className="mt-3 space-y-2">
-                {searchResults.units.length ? searchResults.units.map((item) => <Link key={item.id} href={`/units/${item.id}`} className="block rounded-xl bg-white px-3 py-2 text-sm">{item.property.name} {item.unitNumber}</Link>) : <p className="text-sm text-[var(--muted)]">No unit matches.</p>}
+                {searchResults.units.length ? searchResults.units.map((item) => <Link key={item.id} href={`/units/${item.id}`} className="block rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm transition hover:border-[var(--brand)]">{item.property.name} {item.unitNumber}</Link>) : <p className="text-sm text-[var(--muted)]">No unit matches.</p>}
               </div>
             </div>
-            <div className="panel-muted rounded-[24px] p-4">
+            <div className="panel-muted p-4">
               <p className="text-sm font-semibold">Tenants</p>
               <div className="mt-3 space-y-2">
-                {searchResults.tenants.length ? searchResults.tenants.map((item) => <Link key={item.id} href="/tenants" className="block rounded-xl bg-white px-3 py-2 text-sm">{item.firstName} {item.lastName}</Link>) : <p className="text-sm text-[var(--muted)]">No tenant matches.</p>}
+                {searchResults.tenants.length ? searchResults.tenants.map((item) => <Link key={item.id} href="/tenants" className="block rounded-md border border-[var(--line)] bg-white px-3 py-2 text-sm transition hover:border-[var(--brand)]">{item.firstName} {item.lastName}</Link>) : <p className="text-sm text-[var(--muted)]">No tenant matches.</p>}
               </div>
             </div>
           </div>
         </Card>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="metric-grid">
         {user.role === "ADMIN" ? (
           <>
             <MetricCard label="Properties" value={String(portal.metrics.totalProperties)} hint="Total assets under management" accent="brand" />
@@ -123,95 +398,138 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             <MetricCard label="Delinquency" value={`${Math.round(portal.metrics.delinquencyRate * 100)}%`} hint="Payments requiring collections attention" accent="warning" />
             <MetricCard label="Rent billed" value={formatCurrency(portal.metrics.recurringRent)} hint="Current scheduled monthly rent" accent="brand" />
             <MetricCard label="Collected" value={formatCurrency(portal.metrics.collected)} hint={`Outstanding ${formatCurrency(portal.metrics.outstanding)}`} accent="success" />
-            <MetricCard label="Maintenance volume" value={String(portal.metrics.maintenanceOpen)} hint="Open or in-progress service requests" accent="warning" />
-            <MetricCard label="Monthly expenses" value={formatCurrency(portal.metrics.monthExpenses)} hint="Current-month operating expense activity" />
-          </>
-        ) : user.role === "MANAGER" ? (
-          <>
-            <MetricCard label="Assigned properties" value={String(portal.metrics.totalProperties)} hint="Buildings currently in your operating scope" accent="brand" />
-            <MetricCard label="Assigned units" value={String(portal.metrics.totalUnits)} hint={`${portal.metrics.occupiedUnits} occupied right now`} />
-            <MetricCard label="Open maintenance" value={String(portal.metrics.maintenanceOpen)} hint="Issues waiting on triage or vendor progress" accent="warning" />
-            <MetricCard label="Overdue rent" value={formatCurrency(portal.metrics.overdue)} hint="Collections needing immediate follow-up" accent="warning" />
-            <MetricCard label="Lease expirations" value={String(portal.expiringLeases.filter((lease) => lease.daysRemaining <= 60).length)} hint="Renewals approaching within 60 days" />
-            <MetricCard label="Collected" value={formatCurrency(portal.metrics.collected)} hint="Payments collected inside your portfolio scope" accent="success" />
-            <MetricCard label="Announcements" value={String(portal.notifications.length)} hint="Messages and system updates in your queue" accent="brand" />
-            <MetricCard label="Occupancy" value={`${Math.round(portal.metrics.occupancyRate * 100)}%`} hint="Occupied share of your assigned units" accent="success" />
+            <MetricCard label="Maintenance" value={String(portal.metrics.maintenanceOpen)} hint="Open or in-progress service requests" accent="warning" />
+            <MetricCard label="Expenses" value={formatCurrency(portal.metrics.monthExpenses)} hint="Current-month operating expense activity" />
           </>
         ) : (
           <>
-            <MetricCard label="Rent due" value={formatCurrency(portal.nextPayment?.balanceDue ?? portal.nextPayment?.amount ?? 0)} hint={portal.nextPayment ? `Due ${formatDate(portal.nextPayment.dueDate)}` : "No outstanding payment currently due"} accent="warning" />
+            <MetricCard label="Rent due" value={formatCurrency(tenantBalance)} hint={portal.nextPayment ? `Due ${formatDate(portal.nextPayment.dueDate)}` : "No outstanding payment currently due"} accent="warning" />
             <MetricCard label="Next payment" value={portal.nextPayment ? formatDate(portal.nextPayment.dueDate) : "Paid up"} hint="Your next resident billing milestone" accent="brand" />
-            <MetricCard label="Lease status" value={portal.currentLease?.status ?? "No active lease"} hint={portal.currentLease ? `${formatDate(portal.currentLease.startDate)} to ${formatDate(portal.currentLease.endDate)}` : "Contact management for assistance"} accent="success" />
+            <MetricCard
+              label="Lease status"
+              value={portal.currentLease?.status ?? "No active lease"}
+              hint={
+                portal.currentLease
+                  ? `${portal.currentLease.startDate ? formatDate(portal.currentLease.startDate) : "Not set"} to ${portal.currentLease.endDate ? formatDate(portal.currentLease.endDate) : "Not set"}`
+                  : "Contact management for assistance"
+              }
+              accent="success"
+            />
             <MetricCard label="Maintenance" value={String(portal.scope.maintenance.length)} hint="Requests currently tied to your unit" />
           </>
         )}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.25fr_0.75fr]">
-        <Card className="p-6 lg:p-7">
-          <div className="mb-5 flex items-end justify-between">
+      <section className="content-split">
+        <Card className="chart-panel p-5 lg:p-6">
+          <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">{user.role === "TENANT" ? "Payment overview" : "Collections and spend trend"}</p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em]">{user.role === "TENANT" ? "Recent account movement" : "Rent versus expense momentum"}</h2>
+              <p className="section-kicker">{user.role === "TENANT" ? "Payment overview" : "Financial momentum"}</p>
+              <h2 className="mt-2 text-2xl font-semibold">{user.role === "TENANT" ? "Recent account movement" : "Rent and operating spend"}</h2>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--muted)]">
+                {user.role === "TENANT" ? "A quick view of recent billing activity tied to your lease." : "Collections and expenses plotted together so cash movement is easy to scan."}
+              </p>
             </div>
-            {user.role === "ADMIN" ? <Link href="/reports" className="text-sm font-semibold text-[var(--brand)]">Open reports</Link> : null}
+            <div className="flex items-center gap-4 text-xs font-semibold text-[var(--muted)]">
+              <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[var(--brand)]" /> Rent</span>
+              <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[var(--info)]" /> Expenses</span>
+            </div>
           </div>
           <CashFlowChart data={trend} />
         </Card>
-        <Card className="p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">{user.role === "TENANT" ? "Announcements" : "Priority queue"}</p>
-          <div className="mt-4 space-y-3">
-            {(user.role === "TENANT" ? portal.announcements : portal.expiringLeases.slice(0, 5)).map((item: any) => (
-              <div key={item.id} className="panel-muted rounded-[24px] p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{user.role === "TENANT" ? item.title : `Lease ending ${formatDate(item.endDate)}`}</p>
-                    <p className="mt-1 text-sm text-[var(--muted)]">
-                      {user.role === "TENANT"
-                        ? item.body
-                        : `${portal.scope.units.find((unit) => unit.id === item.unitId)?.unitNumber ?? "Unit"} renewal decision due in ${Math.max(item.daysRemaining, 0)} days`}
-                    </p>
+
+        <Card className="p-5 lg:p-6">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="section-kicker">{user.role === "TENANT" ? "Notices" : "Priority queue"}</p>
+              <h2 className="mt-2 text-xl font-semibold">{user.role === "TENANT" ? "Building updates" : "Decisions to make"}</h2>
+            </div>
+            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-[var(--accent-soft)] text-[var(--brand)]">
+              {user.role === "TENANT" ? <BellRing className="h-4 w-4" /> : <ClipboardList className="h-4 w-4" />}
+            </span>
+          </div>
+          <div>
+            {user.role === "TENANT" ? (
+              portal.announcements.length ? portal.announcements.map((item) => (
+                <div key={item.id} className="queue-item">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold">{item.title}</p>
+                      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{item.body}</p>
+                    </div>
+                    <Badge tone="default">{getNotificationLabel(item)}</Badge>
                   </div>
-                  <Badge tone={user.role === "TENANT" ? "default" : "warning"}>
-                    {user.role === "TENANT" ? getNotificationLabel(item) : `${Math.max(item.daysRemaining, 0)}d`}
-                  </Badge>
                 </div>
-              </div>
-            ))}
-            {user.role !== "TENANT" && portal.expiringLeases.length === 0 ? <EmptyState title="No near-term expirations" description="There are no active leases nearing end date in the current role scope." /> : null}
+              )) : <EmptyState title="No active notices" description="You are caught up on building announcements." />
+            ) : portal.expiringLeases.length ? (
+              portal.expiringLeases.slice(0, 5).map((lease) => (
+                <div key={lease.id} className="queue-item">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold">Lease ending {formatDate(lease.endDate!)}</p>
+                      <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+                        {portal.scope.units.find((unit) => unit.id === lease.unitId)?.unitNumber ?? "Unit"} renewal decision due in {Math.max(lease.daysRemaining, 0)} days
+                      </p>
+                    </div>
+                    <Badge tone={lease.daysRemaining <= 30 ? "warning" : "default"}>{Math.max(lease.daysRemaining, 0)}d</Badge>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <EmptyState title="No near-term expirations" description="There are no active leases nearing end date in the current role scope." />
+            )}
           </div>
         </Card>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-3">
-        <Card className="p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">{user.role === "TENANT" ? "Lease and home" : "Recent payments"}</p>
-          <div className="mt-4 space-y-3">
+      <section className="card-grid-3">
+        <Card className="p-5">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <p className="section-kicker">{user.role === "TENANT" ? "Lease and home" : "Recent payments"}</p>
+              <h2 className="mt-2 text-xl font-semibold">{user.role === "TENANT" ? "Payment history" : "Collection activity"}</h2>
+            </div>
+            <ReceiptText className="h-5 w-5 text-[var(--brand)]" />
+          </div>
+          <div>
             {(user.role === "TENANT" ? portal.scope.payments.slice(0, 4) : portal.scope.payments.slice(0, 6)).map((payment) => (
-              <div key={payment.id} className="panel-muted rounded-[24px] p-4">
-                <div className="flex items-center justify-between">
-                  <div>
+              <div key={payment.id} className="queue-item">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <p className="font-semibold">{payment.description}</p>
-                    <p className="text-sm text-[var(--muted)]">{formatDate(payment.dueDate)}</p>
+                    <p className="mt-1 text-sm text-[var(--muted)]">
+                      {formatDate(payment.dueDate)} - {payment.stripeCheckoutSessionId ? "Stripe checkout" : "Manual ledger"}
+                    </p>
                   </div>
-                  <Badge tone={badgeToneFromPayment(payment.status)}>{payment.status}</Badge>
+                  <Badge tone={badgeToneFromPayment(payment.status)}>{payment.status === "PAID" ? "Paid" : "Unpaid"}</Badge>
                 </div>
                 <p className="mt-3 text-lg font-semibold">{formatCurrency(payment.amount)}</p>
               </div>
             ))}
+            {portal.scope.payments.length === 0 ? <EmptyState title="No payment history" description="Payment activity will appear here." /> : null}
           </div>
         </Card>
-        <Card className="p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">{user.role === "TENANT" ? "Service requests" : "Maintenance activity"}</p>
-          <div className="mt-4 space-y-3">
+
+        <Card className="p-5">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <p className="section-kicker">{user.role === "TENANT" ? "Service requests" : "Maintenance activity"}</p>
+              <h2 className="mt-2 text-xl font-semibold">{user.role === "TENANT" ? "Request status" : "Work order flow"}</h2>
+            </div>
+            <Wrench className="h-5 w-5 text-[var(--warning)]" />
+          </div>
+          <div>
             {portal.scope.maintenance.slice(0, 6).map((item) => (
-              <div key={item.id} className="panel-muted rounded-[24px] p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
+              <div key={item.id} className="queue-item">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <p className="font-semibold">{item.title}</p>
-                    <p className="text-sm text-[var(--muted)]">{formatDate(item.requestedAt)}</p>
+                    <p className="mt-1 text-sm text-[var(--muted)]">{formatDate(item.requestedAt)}</p>
                   </div>
-                  <Badge tone={badgeToneFromMaintenance(item.status)}>{item.status}</Badge>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Badge tone={badgeToneFromPriority(item.priority)}>{item.priority}</Badge>
+                    <Badge tone={badgeToneFromMaintenance(item.status)}>{item.status}</Badge>
+                  </div>
                 </div>
                 <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{item.description}</p>
               </div>
@@ -219,22 +537,37 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             {portal.scope.maintenance.length === 0 ? <EmptyState title="No current requests" description="Your role scope does not have any maintenance items right now." /> : null}
           </div>
         </Card>
-        <Card className="p-6" id="announcements">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">{user.role === "ADMIN" ? "Audit and activity" : "Messages and notices"}</p>
-          <div className="mt-4 space-y-3">
+
+        <Card className="p-5" id="announcements">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <p className="section-kicker">{user.role === "ADMIN" ? "Audit and activity" : "Messages and notices"}</p>
+              <h2 className="mt-2 text-xl font-semibold">{user.role === "ADMIN" ? "Latest changes" : "Resident communication"}</h2>
+            </div>
+            {user.role === "ADMIN" ? <MessageSquare className="h-5 w-5 text-[var(--info)]" /> : <Home className="h-5 w-5 text-[var(--info)]" />}
+          </div>
+          <div>
             {(user.role === "ADMIN" ? portal.recentActivity : portal.messageCenter).map((item: any) => (
-              <div key={item.id} className="panel-muted rounded-[24px] p-4">
-                <div className="flex items-center justify-between gap-3">
+              <div key={item.id} className="queue-item">
+                <div className="flex items-start justify-between gap-3">
                   <p className="font-semibold">{item.title}</p>
                   <Badge tone="default">{user.role === "ADMIN" ? item.kind : getNotificationLabel(item)}</Badge>
                 </div>
                 <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{user.role === "ADMIN" ? item.detail : item.body}</p>
-                <p className="mt-3 text-xs font-medium uppercase tracking-[0.2em] text-[var(--muted)]">{formatDate(user.role === "ADMIN" ? item.date : item.createdAt)}</p>
+                <p className="mt-3 text-xs font-medium uppercase tracking-[0.18em] text-[var(--muted)]">{formatDate(user.role === "ADMIN" ? item.date : item.createdAt)}</p>
               </div>
             ))}
+            {(user.role === "ADMIN" ? portal.recentActivity : portal.messageCenter).length === 0 ? <EmptyState title="No recent activity" description="New updates will appear here." /> : null}
           </div>
         </Card>
       </section>
+
+      <div className="flex justify-end">
+        <Link href={user.role === "TENANT" ? "/messages" : "/reports"} className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--brand)] transition hover:text-[var(--brand-strong)]">
+          {user.role === "TENANT" ? "Open messages" : "Open full reporting"}
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      </div>
     </div>
   );
 }
