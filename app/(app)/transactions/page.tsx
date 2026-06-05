@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { addDays, differenceInCalendarDays, endOfMonth, isAfter, isBefore, startOfMonth, startOfYear } from "date-fns";
 import {
   Banknote,
   BookOpenCheck,
@@ -29,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createPaymentAction, createStripeCheckoutAction, deletePaymentAction, updatePaymentAction } from "@/lib/actions";
+import { addDaysToDateKey, appDateIsAfter, appDateIsBefore, appDateKeyFromValue, differenceInAppCalendarDays, getAppDateKey, getAppYear, monthKeyFromValue } from "@/lib/app-time";
 import { requireUser } from "@/lib/auth";
 import { getStripeConnectState } from "@/lib/stripe-connect";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -125,9 +125,9 @@ function taxClassification(category: string) {
 }
 
 function collectionStatus(payment: { status: string; dueDate: string }) {
-  const today = new Date();
-  const daysLate = differenceInCalendarDays(today, new Date(payment.dueDate));
-  const daysUntilDue = differenceInCalendarDays(new Date(payment.dueDate), today);
+  const today = getAppDateKey();
+  const daysLate = differenceInAppCalendarDays(today, payment.dueDate);
+  const daysUntilDue = differenceInAppCalendarDays(payment.dueDate, today);
 
   if (payment.status === "PARTIAL") return { label: "Partial", tone: "warning" as const };
   if (daysLate >= 30) return { label: "Severely Late", tone: "danger" as const };
@@ -138,7 +138,7 @@ function collectionStatus(payment: { status: string; dueDate: string }) {
 
 function withinYear(value: string | undefined, year: number) {
   if (!value) return false;
-  return new Date(value).getFullYear() === year;
+  return appDateKeyFromValue(value).startsWith(`${year}-`);
 }
 
 export default async function TransactionsPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
@@ -285,9 +285,10 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   }
 
   const activeTab: PaymentsTab = params.tab === "payments" || params.tab === "accounting" ? params.tab : "collections";
-  const today = new Date();
-  const next30 = addDays(today, 30);
-  const currentYear = new Date().getFullYear();
+  const today = getAppDateKey();
+  const next30 = addDaysToDateKey(today, 30);
+  const currentYear = getAppYear();
+  const currentMonthKey = today.slice(0, 7);
   const selectedYear = Number(params.year ?? currentYear) || currentYear;
   const propertyFilter = params.propertyId ?? "all";
   const statusFilter = params.status ?? "all";
@@ -324,7 +325,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
     const category = normalizeCategory(payment.categoryTag, payment.description);
     const method = methodFor(payment);
     const paidAt = paidDateFor(payment);
-    const daysLate = Math.max(0, differenceInCalendarDays(today, new Date(payment.dueDate)));
+    const daysLate = Math.max(0, differenceInAppCalendarDays(today, payment.dueDate));
     const amountDue = balanceFor(payment);
     const amountPaid = paidAmountFor(payment);
     const searchText = [
@@ -365,14 +366,14 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const paidRows = rows
     .filter((row) => row.payment.status === "PAID" && row.paidAt)
     .filter((row) => {
-      const paidDate = row.paidAt ? new Date(row.paidAt) : null;
+      const paidDateKey = appDateKeyFromValue(row.paidAt);
       if (query && !row.searchText.includes(query)) return false;
       if (propertyFilter !== "all" && row.property?.id !== propertyFilter) return false;
       if (tenantFilter !== "all" && !row.tenants.some((tenant) => tenant.id === tenantFilter)) return false;
       if (methodFilter !== "all" && row.method.toLowerCase() !== methodFilter) return false;
       if (categoryFilter !== "all" && row.category !== categoryFilter) return false;
-      if (dateFrom && paidDate && isBefore(paidDate, new Date(dateFrom))) return false;
-      if (dateTo && paidDate && isAfter(paidDate, new Date(dateTo))) return false;
+      if (dateFrom && paidDateKey && paidDateKey < dateFrom) return false;
+      if (dateTo && paidDateKey && paidDateKey > dateTo) return false;
       return true;
     })
     .sort((a, b) => {
@@ -401,21 +402,18 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const overdueRows = rows.filter((row) => row.payment.status !== "PAID" && (row.daysLate > 0 || row.payment.status === "LATE"));
   const overdueBalance = overdueRows.reduce((sum, row) => sum + row.amountDue, 0);
   const upcomingBalance = rows
-    .filter((row) => row.payment.status !== "PAID" && isAfter(new Date(row.payment.dueDate), today) && isBefore(new Date(row.payment.dueDate), next30))
+    .filter((row) => row.payment.status !== "PAID" && appDateIsAfter(row.payment.dueDate, today) && appDateIsBefore(row.payment.dueDate, next30))
     .reduce((sum, row) => sum + row.amountDue, 0);
-  const monthStart = startOfMonth(today);
-  const monthEnd = endOfMonth(today);
   const monthPaid = rows
-    .filter((row) => row.payment.status === "PAID" && row.paidAt && isAfter(new Date(row.paidAt), monthStart) && isBefore(new Date(row.paidAt), monthEnd))
+    .filter((row) => row.payment.status === "PAID" && row.paidAt && monthKeyFromValue(row.paidAt) === currentMonthKey)
     .reduce((sum, row) => sum + row.amountPaid, 0);
   const monthDue = rows
-    .filter((row) => isAfter(new Date(row.payment.dueDate), monthStart) && isBefore(new Date(row.payment.dueDate), monthEnd))
+    .filter((row) => monthKeyFromValue(row.payment.dueDate) === currentMonthKey)
     .reduce((sum, row) => sum + row.payment.amount, 0);
   const collectionRate = monthDue ? Math.round((monthPaid / monthDue) * 100) : 100;
 
-  const yearStart = startOfYear(today);
   const collectedThisYear = rows
-    .filter((row) => row.payment.status === "PAID" && row.paidAt && isAfter(new Date(row.paidAt), yearStart))
+    .filter((row) => row.payment.status === "PAID" && row.paidAt && appDateKeyFromValue(row.paidAt).startsWith(`${currentYear}-`))
     .reduce((sum, row) => sum + row.amountPaid, 0);
   const pendingStripeTransferRows = rows.filter(
     (row) => row.payment.status === "PAID" && row.method === "Stripe" && !row.payment.stripeDestinationAccountId
@@ -423,7 +421,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const averageCollectionTime = (() => {
     const completed = rows.filter((row) => row.payment.status === "PAID" && row.paidAt);
     if (!completed.length) return "0 days";
-    const average = completed.reduce((sum, row) => sum + differenceInCalendarDays(new Date(row.paidAt!), new Date(row.payment.dueDate)), 0) / completed.length;
+    const average = completed.reduce((sum, row) => sum + differenceInAppCalendarDays(row.paidAt!, row.payment.dueDate), 0) / completed.length;
     return `${Math.max(0, Math.round(average))} days`;
   })();
 

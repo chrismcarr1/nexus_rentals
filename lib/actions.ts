@@ -22,12 +22,14 @@ import {
   validateAddress,
   validateOptionalAddress
 } from "@/lib/address";
+import { appDateKeyFromValue, dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, getAppDateKey, monthKeyFromValue, normalizeRentDueTime } from "@/lib/app-time";
 import { clearSession, createSession, requireRoles, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sendDiscussionMessage } from "@/lib/discussions";
 import { sendPasswordResetEmail, sendTenantInviteEmail } from "@/lib/email";
 import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmittedAssetPath } from "@/lib/file-security";
 import { INVITE_TTL_MS, ensureLeaseConnectionIntegrity, generateInviteToken, hashInviteToken, isActiveLeaseStatus } from "@/lib/lease-connections";
+import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { getAppOrigin } from "@/lib/request-origin";
 import { FileKind, UserRole, createId, nowIso, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
@@ -128,20 +130,19 @@ function createPublicSlug() {
 }
 
 function toIsoDate(value: string) {
-  return new Date(value).toISOString();
+  return dateOnlyToUtcNoonIso(value);
 }
 
 function dateOnlyTime(value: string | Date) {
-  const date = typeof value === "string" ? new Date(value) : value;
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  return appDateKeyFromValue(value);
 }
 
 function getMoveInLeaseStatus(startDate: string): LeaseStatus {
-  return dateOnlyTime(startDate) <= dateOnlyTime(new Date()) ? "ACTIVE" : "UPCOMING";
+  return dateOnlyTime(startDate) <= getAppDateKey() ? "ACTIVE" : "UPCOMING";
 }
 
 function getMoveInOccupancyStatus(moveInDate: string): UnitOccupancyStatus {
-  return dateOnlyTime(moveInDate) <= dateOnlyTime(new Date()) ? "OCCUPIED" : "VACANT";
+  return dateOnlyTime(moveInDate) <= getAppDateKey() ? "OCCUPIED" : "VACANT";
 }
 
 function isUnitReserved(status: string) {
@@ -163,9 +164,7 @@ function hashResetToken(token: string) {
 }
 
 function getPaymentMonth(value: string | Date) {
-  const date = typeof value === "string" ? new Date(value) : value;
-  if (Number.isNaN(date.getTime())) return String(value).slice(0, 7);
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+  return monthKeyFromValue(value);
 }
 
 function getLeaseManager(portal: Awaited<ReturnType<typeof getPortalContext>>, lease: any, payment?: { unitId?: string }) {
@@ -1142,6 +1141,7 @@ export async function createMoveInAction(formData: FormData) {
     monthlyRent: getString(formData, "monthlyRent"),
     securityDeposit: getString(formData, "securityDeposit"),
     dueDay: getString(formData, "dueDay"),
+    rentDueTime: getOptionalString(formData, "rentDueTime") ?? DEFAULT_RENT_DUE_TIME,
     firstRentDueDate: getString(formData, "firstRentDueDate"),
     securityDepositDueDate: getString(formData, "securityDepositDueDate"),
     createFirstRentCharge: getBoolean(formData, "createFirstRentCharge"),
@@ -1243,6 +1243,7 @@ export async function createMoveInAction(formData: FormData) {
         moveInDate: toIsoDate(parsed.moveInDate),
         monthlyRent: parsed.monthlyRent,
         dueDay: parsed.dueDay,
+        rentDueTime: normalizeRentDueTime(parsed.rentDueTime),
         securityDeposit: parsed.securityDeposit,
         recurringCharges: parsed.recurringCharges ?? "",
         lateFeePolicy: parsed.lateFeePolicy,
@@ -1392,6 +1393,8 @@ export async function createMoveInAction(formData: FormData) {
     redirect(`/move-ins/new?error=${encodeURIComponent(message)}`);
   }
 
+  await ensureScheduledLeasePayments(user.organizationId);
+
   if (rawInviteToken && inviteEmailInput) {
     try {
       const origin = await getAppOrigin();
@@ -1431,6 +1434,7 @@ export async function createLeaseAction(formData: FormData) {
     endDate: getString(formData, "endDate"),
     monthlyRent: getString(formData, "monthlyRent"),
     dueDay: getString(formData, "dueDay"),
+    rentDueTime: getOptionalString(formData, "rentDueTime") ?? DEFAULT_RENT_DUE_TIME,
     securityDeposit: getString(formData, "securityDeposit"),
     recurringCharges: getOptionalString(formData, "recurringCharges"),
     lateFeePolicy: getOptionalString(formData, "lateFeePolicy"),
@@ -1461,10 +1465,11 @@ export async function createLeaseAction(formData: FormData) {
       tenantUserId: tenantUser?.id,
       tenantEmail: tenant?.email,
       unitId: parsed.unitId,
-      startDate: new Date(parsed.startDate),
-      endDate: new Date(parsed.endDate),
+      startDate: toIsoDate(parsed.startDate),
+      endDate: toIsoDate(parsed.endDate),
       monthlyRent: parsed.monthlyRent,
       dueDay: parsed.dueDay,
+      rentDueTime: normalizeRentDueTime(parsed.rentDueTime),
       securityDeposit: parsed.securityDeposit,
       recurringCharges: parsed.recurringCharges ?? "",
       lateFeePolicy: parsed.lateFeePolicy,
@@ -1484,6 +1489,8 @@ export async function createLeaseAction(formData: FormData) {
       occupancyStatus: parsed.status === "ACTIVE" ? "OCCUPIED" : "VACANT"
     }
   });
+
+  await ensureScheduledLeasePayments(user.organizationId);
 
   revalidatePath("/leases");
   revalidatePath("/dashboard");
@@ -1508,6 +1515,7 @@ export async function updateLeaseAction(formData: FormData) {
     endDate: getString(formData, "endDate"),
     monthlyRent: getString(formData, "monthlyRent"),
     dueDay: getString(formData, "dueDay"),
+    rentDueTime: getOptionalString(formData, "rentDueTime") ?? DEFAULT_RENT_DUE_TIME,
     securityDeposit: getString(formData, "securityDeposit"),
     recurringCharges: getOptionalString(formData, "recurringCharges"),
     lateFeePolicy: getOptionalString(formData, "lateFeePolicy"),
@@ -1548,10 +1556,11 @@ export async function updateLeaseAction(formData: FormData) {
             tenantEmail: updatedTenant?.email ?? lease.tenantEmail,
             unitId: parsed.unitId,
             tenantIds: [parsed.tenantId],
-            startDate: new Date(parsed.startDate).toISOString(),
-            endDate: new Date(parsed.endDate).toISOString(),
+            startDate: toIsoDate(parsed.startDate),
+            endDate: toIsoDate(parsed.endDate),
             monthlyRent: parsed.monthlyRent,
             dueDay: parsed.dueDay,
+            rentDueTime: normalizeRentDueTime(parsed.rentDueTime),
             securityDeposit: parsed.securityDeposit,
             recurringCharges: parsed.recurringCharges ?? "",
             lateFeePolicy: parsed.lateFeePolicy,
@@ -1593,6 +1602,8 @@ export async function updateLeaseAction(formData: FormData) {
       discussionMessages: store.discussionMessages.filter((message) => !discussionThreadIdsToRemove.includes(message.threadId))
     };
   });
+
+  await ensureScheduledLeasePayments(user.organizationId);
 
   revalidatePath("/leases");
   revalidatePath(returnTo);
@@ -1682,7 +1693,7 @@ export async function createPaymentAction(formData: FormData) {
   }
   const lateFeeAmount = parsed.lateFeeAmount ?? 0;
   const balanceDue = parsed.balanceDue ?? (parsed.status === "PAID" ? 0 : parsed.amount + lateFeeAmount);
-  const paidDate = parsed.status === "PAID" ? new Date(parsed.paidDate ?? new Date()) : parsed.paidDate ? new Date(parsed.paidDate) : undefined;
+  const paidDate = parsed.status === "PAID" ? (parsed.paidDate ? toIsoDate(parsed.paidDate) : nowIso()) : parsed.paidDate ? toIsoDate(parsed.paidDate) : undefined;
 
   await db.payment.create({
     data: {
@@ -1691,7 +1702,7 @@ export async function createPaymentAction(formData: FormData) {
       tenantId: paymentTenant.id,
       description: parsed.description,
       amount: parsed.amount,
-      dueDate: new Date(parsed.dueDate),
+      dueDate: toIsoDate(parsed.dueDate),
       paidDate,
       status: parsed.status,
       lateFeeAmount,
@@ -1837,7 +1848,7 @@ export async function createExpenseAction(formData: FormData) {
     data: {
       ...parsed,
       unitId: parsed.unitId || null,
-      incurredAt: new Date(parsed.incurredAt),
+      incurredAt: toIsoDate(parsed.incurredAt),
       tags: parsed.tags ?? ""
     }
   });
@@ -2190,7 +2201,7 @@ export async function createDamageAssessmentAction(formData: FormData) {
     data: {
       unitId: parsed.unitId,
       leaseId: parsed.leaseId,
-      inspectionDate: new Date(parsed.inspectionDate),
+      inspectionDate: toIsoDate(parsed.inspectionDate),
       type: "Move-out damage review",
       notes: parsed.notes,
       files: {

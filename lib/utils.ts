@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from "clsx";
-import { format, isThisMonth, isToday, parseISO } from "date-fns";
+import { format, isThisMonth, isToday } from "date-fns";
 import { twMerge } from "tailwind-merge";
+
+import { formatAppDate } from "@/lib/app-time";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -15,8 +17,7 @@ export function formatCurrency(value: number) {
 }
 
 export function formatDate(value: string | Date) {
-  const date = typeof value === "string" ? parseISO(value) : value;
-  return format(date, "MMM d, yyyy");
+  return formatAppDate(value);
 }
 
 export function niceDateLabel(value: Date) {

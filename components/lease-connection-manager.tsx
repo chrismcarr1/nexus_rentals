@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { DEFAULT_RENT_DUE_TIME, differenceInAppCalendarDays, formatRentDueTime, formatShortAppDate, getAppDateKey } from "@/lib/app-time";
 import { cn } from "@/lib/utils";
 
 type PropertyOption = {
@@ -59,23 +60,15 @@ type LeaseRow = {
   startDate: string | null;
   endDate: string | null;
   monthlyRent: number | null;
+  dueDay: number;
+  rentDueTime?: string | null;
   securityDeposit: number | null;
   createdAt: string;
   updatedAt: string;
 };
 
-function formatDate(value: string | null) {
-  if (!value) return "Not set";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not set";
-  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
-}
-
 function formatShortDate(value: string | null) {
-  if (!value) return "Not set";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not set";
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "2-digit" }).format(date);
+  return formatShortAppDate(value);
 }
 
 function formatCurrency(value: number | null) {
@@ -122,12 +115,7 @@ function humanizeStatus(value: string) {
 
 function daysUntil(value: string | null) {
   if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  date.setHours(0, 0, 0, 0);
-  return Math.ceil((date.getTime() - today.getTime()) / 86_400_000);
+  return differenceInAppCalendarDays(value, getAppDateKey());
 }
 
 function FieldLabel({ children, hint }: { children: ReactNode; hint?: string }) {
@@ -207,6 +195,8 @@ export function LeaseConnectionManager({
     startDate: "",
     endDate: "",
     monthlyRent: "",
+    dueDay: "1",
+    rentDueTime: DEFAULT_RENT_DUE_TIME,
     securityDeposit: ""
   });
   const [error, setError] = useState("");
@@ -264,6 +254,8 @@ export function LeaseConnectionManager({
           startDate: form.startDate || undefined,
           endDate: form.endDate || undefined,
           monthlyRent: form.monthlyRent ? Number(form.monthlyRent) : undefined,
+          dueDay: form.dueDay ? Number(form.dueDay) : undefined,
+          rentDueTime: form.rentDueTime || DEFAULT_RENT_DUE_TIME,
           securityDeposit: form.securityDeposit ? Number(form.securityDeposit) : undefined
         })
       });
@@ -271,7 +263,7 @@ export function LeaseConnectionManager({
       if (!response.ok) throw new Error(payload.error || "Could not create lease.");
 
       setLeases((current) => [payload.lease, ...current.filter((lease) => lease.id !== payload.lease.id)]);
-      setForm({ tenantEmail: "", unitId: "", startDate: "", endDate: "", monthlyRent: "", securityDeposit: "" });
+      setForm({ tenantEmail: "", unitId: "", startDate: "", endDate: "", monthlyRent: "", dueDay: "1", rentDueTime: DEFAULT_RENT_DUE_TIME, securityDeposit: "" });
       setMessage("Lease created. Send the tenant invite when you are ready.");
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Could not create lease.");
@@ -503,6 +495,27 @@ export function LeaseConnectionManager({
                 </label>
               </div>
 
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                <label className="block">
+                  <FieldLabel>Rent due day</FieldLabel>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="28"
+                    value={form.dueDay}
+                    onChange={(event) => setForm((current) => ({ ...current, dueDay: event.target.value }))}
+                  />
+                </label>
+                <label className="block">
+                  <FieldLabel>Rent due time</FieldLabel>
+                  <Input
+                    type="time"
+                    value={form.rentDueTime}
+                    onChange={(event) => setForm((current) => ({ ...current, rentDueTime: event.target.value }))}
+                  />
+                </label>
+              </div>
+
               <div className="border-t border-[var(--line)] pt-4">
                 <p className="text-xs leading-5 text-[var(--muted)]">Create the record first. Invite actions appear on each lease row.</p>
                 <Button type="submit" disabled={pendingAction === "create"} className="mt-3 w-full">
@@ -582,6 +595,7 @@ export function LeaseConnectionManager({
                     </td>
                     <td className="table-cell">
                       <span className="block truncate text-sm font-semibold text-[var(--text)]">{formatCurrency(lease.monthlyRent)}</span>
+                      <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">Day {lease.dueDay} at {formatRentDueTime(lease.rentDueTime)}</span>
                       <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">Deposit {formatCurrency(lease.securityDeposit)}</span>
                     </td>
                     <td className="table-cell text-right">

@@ -6,6 +6,7 @@ import { LeaseConnectionManager } from "@/components/lease-connection-manager";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { formatAddress, formatUnitAddress } from "@/lib/address";
+import { differenceInAppCalendarDays, formatRentDueTime, getAppDateKey } from "@/lib/app-time";
 import { requireUser } from "@/lib/auth";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { getManagerLeaseRows } from "@/lib/lease-connections";
@@ -29,12 +30,7 @@ function leaseStatusTone(status?: string | null): "default" | "success" | "warni
 
 function daysUntil(value?: string | null) {
   if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  date.setHours(0, 0, 0, 0);
-  return Math.ceil((date.getTime() - today.getTime()) / 86_400_000);
+  return differenceInAppCalendarDays(value, getAppDateKey());
 }
 
 function LeaseMetric({
@@ -122,7 +118,7 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
                 <LeaseMetric
                   label="Monthly rent"
                   value={formatCurrencyOrUnset(portal.currentLease.monthlyRent)}
-                  detail={`Due day ${portal.currentLease.dueDay} of each month`}
+                  detail={`Day ${portal.currentLease.dueDay} at ${formatRentDueTime(portal.currentLease.rentDueTime)}`}
                   icon={<Wallet className="h-4 w-4" />}
                 />
                 <LeaseMetric

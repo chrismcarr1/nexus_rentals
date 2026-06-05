@@ -17,7 +17,7 @@ import { archivePropertyAction, assignPropertyManagerAction, createPropertyActio
 import { formatAddress } from "@/lib/address";
 import { requireRouteAccess } from "@/lib/auth";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
 function sortHref(params: Record<string, string>, sort: string) {
@@ -199,7 +199,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
                       )}
                       <span className="min-w-0">
                         <span className="block truncate font-semibold">{row.property.name}</span>
-                        <span className="mt-0.5 block text-xs text-[var(--muted)]">Updated {new Date(row.recentActivity).toLocaleDateString()}</span>
+                        <span className="mt-0.5 block text-xs text-[var(--muted)]">Updated {formatDate(row.recentActivity)}</span>
                       </span>
                     </Link>
                   </td>

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { DEFAULT_COUNTRY, type StoredAddress } from "@/lib/address";
+import { normalizeRentDueTime } from "@/lib/app-time";
 import { ensureAppStoreTable, getSql } from "@/lib/database";
 
 export type UserRole = "ADMIN" | "MANAGER" | "TENANT";
@@ -79,6 +80,8 @@ export type Lease = {
   moveInDate?: string;
   monthlyRent: number;
   dueDay: number;
+  rentDueTime?: string;
+  lastRentChargeMonth?: string;
   securityDeposit: number;
   recurringCharges: string;
   lateFeePolicy?: string;
@@ -113,6 +116,7 @@ export type Payment = {
   lateFeeAmount: number;
   balanceDue: number;
   categoryTag?: string;
+  generatedRentMonth?: string;
   amountPaid?: number;
   stripeCheckoutSessionId?: string;
   stripePaymentIntentId?: string;
@@ -354,6 +358,7 @@ function normalizeStore(store: AppStore): AppStore {
         tenantIds: lease.tenantIds ?? [],
         monthlyRent: lease.monthlyRent ?? 0,
         dueDay: lease.dueDay ?? 1,
+        rentDueTime: normalizeRentDueTime(lease.rentDueTime),
         securityDeposit: lease.securityDeposit ?? 0,
         recurringCharges: lease.recurringCharges ?? ""
       };

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Textarea } from "@/components/ui/textarea";
 import { submitRentalApplicationAction } from "@/lib/actions";
+import { formatAppDate } from "@/lib/app-time";
 
 export type PublicApplicationPayload = {
   publicSlug: string;
@@ -61,8 +62,7 @@ function money(value: number) {
 }
 
 function dateLabel(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Not set" : new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
+  return formatAppDate(value);
 }
 
 function isEmail(value: string) {

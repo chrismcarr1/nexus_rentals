@@ -8,16 +8,12 @@ import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { deleteLeaseAction, updateLeaseAction } from "@/lib/actions";
 import { formatUnitAddress } from "@/lib/address";
+import { formatRentDueTime, toDateInputValue } from "@/lib/app-time";
 import { requireRoles } from "@/lib/auth";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { UserRole } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
-
-function toDateInputValue(value?: string | Date | null) {
-  if (!value) return "";
-  return new Date(value).toISOString().slice(0, 10);
-}
 
 function formatDateOrUnset(value?: string | Date | null) {
   return value ? formatDate(value) : "Not set";
@@ -98,8 +94,8 @@ export default async function ManageLeasePage({
               <p className="mt-2 font-semibold">{formatCurrency(lease.securityDeposit)}</p>
             </div>
             <div className="panel-muted p-4">
-              <p className="text-sm text-[var(--muted)]">Due day</p>
-              <p className="mt-2 font-semibold">Day {lease.dueDay}</p>
+              <p className="text-sm text-[var(--muted)]">Rent schedule</p>
+              <p className="mt-2 font-semibold">Day {lease.dueDay} at {formatRentDueTime(lease.rentDueTime)}</p>
             </div>
             <div className="panel-muted p-4">
               <p className="text-sm text-[var(--muted)]">Move-in date</p>
@@ -134,9 +130,10 @@ export default async function ManageLeasePage({
               <input name="startDate" type="date" required defaultValue={toDateInputValue(lease.startDate)} className="field" />
               <input name="endDate" type="date" required defaultValue={toDateInputValue(lease.endDate)} className="field" />
             </div>
-            <div className="form-grid-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <input name="monthlyRent" type="number" min="0" step="0.01" required defaultValue={lease.monthlyRent} placeholder="Monthly rent" className="field" />
               <input name="dueDay" type="number" min="1" max="28" required defaultValue={lease.dueDay} placeholder="Due day" className="field" />
+              <input name="rentDueTime" type="time" required defaultValue={lease.rentDueTime ?? "09:00"} className="field" />
               <input name="securityDeposit" type="number" min="0" step="0.01" required defaultValue={lease.securityDeposit} placeholder="Deposit" className="field" />
             </div>
             <textarea name="recurringCharges" defaultValue={lease.recurringCharges ?? ""} placeholder="Recurring charges" className="field min-h-24" />

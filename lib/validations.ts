@@ -1,9 +1,12 @@
 import { z } from "zod";
 
+import { appDateKeyFromValue, DEFAULT_RENT_DUE_TIME } from "@/lib/app-time";
+
 const optionalMoney = z.preprocess(
   (value) => (value === "" || value == null ? undefined : value),
   z.coerce.number().min(0).optional()
 );
+const rentDueTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().default(DEFAULT_RENT_DUE_TIME);
 
 export const signupSchema = z
   .object({
@@ -83,6 +86,7 @@ export const leaseSchema = z.object({
   endDate: z.string().min(1),
   monthlyRent: z.coerce.number().min(0),
   dueDay: z.coerce.number().min(1).max(28),
+  rentDueTime: rentDueTimeSchema,
   securityDeposit: z.coerce.number().min(0),
   recurringCharges: z.string().optional(),
   lateFeePolicy: z.string().optional(),
@@ -108,6 +112,7 @@ export const newMoveInSchema = z
     monthlyRent: z.coerce.number().min(1),
     securityDeposit: z.coerce.number().min(0),
     dueDay: z.coerce.number().min(1).max(28),
+    rentDueTime: rentDueTimeSchema,
     firstRentDueDate: z.string().min(1),
     securityDepositDueDate: z.string().min(1),
     createFirstRentCharge: z.boolean(),
@@ -122,29 +127,29 @@ export const newMoveInSchema = z
     applicationSubmissionId: z.string().optional()
   })
   .superRefine((value, context) => {
-    const start = new Date(value.startDate);
-    const end = new Date(value.endDate);
-    const moveIn = new Date(value.moveInDate);
-    const firstRentDue = new Date(value.firstRentDueDate);
-    const depositDue = new Date(value.securityDepositDueDate);
-    const additionalDue = value.additionalChargeDueDate ? new Date(value.additionalChargeDueDate) : null;
+    const start = appDateKeyFromValue(value.startDate);
+    const end = appDateKeyFromValue(value.endDate);
+    const moveIn = appDateKeyFromValue(value.moveInDate);
+    const firstRentDue = appDateKeyFromValue(value.firstRentDueDate);
+    const depositDue = appDateKeyFromValue(value.securityDepositDueDate);
+    const additionalDue = value.additionalChargeDueDate ? appDateKeyFromValue(value.additionalChargeDueDate) : "";
 
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    if (!start || !end || end < start) {
       context.addIssue({ code: "custom", path: ["endDate"], message: "End date must be after the start date." });
     }
-    if (Number.isNaN(moveIn.getTime()) || moveIn < start || moveIn > end) {
+    if (!moveIn || moveIn < start || moveIn > end) {
       context.addIssue({ code: "custom", path: ["moveInDate"], message: "Move-in date must be within the lease term." });
     }
-    if (Number.isNaN(firstRentDue.getTime())) {
+    if (!firstRentDue) {
       context.addIssue({ code: "custom", path: ["firstRentDueDate"], message: "First rent due date is required." });
     }
-    if (Number.isNaN(depositDue.getTime())) {
+    if (!depositDue) {
       context.addIssue({ code: "custom", path: ["securityDepositDueDate"], message: "Deposit due date is required." });
     }
     if ((value.additionalChargeAmount ?? 0) > 0 && !value.additionalChargeDescription?.trim()) {
       context.addIssue({ code: "custom", path: ["additionalChargeDescription"], message: "Name the additional charge." });
     }
-    if (additionalDue && Number.isNaN(additionalDue.getTime())) {
+    if (value.additionalChargeDueDate && !additionalDue) {
       context.addIssue({ code: "custom", path: ["additionalChargeDueDate"], message: "Additional charge due date is invalid." });
     }
   });
@@ -166,7 +171,7 @@ export const rentalApplicationSchema = z
     publishNow: z.boolean()
   })
   .superRefine((value, context) => {
-    if (Number.isNaN(new Date(value.availableMoveInDate).getTime())) {
+    if (!appDateKeyFromValue(value.availableMoveInDate)) {
       context.addIssue({ code: "custom", path: ["availableMoveInDate"], message: "Available move-in date is invalid." });
     }
   });

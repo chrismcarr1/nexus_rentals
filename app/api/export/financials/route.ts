@@ -1,12 +1,13 @@
 import { requireRoles } from "@/lib/auth";
 import { escapeCsvCell } from "@/lib/csv";
+import { appDateKeyFromValue, getAppDateKey } from "@/lib/app-time";
 import { UserRole } from "@/lib/store";
 import { getPortalContext } from "@/services/portal";
 
 type ExportCell = string | number;
 
 type ExportRow = {
-  sortDate: Date;
+  sortDate: string;
   cells: ExportCell[];
 };
 
@@ -28,14 +29,8 @@ const headers = [
   "Record ID"
 ];
 
-function asDate(value?: Date | string | null) {
-  if (!value) return null;
-  return value instanceof Date ? value : new Date(value);
-}
-
 function dateLabel(value?: Date | string | null) {
-  const date = asDate(value);
-  return date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : "";
+  return appDateKeyFromValue(value);
 }
 
 function buildCsv(rows: ExportCell[][]) {
@@ -304,8 +299,8 @@ async function getFinancialExportRows(
   const paymentRows: ExportRow[] = portal.scope.payments
     .filter((payment) => !taxReport || payment.status === "PAID")
     .filter((payment) => {
-      const date = asDate(payment.paidDate ?? payment.dueDate);
-      return !year || date?.getFullYear() === year;
+      const date = dateLabel(payment.paidDate ?? payment.dueDate);
+      return !year || date.startsWith(`${year}-`);
     })
     .map((payment) => {
       const unit = portal.scope.units.find((item) => item.id === payment.unitId);
@@ -315,10 +310,10 @@ async function getFinancialExportRows(
         (payment.tenantId ? portal.scope.tenants.find((item) => item.id === payment.tenantId) : null) ??
         (lease?.tenantIds?.[0] ? portal.scope.tenants.find((item) => item.id === lease.tenantIds[0]) : null) ??
         null;
-      const dueDate = asDate(payment.dueDate) ?? new Date(0);
+      const dueDate = dateLabel(payment.dueDate) || "0000-00-00";
 
       return {
-        sortDate: asDate(payment.paidDate) ?? dueDate,
+        sortDate: dateLabel(payment.paidDate) || dueDate,
         cells: [
           "Transaction",
           dateLabel(payment.paidDate ?? payment.dueDate),
@@ -341,13 +336,13 @@ async function getFinancialExportRows(
 
   const expenseRows: ExportRow[] = portal.scope.expenses
     .filter((expense) => {
-      const date = asDate(expense.incurredAt);
-      return !year || date?.getFullYear() === year;
+      const date = dateLabel(expense.incurredAt);
+      return !year || date.startsWith(`${year}-`);
     })
     .map((expense) => {
       const property = portal.scope.properties.find((item) => item.id === expense.propertyId);
       const unit = expense.unitId ? portal.scope.units.find((item) => item.id === expense.unitId) : null;
-      const incurredAt = asDate(expense.incurredAt) ?? new Date(0);
+      const incurredAt = dateLabel(expense.incurredAt) || "0000-00-00";
 
       return {
         sortDate: incurredAt,
@@ -372,7 +367,7 @@ async function getFinancialExportRows(
     });
 
   return [...paymentRows, ...expenseRows]
-    .sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime())
+    .sort((a, b) => b.sortDate.localeCompare(a.sortDate))
     .map((row) => row.cells);
 }
 
@@ -383,7 +378,7 @@ export async function GET(request: Request) {
   const year = Number(searchParams.get("year"));
   const taxReport = searchParams.get("report") === "tax";
   const rows = await getFinancialExportRows(user, Number.isFinite(year) && year > 0 ? year : undefined, taxReport);
-  const filenameDate = new Date().toISOString().slice(0, 10);
+  const filenameDate = getAppDateKey();
 
   if (format === "excel" || format === "xlsx") {
     return new Response(buildXlsx(rows), {

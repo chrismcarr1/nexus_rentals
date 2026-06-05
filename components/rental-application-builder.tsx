@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { createRentalApplicationAction } from "@/lib/actions";
+import { getAppDateKey } from "@/lib/app-time";
 
 export type ApplicationPropertyOption = {
   id: string;
@@ -34,7 +35,7 @@ const fieldOptions = [
 ];
 
 function todayInput() {
-  return new Date().toISOString().slice(0, 10);
+  return getAppDateKey();
 }
 
 function FieldLabel({ label, hint }: { label: string; hint?: string }) {

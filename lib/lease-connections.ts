@@ -3,7 +3,9 @@ import "server-only";
 import { createHash, randomBytes } from "crypto";
 
 import { normalizeEmail } from "@/lib/admin";
+import { dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, normalizeRentDueTime } from "@/lib/app-time";
 import { formatAddress, formatUnitAddress } from "@/lib/address";
+import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
 import { createId, nowIso, readStore, updateStore, type AppStore, type Lease, type TenantInvite, type User } from "@/lib/store";
 
 export const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
@@ -279,6 +281,8 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
     startDate: lease.startDate ?? null,
     endDate: lease.endDate ?? null,
     monthlyRent: lease.monthlyRent ?? null,
+    dueDay: lease.dueDay ?? 1,
+    rentDueTime: normalizeRentDueTime(lease.rentDueTime),
     securityDeposit: lease.securityDeposit ?? null,
     createdAt: lease.createdAt,
     updatedAt: lease.updatedAt
@@ -287,6 +291,7 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
 
 export async function getManagerLeaseRows(user: User) {
   await ensureLeaseConnectionIntegrity(user.organizationId);
+  await ensureScheduledLeasePayments(user.organizationId);
   const store = await readStore();
   const leases = store.leases.filter((lease) => userOwnsLease(store, user, lease));
   return leases.map((lease) => toSafeLeaseRow(store, lease)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -294,6 +299,7 @@ export async function getManagerLeaseRows(user: User) {
 
 export async function getTenantLeaseRows(user: User) {
   await ensureLeaseConnectionIntegrity(user.organizationId);
+  await ensureScheduledLeasePayments(user.organizationId);
   const store = await readStore();
   const leases = store.leases.filter((lease) => lease.tenantUserId === user.id);
   return leases.map((lease) => toSafeLeaseRow(store, lease)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -307,6 +313,8 @@ export async function createConnectedLease({
   startDate,
   endDate,
   monthlyRent,
+  dueDay,
+  rentDueTime,
   securityDeposit
 }: {
   manager: User;
@@ -316,6 +324,8 @@ export async function createConnectedLease({
   startDate?: string;
   endDate?: string;
   monthlyRent?: number;
+  dueDay?: number;
+  rentDueTime?: string;
   securityDeposit?: number;
 }) {
   let lease: Lease | null = null;
@@ -335,10 +345,11 @@ export async function createConnectedLease({
       propertyId,
       unitId,
       tenantIds: [],
-      startDate,
-      endDate,
+      startDate: startDate ? dateOnlyToUtcNoonIso(startDate) : undefined,
+      endDate: endDate ? dateOnlyToUtcNoonIso(endDate) : undefined,
       monthlyRent: monthlyRent ?? 0,
-      dueDay: 1,
+      dueDay: dueDay ?? 1,
+      rentDueTime: normalizeRentDueTime(rentDueTime ?? DEFAULT_RENT_DUE_TIME),
       securityDeposit: securityDeposit ?? 0,
       recurringCharges: "",
       status: "draft",

@@ -1,10 +1,11 @@
 import "server-only";
 
-import { addDays, differenceInCalendarDays, endOfMonth, isAfter, isBefore, startOfMonth } from "date-fns";
 import { cache } from "react";
 
 import { getEffectiveUserRole } from "@/lib/admin";
+import { addDaysToDateKey, appDateIsBefore, differenceInAppCalendarDays, getAppDateKey, monthKeyFromValue } from "@/lib/app-time";
 import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
+import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
 import { getOrganizationSnapshot, type Notification, type UserRole } from "@/lib/store";
 
 function leaseIsVisibleCurrent(status: string) {
@@ -26,14 +27,14 @@ type AppUser = {
 
 export const getPortalContext = cache(async (user: AppUser) => {
   await ensureLeaseConnectionIntegrity(user.organizationId);
+  await ensureScheduledLeasePayments(user.organizationId);
   const snapshot = await getOrganizationSnapshot(user.organizationId);
   const effectiveUsers = snapshot.users.map((candidate) => ({
     ...candidate,
     role: getEffectiveUserRole(candidate.role, candidate.email)
   }));
-  const now = new Date();
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
+  const todayKey = getAppDateKey();
+  const currentMonthKey = todayKey.slice(0, 7);
 
   const managerAssignments = new Map(snapshot.properties.map((property) => [property.id, property.managerId ?? null]));
   const tenantProfile =
@@ -148,13 +149,13 @@ export const getPortalContext = cache(async (user: AppUser) => {
     : null;
 
   const collected = scoped.payments
-    .filter((payment) => payment.paidDate && isAfter(new Date(payment.paidDate), monthStart) && isBefore(new Date(payment.paidDate), monthEnd))
+    .filter((payment) => payment.paidDate && monthKeyFromValue(payment.paidDate) === currentMonthKey)
     .reduce((sum, payment) => sum + payment.amount, 0);
   const outstanding = scoped.payments
     .filter((payment) => payment.status !== "PAID")
     .reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0);
   const overduePayments = scoped.payments.filter(
-    (payment) => payment.status === "LATE" || (payment.status !== "PAID" && isBefore(new Date(payment.dueDate), now))
+    (payment) => payment.status === "LATE" || (payment.status !== "PAID" && appDateIsBefore(payment.dueDate, todayKey))
   );
   const overdue = overduePayments.reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0);
   const totalUnits = scoped.units.length;
@@ -165,13 +166,13 @@ export const getPortalContext = cache(async (user: AppUser) => {
     .sort((a, b) => (a.endDate ?? "").localeCompare(b.endDate ?? ""))
     .map((lease) => ({
       ...lease,
-      daysRemaining: differenceInCalendarDays(new Date(lease.endDate!), now)
+      daysRemaining: differenceInAppCalendarDays(lease.endDate!, todayKey)
     }));
   const recurringRent = scoped.leases
     .filter((lease) => leaseIsVisibleCurrent(lease.status))
     .reduce((sum, lease) => sum + lease.monthlyRent, 0);
   const monthExpenses = scoped.expenses
-    .filter((expense) => isAfter(new Date(expense.incurredAt), monthStart) && isBefore(new Date(expense.incurredAt), monthEnd))
+    .filter((expense) => monthKeyFromValue(expense.incurredAt) === currentMonthKey)
     .reduce((sum, expense) => sum + expense.amount, 0);
 
   const delinquencyRate = scoped.payments.length ? overduePayments.length / scoped.payments.length : 0;
@@ -265,7 +266,7 @@ export const getPortalContext = cache(async (user: AppUser) => {
       ...maintenanceOpen.slice(0, 3).map((item) => ({
         id: item.id,
         label: "Work order",
-        date: addDays(new Date(item.requestedAt), 2).toISOString(),
+        date: addDaysToDateKey(item.requestedAt, 2),
         note: item.title
       }))
     ].sort((a, b) => a.date.localeCompare(b.date))
