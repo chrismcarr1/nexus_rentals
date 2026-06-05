@@ -17,10 +17,14 @@ import {
 import { formatAddress, parseAddressText } from "@/lib/address";
 import { requireUser } from "@/lib/auth";
 import { getAppOrigin } from "@/lib/request-origin";
+import { getStripeAccountId, getStripeConnectRedirectStatus, getStripeConnectState, syncStripeConnectedAccount } from "@/lib/stripe-connect";
 import { getPortalContext } from "@/services/portal";
 
 function stripeSettingsMessage(status?: string) {
+  if (status === "connect-return") return "Stripe onboarding returned to Nexus. Refreshing payout status...";
   if (status === "connect-ready") return "Stripe payouts are connected and ready for tenant checkout.";
+  if (status === "connect-continue-setup") return "Stripe account exists. Continue setup to finish required onboarding details.";
+  if (status === "connect-pending-review") return "Stripe details were submitted. Payouts are pending Stripe review.";
   if (status === "connect-incomplete") return "Stripe setup started, but bank and payout details still need to be completed.";
   if (status === "connect-refresh") return "Stripe setup link expired or was interrupted. Start setup again from this page.";
   if (status === "connect-required") return "Set up Stripe payouts before tenants can pay rent online.";
@@ -34,6 +38,19 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
   const user = await requireUser();
   const portal = await getPortalContext(user);
   const params = (await searchParams) ?? {};
+  let stripeStatus = params.stripe;
+  let stripeUser = user;
+
+  if (user.role !== "TENANT" && params.stripe === "connect-return") {
+    try {
+      stripeUser = await syncStripeConnectedAccount(user);
+      stripeStatus = getStripeConnectRedirectStatus(stripeUser);
+    } catch (error) {
+      console.error("[stripe] Failed to refresh Connect status after settings return", error);
+      stripeStatus = "connect-error";
+    }
+  }
+
   const appUrl = await getAppOrigin();
   const stripeSetup = {
     secretKey: Boolean(process.env.STRIPE_SECRET_KEY),
@@ -42,14 +59,18 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
     webhookUrl: `${appUrl}/api/stripe/webhook`
   };
   const stripeReady = stripeSetup.secretKey && stripeSetup.webhookSecret && stripeSetup.appUrl;
+  const stripeConnectState = getStripeConnectState(stripeUser);
   const managerConnect = {
-    accountId: user.stripeConnectedAccountId,
-    charges: Boolean(user.stripeChargesEnabled),
-    payouts: Boolean(user.stripePayoutsEnabled),
-    submitted: Boolean(user.stripeDetailsSubmitted),
-    ready: Boolean(user.stripeConnectedAccountId && user.stripeChargesEnabled && user.stripePayoutsEnabled && user.stripeOnboardingComplete)
+    accountId: getStripeAccountId(stripeUser),
+    charges: Boolean(stripeUser.stripeChargesEnabled),
+    payouts: Boolean(stripeUser.stripePayoutsEnabled),
+    submitted: Boolean(stripeUser.stripeDetailsSubmitted),
+    disabledReason: stripeUser.stripeDisabledReason,
+    currentlyDue: stripeUser.stripeCurrentlyDue ?? [],
+    eventuallyDue: stripeUser.stripeEventuallyDue ?? [],
+    ready: stripeConnectState.ready
   };
-  const stripeMessage = stripeSettingsMessage(params.stripe);
+  const stripeMessage = stripeSettingsMessage(stripeStatus);
 
   return (
     <div className="space-y-4">
@@ -76,7 +97,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
           id="payments-stripe"
           title="Payments / Stripe"
           description="Stripe onboarding, payout readiness, and webhook configuration live here so collections work stays focused."
-          actions={<Badge tone={stripeReady && managerConnect.ready ? "success" : "warning"}>{stripeReady && managerConnect.ready ? "Stripe Connected" : "Setup Required"}</Badge>}
+          actions={<Badge tone={stripeReady && managerConnect.ready ? "success" : stripeConnectState.tone}>{stripeReady && managerConnect.ready ? "Stripe connected" : stripeConnectState.label}</Badge>}
         >
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.45fr)]">
             <div className="space-y-4">
@@ -100,26 +121,40 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
                 </div>
                 <div className="panel-muted p-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Payout status</p>
-                  <p className="mt-2 text-sm font-semibold">
-                    {managerConnect.charges && managerConnect.payouts
-                      ? "Charges and payouts enabled"
-                      : managerConnect.submitted
-                        ? "Details submitted"
-                        : "Needs onboarding"}
-                  </p>
+                  <p className="mt-2 text-sm font-semibold">{stripeConnectState.label}</p>
+                  <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{stripeConnectState.detail}</p>
                 </div>
               </div>
+              {managerConnect.disabledReason || managerConnect.currentlyDue.length || managerConnect.eventuallyDue.length ? (
+                <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Stripe requirements</p>
+                  {managerConnect.disabledReason ? <p className="mt-2 text-sm font-semibold">{managerConnect.disabledReason}</p> : null}
+                  {managerConnect.currentlyDue.length ? (
+                    <p className="mt-2 text-xs leading-5 text-[var(--muted)]">Currently due: {managerConnect.currentlyDue.join(", ")}</p>
+                  ) : null}
+                  {managerConnect.eventuallyDue.length ? (
+                    <p className="mt-1 text-xs leading-5 text-[var(--muted)]">Eventually due: {managerConnect.eventuallyDue.join(", ")}</p>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Stripe webhook URL</p>
                 <p className="mt-2 break-all font-mono text-xs text-[var(--text)]">{stripeSetup.webhookUrl}</p>
               </div>
             </div>
             <div className="grid content-start gap-2">
-              {stripeReady ? (
+              {stripeReady && !managerConnect.ready ? (
                 <form action={connectStripeAccountAction}>
                   <SubmitButton className="w-full" pendingLabel="Opening Stripe...">
                     <ExternalLink className="h-4 w-4" />
-                    {managerConnect.accountId ? "Continue Stripe setup" : "Set up Stripe payouts"}
+                    {stripeConnectState.actionLabel}
+                  </SubmitButton>
+                </form>
+              ) : stripeReady && managerConnect.ready ? (
+                <form action={openStripeDashboardAction}>
+                  <SubmitButton className="w-full" pendingLabel="Opening...">
+                    <ExternalLink className="h-4 w-4" />
+                    Stripe dashboard
                   </SubmitButton>
                 </form>
               ) : (
@@ -134,12 +169,6 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
                     <SubmitButton className="w-full" variant="secondary" pendingLabel="Refreshing...">
                       <RefreshCw className="h-4 w-4" />
                       Refresh Stripe status
-                    </SubmitButton>
-                  </form>
-                  <form action={openStripeDashboardAction}>
-                    <SubmitButton className="w-full" variant="secondary" pendingLabel="Opening...">
-                      <ExternalLink className="h-4 w-4" />
-                      Stripe dashboard
                     </SubmitButton>
                   </form>
                 </>

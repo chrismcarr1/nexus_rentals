@@ -49,6 +49,10 @@ export const getPortalContext = cache(async (user: AppUser) => {
       : [];
   const tenantLeases = snapshot.leases.filter((lease) => tenantLeaseIds.includes(lease.id));
   const tenantUnitIds = tenantLeases.map((lease) => lease.unitId).filter(Boolean) as string[];
+  const tenantDirectPaymentUnitIds =
+    user.role === "TENANT" && tenantProfile
+      ? snapshot.payments.filter((payment) => payment.tenantId === tenantProfile.id).map((payment) => payment.unitId).filter(Boolean)
+      : [];
   const tenantPropertyIds = tenantLeases
     .map((lease) => {
       if (lease.propertyId) return lease.propertyId;
@@ -56,17 +60,20 @@ export const getPortalContext = cache(async (user: AppUser) => {
       return unit?.propertyId;
     })
     .filter(Boolean) as string[];
+  const tenantDirectPaymentPropertyIds = tenantDirectPaymentUnitIds
+    .map((unitId) => snapshot.units.find((candidate) => candidate.id === unitId)?.propertyId)
+    .filter(Boolean) as string[];
 
   const propertyIds =
     user.role === "ADMIN"
       ? snapshot.properties.map((property) => property.id)
       : user.role === "MANAGER"
         ? snapshot.properties.filter((property) => property.managerId === user.id).map((property) => property.id)
-        : Array.from(new Set(tenantPropertyIds));
+        : Array.from(new Set([...tenantPropertyIds, ...tenantDirectPaymentPropertyIds]));
 
   const unitIds =
     user.role === "TENANT"
-      ? Array.from(new Set(tenantUnitIds))
+      ? Array.from(new Set([...tenantUnitIds, ...tenantDirectPaymentUnitIds]))
       : snapshot.units.filter((unit) => propertyIds.includes(unit.propertyId)).map((unit) => unit.id);
   const leaseIds =
     user.role === "TENANT"
@@ -84,7 +91,14 @@ export const getPortalContext = cache(async (user: AppUser) => {
     units: snapshot.units.filter((unit) => unitIds.includes(unit.id)),
     leases: snapshot.leases.filter((lease) => leaseIds.includes(lease.id)),
     tenants: snapshot.tenants.filter((tenant) => tenantIds.includes(tenant.id)),
-    payments: snapshot.payments.filter((payment) => unitIds.includes(payment.unitId)),
+    payments: snapshot.payments.filter((payment) => {
+      if (user.role !== "TENANT") return unitIds.includes(payment.unitId);
+      if (tenantProfile && payment.tenantId === tenantProfile.id) return true;
+      if (!unitIds.includes(payment.unitId)) return false;
+      if (payment.tenantId) return false;
+      if (payment.leaseId && tenantLeaseIds.includes(payment.leaseId)) return true;
+      return false;
+    }),
     expenses: snapshot.expenses.filter((expense) => propertyIds.includes(expense.propertyId)),
     maintenance: snapshot.maintenanceRequests.filter((item) => {
       if (!propertyIds.includes(item.propertyId)) return false;

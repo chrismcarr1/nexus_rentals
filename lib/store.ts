@@ -49,11 +49,15 @@ export type User = {
   avatarPath?: string;
   title?: string;
   phone?: string;
+  stripeAccountId?: string;
   stripeConnectedAccountId?: string;
   stripeChargesEnabled?: boolean;
   stripePayoutsEnabled?: boolean;
   stripeDetailsSubmitted?: boolean;
   stripeOnboardingComplete?: boolean;
+  stripeDisabledReason?: string;
+  stripeCurrentlyDue?: string[];
+  stripeEventuallyDue?: string[];
   stripeUpdatedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -100,6 +104,7 @@ export type Payment = {
   id: string;
   unitId: string;
   leaseId?: string;
+  tenantId?: string;
   description: string;
   amount: number;
   dueDate: string;
@@ -300,6 +305,17 @@ export async function readStore(): Promise<AppStore> {
 }
 
 function normalizeStore(store: AppStore): AppStore {
+  const sourceLeases = store.leases ?? [];
+  const activeLeaseStatuses = new Set(["ACTIVE", "UPCOMING", "active", "invited"]);
+  const inferPaymentLease = (payment: Payment) => {
+    if (payment.leaseId) {
+      return sourceLeases.find((lease) => lease.id === payment.leaseId) ?? null;
+    }
+    return sourceLeases
+      .filter((lease) => lease.unitId === payment.unitId && activeLeaseStatuses.has(lease.status))
+      .sort((a, b) => (b.startDate ?? b.createdAt ?? "").localeCompare(a.startDate ?? a.createdAt ?? ""))[0] ?? null;
+  };
+
   return {
     ...emptyStore(),
     ...store,
@@ -340,6 +356,15 @@ function normalizeStore(store: AppStore): AppStore {
         dueDay: lease.dueDay ?? 1,
         securityDeposit: lease.securityDeposit ?? 0,
         recurringCharges: lease.recurringCharges ?? ""
+      };
+    }),
+    payments: (store.payments ?? []).map((payment) => {
+      const lease = inferPaymentLease(payment);
+      return {
+        ...payment,
+        tenantId: payment.tenantId ?? lease?.tenantIds?.[0],
+        lateFeeAmount: payment.lateFeeAmount ?? 0,
+        balanceDue: payment.balanceDue ?? (payment.status === "PAID" ? 0 : payment.amount)
       };
     })
   };

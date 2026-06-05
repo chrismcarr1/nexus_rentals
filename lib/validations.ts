@@ -197,6 +197,7 @@ export const applicationSubmissionSchema = z.object({
 export const paymentSchema = z.object({
   unitId: z.string().min(1),
   leaseId: z.string().optional(),
+  tenantId: z.string().optional(),
   description: z.string().min(2),
   amount: z.coerce.number().min(0),
   dueDate: z.string().min(1),
@@ -205,6 +206,12 @@ export const paymentSchema = z.object({
   lateFeeAmount: z.coerce.number().optional(),
   balanceDue: z.coerce.number().optional(),
   categoryTag: z.string().optional()
+});
+
+export const paymentEditSchema = z.object({
+  paymentId: z.string().min(1),
+  amount: z.coerce.number().min(0),
+  returnTo: z.string().optional()
 });
 
 export const expenseSchema = z.object({

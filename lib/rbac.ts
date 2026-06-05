@@ -71,7 +71,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/reports", label: "Reporting", icon: "fileCheck2", description: "Financials, compliance, and exports" },
       { href: "/settings", label: "Settings", icon: "shieldCheck", description: "Platform settings and permissions" }
     ],
-    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/maintenance", "/documents", "/reports", "/settings", "/units", "/expenses", "/ai-assessments"]
+    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/maintenance", "/documents", "/reports", "/settings", "/units", "/expenses", "/ai-assessments", "/api/stripe/connect"]
   },
   MANAGER: {
     label: "Manager",
@@ -90,7 +90,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/reports", label: "Reports", icon: "barChart3", description: "Portfolio reporting and operating visibility" },
       { href: "/settings", label: "Settings", icon: "settings", description: "Profile and assigned property context" }
     ],
-    routes: ["/dashboard", "/properties", "/units", "/tenants", "/leases", "/applications", "/move-ins", "/transactions", "/expenses", "/maintenance", "/messages", "/documents", "/reports", "/ai-assessments", "/settings", "/manager-guide"]
+    routes: ["/dashboard", "/properties", "/units", "/tenants", "/leases", "/applications", "/move-ins", "/transactions", "/expenses", "/maintenance", "/messages", "/documents", "/reports", "/ai-assessments", "/settings", "/manager-guide", "/api/stripe/connect"]
   },
   TENANT: {
     label: "Tenant",

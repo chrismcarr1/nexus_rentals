@@ -173,9 +173,10 @@ export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
       const mappedLeaseId = payment.leaseId ? leaseIdMap.get(payment.leaseId) ?? payment.leaseId : undefined;
       const lease = mappedLeaseId ? leases.find((item) => item.id === mappedLeaseId) ?? null : getCanonicalLeaseForUnit(normalizedStore, payment.unitId);
       if (!lease) return payment;
-      if (payment.leaseId === lease.id) return payment;
+      const tenantId = payment.tenantId ?? lease.tenantIds?.[0];
+      if (payment.leaseId === lease.id && payment.tenantId === tenantId) return payment;
       changed = true;
-      return { ...payment, leaseId: lease.id, updatedAt: now };
+      return { ...payment, leaseId: lease.id, tenantId, updatedAt: now };
     });
 
     const inspections = store.inspections.map((inspection) => {

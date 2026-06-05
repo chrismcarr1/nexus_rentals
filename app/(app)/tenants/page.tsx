@@ -46,7 +46,12 @@ export default async function TenantsPage({ searchParams }: { searchParams?: Pro
     const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) : null;
     const balance = unit
       ? portal.scope.payments
-          .filter((payment) => payment.unitId === unit.id && payment.status !== "PAID")
+          .filter((payment) => {
+            if (payment.status === "PAID") return false;
+            if (payment.tenantId) return payment.tenantId === tenant.id;
+            if (currentLease && payment.leaseId) return payment.leaseId === currentLease.id;
+            return !payment.leaseId && payment.unitId === unit.id;
+          })
           .reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0)
       : 0;
 

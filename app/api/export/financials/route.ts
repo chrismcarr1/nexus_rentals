@@ -15,6 +15,7 @@ const headers = [
   "Date",
   "Property",
   "Unit",
+  "Tenant",
   "Description",
   "Status",
   "Category",
@@ -64,7 +65,7 @@ function columnName(index: number) {
 
 function worksheetCell(value: ExportCell, rowIndex: number, columnIndex: number, header = false) {
   const reference = `${columnName(columnIndex)}${rowIndex + 1}`;
-  const numericColumns = new Set([7, 8, 9]);
+  const numericColumns = new Set([8, 9, 10]);
 
   if (typeof value === "number") {
     const style = numericColumns.has(columnIndex) ? ' s="2"' : "";
@@ -80,7 +81,7 @@ function worksheetRow(cells: ExportCell[], rowIndex: number, header = false) {
 }
 
 function worksheetXml(rows: ExportCell[][]) {
-  const columnWidths = [14, 12, 24, 10, 32, 12, 15, 14, 14, 14, 12, 20, 24, 22];
+  const columnWidths = [14, 12, 24, 10, 22, 32, 12, 15, 14, 14, 14, 12, 20, 24, 22];
   const allRows = [headers, ...rows];
   const lastRow = allRows.length;
   const lastColumn = columnName(headers.length - 1);
@@ -309,6 +310,11 @@ async function getFinancialExportRows(
     .map((payment) => {
       const unit = portal.scope.units.find((item) => item.id === payment.unitId);
       const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) : null;
+      const lease = payment.leaseId ? portal.scope.leases.find((item) => item.id === payment.leaseId) : null;
+      const tenant =
+        (payment.tenantId ? portal.scope.tenants.find((item) => item.id === payment.tenantId) : null) ??
+        (lease?.tenantIds?.[0] ? portal.scope.tenants.find((item) => item.id === lease.tenantIds[0]) : null) ??
+        null;
       const dueDate = asDate(payment.dueDate) ?? new Date(0);
 
       return {
@@ -318,6 +324,7 @@ async function getFinancialExportRows(
           dateLabel(payment.paidDate ?? payment.dueDate),
           property?.name ?? "",
           unit?.unitNumber ?? "",
+          tenant ? `${tenant.firstName} ${tenant.lastName}` : "",
           payment.description,
           payment.status,
           payment.categoryTag ?? "",
@@ -349,6 +356,7 @@ async function getFinancialExportRows(
           dateLabel(expense.incurredAt),
           property?.name ?? "",
           unit?.unitNumber ?? "",
+          "",
           expense.title,
           "",
           expense.category,
