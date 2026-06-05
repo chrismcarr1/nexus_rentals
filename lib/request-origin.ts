@@ -24,16 +24,16 @@ export async function getAppOrigin() {
 
   if (configuredOrigin) return configuredOrigin;
 
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("Missing APP_URL. Set it to the canonical production origin.");
-  }
-
   const headerStore = await headers();
   const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
   const proto = headerStore.get("x-forwarded-proto") ?? (host?.startsWith("localhost") || host?.startsWith("127.0.0.1") ? "http" : "https");
   const requestOrigin = normalizeOrigin(host ? `${proto}://${host}` : null);
 
   if (requestOrigin) return requestOrigin;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing APP_URL. Set it to the canonical production origin.");
+  }
 
   return "http://localhost:3000";
 }

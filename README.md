@@ -82,7 +82,7 @@ System admin access is reserved for the email in `SYSTEM_ADMIN_EMAIL` and should
 
 ## Password Reset Demo
 
-- Configure `RESEND_API_KEY` and `RESET_EMAIL_FROM`, then request a reset from `/forgot-password`.
+- Configure Cloudflare Email Service, then request a reset from `/forgot-password`.
 - Reset tokens are stored only as hashes and are never printed to logs or returned in page URLs.
 
 ## Environment Variables
@@ -101,13 +101,20 @@ STRIPE_WEBHOOK_SECRET=""
 OPENAI_API_KEY=""
 OPENAI_MAINTENANCE_MODEL="gpt-5.5"
 BLOB_READ_WRITE_TOKEN=""
-RESEND_API_KEY=""
-RESET_EMAIL_FROM="Nexus Rentals <no-reply@yourdomain.com>"
+CLOUDFLARE_EMAIL_FROM="Nexus Rentals <no-reply@yourdomain.com>"
+CLOUDFLARE_EMAIL_WORKER_URL=""
+CLOUDFLARE_EMAIL_WORKER_SECRET=""
+CLOUDFLARE_ACCOUNT_ID=""
+CLOUDFLARE_EMAIL_API_TOKEN=""
 ```
 
 `DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `BLOB_READ_WRITE_TOKEN` is optional for local development, where uploads fall back to `public/uploads`, but it is required in Vercel production for persistent photos and documents.
 
-Tenant invite emails require `RESEND_API_KEY` and `RESET_EMAIL_FROM`. Invite tokens are stored only as SHA-256 hashes in the hosted datastore; the raw token appears only in the tenant email link.
+Tenant invite and password reset emails use Cloudflare Email Service. Set `CLOUDFLARE_EMAIL_FROM` and either `CLOUDFLARE_EMAIL_WORKER_URL` plus `CLOUDFLARE_EMAIL_WORKER_SECRET`, or `CLOUDFLARE_ACCOUNT_ID` plus `CLOUDFLARE_EMAIL_API_TOKEN`. Invite tokens are stored only as SHA-256 hashes in the hosted datastore; the raw token appears only in the tenant email link.
+
+For the Worker option, copy `cloudflare/wrangler.email-worker.toml.example` to your Worker Wrangler config, update the sender address, deploy `cloudflare/email-worker.js`, and set the same secret in Cloudflare as `NEXUS_EMAIL_SECRET` and in Nexus as `CLOUDFLARE_EMAIL_WORKER_SECRET`. The Worker accepts either an `EMAIL` or `SEND_EMAIL` binding.
+
+Run `npm run email:check` to verify local email environment variables and Worker DNS without printing secrets. Logged-in managers and admins can also inspect `/api/email/diagnostics`; add `?probe=1` to test the Worker health endpoint after deploying the Nexus Worker code.
 
 Stripe rent checkout uses Connect destination charges. Tenant payments are created from the Nexus platform account, routed to the manager's connected Stripe account with `transfer_data.destination`, and include a fixed $1 Nexus platform fee through `application_fee_amount`.
 
@@ -169,12 +176,15 @@ Required Vercel environment variable for uploads:
 BLOB_READ_WRITE_TOKEN
 ```
 
-Required Vercel environment variables for tenant invite emails:
+Required Vercel environment variables for tenant invite and password reset emails:
 
 ```text
-RESEND_API_KEY
-RESET_EMAIL_FROM
+CLOUDFLARE_EMAIL_FROM
+CLOUDFLARE_EMAIL_WORKER_URL
+CLOUDFLARE_EMAIL_WORKER_SECRET
 ```
+
+If you do not use the Worker bridge, set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_EMAIL_API_TOKEN` instead of the Worker URL and secret.
 
 Required Vercel environment variable for AI photo maintenance drafting:
 
@@ -195,7 +205,7 @@ Recommended setup:
 3. Set `AUTH_SECRET` to a long random string.
 4. Set `APP_URL` to the deployed Vercel URL.
 5. Attach Vercel Blob and add `BLOB_READ_WRITE_TOKEN` so production uploads persist.
-6. Configure Resend and add `RESEND_API_KEY` plus `RESET_EMAIL_FROM` so tenant invites can be delivered.
+6. Configure Cloudflare Email Service and add the Cloudflare email environment variables so tenant invites and password resets can be delivered.
 7. Add `OPENAI_API_KEY` so AI photo maintenance drafting can analyze uploaded images.
 8. Run `npm run db:migrate` against the production database to create the table.
 9. Avoid seeding demo accounts in production. If you intentionally need demo data in a disposable environment, run `$env:ALLOW_DEMO_SEED="true"; npm run db:setup` and rotate the generated credentials afterward.

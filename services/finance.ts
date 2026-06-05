@@ -1,5 +1,6 @@
 import { addMonthsToDateKey, appDateIsBefore, appDateKeyFromValue, getAppDateKey, monthKeyFromValue } from "@/lib/app-time";
 import { db } from "@/lib/db";
+import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
 
 function leaseCountsAsCurrent(status: string) {
   return status === "ACTIVE" || status === "UPCOMING" || status === "active" || status === "invited";
@@ -10,6 +11,7 @@ function leaseCountsAsActive(status: string) {
 }
 
 export async function getDashboardSnapshot(organizationId: string) {
+  await ensureLeaseConnectionIntegrity(organizationId);
   const todayKey = getAppDateKey();
   const currentMonthKey = todayKey.slice(0, 7);
 

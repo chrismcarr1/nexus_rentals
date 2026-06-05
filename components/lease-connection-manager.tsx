@@ -14,7 +14,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 import { DataTable } from "@/components/data-table";
 import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
@@ -77,6 +77,9 @@ function formatCurrency(value: number | null) {
 }
 
 function combinedLeaseStatus(lease: LeaseRow) {
+  if (leaseIsPast(lease.status)) {
+    return { label: humanizeStatus(lease.status), detail: "Past lease", tone: "danger" as const };
+  }
   if (lease.tenantConnected && lease.status === "active") {
     return { label: "Active", detail: "Tenant connected", tone: "success" as const };
   }
@@ -100,9 +103,13 @@ function combinedLeaseStatus(lease: LeaseRow) {
 
 function leaseTone(status: string): "default" | "success" | "warning" | "danger" {
   if (status === "active") return "success";
-  if (status === "invited" || status === "draft") return "warning";
-  if (status === "ended" || status === "cancelled") return "danger";
+  if (status === "upcoming" || status === "invited" || status === "draft") return "warning";
+  if (leaseIsPast(status)) return "danger";
   return "default";
+}
+
+function leaseIsPast(status: string) {
+  return status === "expired" || status === "terminated" || status === "cancelled";
 }
 
 function humanizeStatus(value: string) {
@@ -202,14 +209,17 @@ export function LeaseConnectionManager({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [manualInviteUrl, setManualInviteUrl] = useState("");
+  const manualInviteInputId = useId();
   const [pendingAction, setPendingAction] = useState("");
 
   const propertyUnits = useMemo(() => units.filter((unit) => unit.propertyId === selectedPropertyId), [selectedPropertyId, units]);
   const selectedProperty = useMemo(() => properties.find((property) => property.id === selectedPropertyId) ?? null, [properties, selectedPropertyId]);
-  const pendingInvites = leases.filter((lease) => lease.inviteStatus === "pending").length;
-  const connectedTenants = leases.filter((lease) => lease.tenantConnected).length;
-  const activeLeases = leases.filter((lease) => lease.status === "active").length;
-  const endingSoon = leases.filter((lease) => {
+  const currentLeases = leases.filter((lease) => !leaseIsPast(lease.status));
+  const pastLeases = leases.filter((lease) => leaseIsPast(lease.status));
+  const pendingInvites = currentLeases.filter((lease) => lease.inviteStatus === "pending").length;
+  const connectedTenants = currentLeases.filter((lease) => lease.tenantConnected).length;
+  const activeLeases = currentLeases.filter((lease) => lease.status === "active").length;
+  const endingSoon = currentLeases.filter((lease) => {
     const days = daysUntil(lease.endDate);
     return lease.status === "active" && days != null && days >= 0 && days <= 60;
   }).length;
@@ -288,11 +298,17 @@ export function LeaseConnectionManager({
       if (!response.ok) throw new Error(payload.error || "Could not send invite.");
 
       await refreshLeases();
-      if (payload.inviteUrl && !payload.emailSent) {
+      if (payload.inviteUrl) {
         setManualInviteUrl(payload.inviteUrl);
-        setMessage("Email delivery is unavailable, but the tenant invite link is ready to share.");
+        setMessage(
+          payload.emailSent
+            ? "Tenant invite email was requested, and the invite link is ready to copy."
+            : payload.emailError
+              ? `Email delivery is unavailable: ${payload.emailError} The tenant invite link is ready to share.`
+              : "Email delivery is unavailable, but the tenant invite link is ready to share."
+        );
       } else {
-        setMessage("Tenant invite sent.");
+        setMessage(payload.emailSent ? "Tenant invite email was requested." : payload.emailError ? `Tenant invite created, but email delivery is unavailable: ${payload.emailError}` : "Tenant invite created.");
       }
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Could not send invite.");
@@ -329,7 +345,14 @@ export function LeaseConnectionManager({
     if (!manualInviteUrl) return;
 
     try {
-      await navigator.clipboard.writeText(manualInviteUrl);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(manualInviteUrl);
+      } else {
+        const input = document.getElementById(manualInviteInputId);
+        if (!(input instanceof HTMLInputElement)) throw new Error("Copy input not found.");
+        input.select();
+        document.execCommand("copy");
+      }
       setMessage("Invite link copied. Send it to the tenant from your email, text, or messaging app.");
     } catch {
       setError("Could not copy the invite link automatically. Select and copy it manually.");
@@ -380,13 +403,13 @@ export function LeaseConnectionManager({
               <p className="section-kicker">Delivery fallback</p>
               <h2 className="mt-2 text-xl font-semibold text-[var(--text)]">Manual invite link</h2>
               <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                Email delivery is unavailable. Copy this secure link and send it to the tenant directly.
+                Copy this secure link and send it to the tenant directly by text, email, or message.
               </p>
             </div>
-            <Badge tone="warning">Copy required</Badge>
+            <Badge tone="warning">Copy ready</Badge>
           </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-            <Input readOnly value={manualInviteUrl} className="font-mono text-xs" />
+            <Input id={manualInviteInputId} readOnly value={manualInviteUrl} className="font-mono text-xs" onFocus={(event) => event.currentTarget.select()} />
             <Button type="button" variant="secondary" onClick={() => void copyManualInviteLink()}>
               <Copy className="h-4 w-4" />
               Copy link
@@ -531,18 +554,18 @@ export function LeaseConnectionManager({
           <div className="border-b border-[var(--line)] p-5">
             <SectionHeader
               eyebrow="Lease records"
-              title="Connections and invite status"
-              description={`${connectedTenants} connected tenants, ${pendingInvites} pending invites, ${endingSoon} renewals to watch.`}
+              title="Current leases and invites"
+              description={`${currentLeases.length} current records, ${connectedTenants} connected tenants, ${pendingInvites} pending invites, ${endingSoon} renewals to watch.`}
             />
           </div>
 
-          {leases.length ? (
+          {currentLeases.length ? (
             <DataTable
               className="lease-records-table"
               minWidth="min(52rem, 100%)"
               columns={["Lease", "Tenant", "Property / unit", "Status", "Term", "Financials", ""]}
             >
-              {leases.map((lease) => {
+              {currentLeases.map((lease) => {
                 const canSend = lease.inviteStatus !== "accepted" && lease.status !== "active";
                 const canRevoke = lease.inviteStatus === "pending";
                 const daysLeft = daysUntil(lease.endDate);
@@ -634,15 +657,90 @@ export function LeaseConnectionManager({
             <div className="p-6">
               <div className="rounded-md border border-dashed border-[var(--line-strong)] bg-[var(--surface)] p-8 text-center">
                 <FileText className="mx-auto h-7 w-7 text-[var(--brand)]" />
-                <h3 className="mt-3 text-base font-semibold text-[var(--text)]">No leases yet</h3>
+                <h3 className="mt-3 text-base font-semibold text-[var(--text)]">No current leases</h3>
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted)]">
-                  Create a lease with a tenant email, then send an invite to connect the tenant account.
+                  Create a lease with a tenant email, then send an invite to connect the tenant account. Expired records are kept below.
                 </p>
               </div>
             </div>
           )}
         </Card>
       </div>
+
+      {pastLeases.length ? (
+        <Card className="overflow-hidden">
+          <div className="border-b border-[var(--line)] p-5">
+            <SectionHeader
+              eyebrow="Past leases"
+              title="Expired and closed records"
+              description={`${pastLeases.length} past lease${pastLeases.length === 1 ? "" : "s"} kept for reference, reporting, and history.`}
+            />
+          </div>
+          <DataTable
+            className="lease-records-table"
+            minWidth="min(52rem, 100%)"
+            columns={["Lease", "Tenant", "Property / unit", "Status", "Term", "Financials", ""]}
+          >
+            {pastLeases.map((lease) => {
+              const daysLeft = daysUntil(lease.endDate);
+              const status = combinedLeaseStatus(lease);
+              const tenantHasName = Boolean(lease.tenantFirstName || lease.tenantLastName);
+
+              return (
+                <tr key={lease.id} className="table-row">
+                  <td className="table-cell">
+                    <Link href={`/leases/${lease.id}`} className="table-link">
+                      <span className="inline-flex max-w-full items-center rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1 font-mono text-[11px] font-semibold text-[var(--muted-strong)]">
+                        <span className="truncate">{lease.nexusLeaseId ?? lease.id}</span>
+                      </span>
+                      <span className="mt-1.5 block truncate text-xs font-medium text-[var(--muted)]">Past lease</span>
+                    </Link>
+                  </td>
+                  <td className="table-cell">
+                    {tenantHasName ? (
+                      <>
+                        <span className="block truncate text-sm font-semibold text-[var(--text)]">{lease.tenantLastName || "Last name"}</span>
+                        <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{lease.tenantFirstName || "First name"}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="block truncate text-sm font-semibold text-[var(--text)]">Past tenant</span>
+                        <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{lease.tenantEmail || "Email not set"}</span>
+                      </>
+                    )}
+                  </td>
+                  <td className="table-cell">
+                    <span className="block truncate text-sm font-medium text-[var(--text)]">{lease.property?.name ?? "Property"}</span>
+                    <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">
+                      {lease.unit?.unitNumber ? `Unit ${lease.unit.unitNumber}` : "No unit assigned"}
+                    </span>
+                  </td>
+                  <td className="table-cell">
+                    <Badge tone={status.tone}>{status.label}</Badge>
+                    <span className="mt-1 block text-xs text-[var(--muted)]">{status.detail}</span>
+                  </td>
+                  <td className="table-cell">
+                    <span className="block truncate text-xs font-medium text-[var(--muted)]">{formatShortDate(lease.startDate)} - {formatShortDate(lease.endDate)}</span>
+                    <span className="mt-1 block text-xs text-[var(--muted)]">
+                      {daysLeft != null && daysLeft < 0 ? `${Math.abs(daysLeft)}d past end` : "Closed lease"}
+                    </span>
+                  </td>
+                  <td className="table-cell">
+                    <span className="block truncate text-sm font-semibold text-[var(--text)]">{formatCurrency(lease.monthlyRent)}</span>
+                    <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">Deposit {formatCurrency(lease.securityDeposit)}</span>
+                  </td>
+                  <td className="table-cell text-right">
+                    <RowActionsMenu>
+                      <RowActionLink href={`/leases/${lease.id}`}>View</RowActionLink>
+                      {lease.unit?.id ? <RowActionLink href={`/units/${lease.unit.id}`}>View unit</RowActionLink> : null}
+                    </RowActionsMenu>
+                  </td>
+                </tr>
+              );
+            })}
+          </DataTable>
+        </Card>
+      ) : null}
     </div>
   );
 }

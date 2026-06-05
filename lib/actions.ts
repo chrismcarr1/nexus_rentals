@@ -31,6 +31,7 @@ import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmitted
 import { INVITE_TTL_MS, ensureLeaseConnectionIntegrity, generateInviteToken, hashInviteToken, isActiveLeaseStatus } from "@/lib/lease-connections";
 import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
+import { formatPhoneNumber } from "@/lib/phone";
 import { getAppOrigin } from "@/lib/request-origin";
 import { FileKind, UserRole, createId, nowIso, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
 import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe } from "@/lib/stripe";
@@ -1157,7 +1158,8 @@ export async function createMoveInAction(formData: FormData) {
   });
 
   if (!result.success) {
-    redirect("/move-ins/new?error=invalid");
+    const message = result.error.issues[0]?.message ?? "Review the move-in details and complete all required fields.";
+    redirect(`/move-ins/new?error=${encodeURIComponent(message)}`);
   }
 
   const parsed = result.data;
@@ -1173,6 +1175,8 @@ export async function createMoveInAction(formData: FormData) {
     expiresAt: string;
   } | null = null;
   let inviteStatus = parsed.sendInvite ? "pending" : "skipped";
+  let createdInviteUrl: string | null = null;
+  let inviteEmailError: string | null = null;
 
   try {
     await updateStore((store) => {
@@ -1262,7 +1266,7 @@ export async function createMoveInAction(formData: FormData) {
           tenantId,
           description: "First month's rent",
           amount: parsed.monthlyRent,
-          dueDate: toIsoDate(parsed.firstRentDueDate),
+          dueDate: toIsoDate(parsed.firstRentDueDate!),
           status: "PENDING" as const,
           lateFeeAmount: 0,
           balanceDue: parsed.monthlyRent,
@@ -1279,7 +1283,7 @@ export async function createMoveInAction(formData: FormData) {
           tenantId,
           description: "Security deposit",
           amount: parsed.securityDeposit,
-          dueDate: toIsoDate(parsed.securityDepositDueDate),
+          dueDate: toIsoDate(parsed.securityDepositDueDate!),
           status: "PENDING" as const,
           lateFeeAmount: 0,
           balanceDue: parsed.securityDeposit,
@@ -1393,21 +1397,28 @@ export async function createMoveInAction(formData: FormData) {
     redirect(`/move-ins/new?error=${encodeURIComponent(message)}`);
   }
 
-  await ensureScheduledLeasePayments(user.organizationId);
+  try {
+    await ensureScheduledLeasePayments(user.organizationId);
+  } catch (error) {
+    console.warn("[move-in] Lease payment scheduler did not run after move-in creation", error);
+  }
 
   if (rawInviteToken && inviteEmailInput) {
     try {
       const origin = await getAppOrigin();
       const inviteUrl = `${origin}/invite/${encodeURIComponent(rawInviteToken)}`;
+      createdInviteUrl = inviteUrl;
       const emailResult = await sendTenantInviteEmail({
         ...inviteEmailInput,
         inviteUrl,
         expiresAt: new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(inviteEmailInput.expiresAt))
       });
       inviteStatus = emailResult.sent ? "sent" : "pending";
+      inviteEmailError = emailResult.error ?? null;
     } catch (error) {
       console.warn("[move-in] Tenant invite email was not sent", error);
       inviteStatus = "pending";
+      inviteEmailError = error instanceof Error ? error.message : "Tenant invite email failed.";
     }
   }
 
@@ -1420,7 +1431,17 @@ export async function createMoveInAction(formData: FormData) {
   if (parsed.applicationSubmissionId) {
     revalidatePath("/applications");
   }
-  redirect(`/leases/${createdLeaseId}?moveIn=created&invite=${inviteStatus}`);
+  const successParams = new URLSearchParams({
+    moveIn: "created",
+    invite: inviteStatus
+  });
+  if (createdInviteUrl) {
+    successParams.set("inviteUrl", createdInviteUrl);
+  }
+  if (inviteEmailError) {
+    successParams.set("inviteError", inviteEmailError);
+  }
+  redirect(`/leases/${createdLeaseId}?${successParams.toString()}`);
 }
 
 export async function createLeaseAction(formData: FormData) {
@@ -1960,7 +1981,7 @@ export async function updateProfileAction(formData: FormData) {
     data: {
       firstName: getString(formData, "firstName"),
       lastName: getString(formData, "lastName"),
-      phone: getOptionalString(formData, "phone"),
+      phone: formatPhoneNumber(getOptionalString(formData, "phone")) || undefined,
       title: getOptionalString(formData, "title")
     }
   });

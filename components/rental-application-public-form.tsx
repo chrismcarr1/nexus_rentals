@@ -11,6 +11,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { Textarea } from "@/components/ui/textarea";
 import { submitRentalApplicationAction } from "@/lib/actions";
 import { formatAppDate } from "@/lib/app-time";
+import { formatPhoneNumber } from "@/lib/phone";
 
 export type PublicApplicationPayload = {
   publicSlug: string;
@@ -228,7 +229,7 @@ export function RentalApplicationPublicForm({
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block"><FieldLabel label="Email" /><Input type="email" value={form.email} onChange={(event) => patch({ email: event.target.value })} /></label>
-              <label className="block"><FieldLabel label="Phone" hint={required.has("phone") ? "Required" : "Optional"} /><Input value={form.phone} onChange={(event) => patch({ phone: event.target.value })} /></label>
+              <label className="block"><FieldLabel label="Phone" hint={required.has("phone") ? "Required" : "Optional"} /><Input type="tel" inputMode="tel" maxLength={14} value={form.phone} onChange={(event) => patch({ phone: formatPhoneNumber(event.target.value) })} /></label>
             </div>
             <label className="block"><FieldLabel label="Date of birth" hint="Optional" /><Input type="date" value={form.dateOfBirth} onChange={(event) => patch({ dateOfBirth: event.target.value })} /></label>
           </div>
@@ -257,7 +258,7 @@ export function RentalApplicationPublicForm({
                   <Input value={form.coApplicantFirstName} onChange={(event) => patch({ coApplicantFirstName: event.target.value })} placeholder="First name" />
                   <Input value={form.coApplicantLastName} onChange={(event) => patch({ coApplicantLastName: event.target.value })} placeholder="Last name" />
                   <Input type="email" value={form.coApplicantEmail} onChange={(event) => patch({ coApplicantEmail: event.target.value })} placeholder="Email" />
-                  <Input value={form.coApplicantPhone} onChange={(event) => patch({ coApplicantPhone: event.target.value })} placeholder="Phone" />
+                  <Input type="tel" inputMode="tel" maxLength={14} value={form.coApplicantPhone} onChange={(event) => patch({ coApplicantPhone: formatPhoneNumber(event.target.value) })} placeholder="Phone" />
                 </div>
               </div>
             ) : null}

@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { SubmitButton } from "@/components/ui/submit-button";
 import {
   connectStripeAccountAction,
@@ -193,7 +194,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
             <form action={updateSettingsAction} className="mt-6 space-y-4">
               <input name="name" defaultValue={user.organization.name} className="field" />
               <input name="email" defaultValue={user.organization.email} className="field" />
-              <input name="phone" defaultValue={user.organization.phone ?? ""} className="field" />
+              <PhoneInput name="phone" defaultValue={user.organization.phone ?? ""} />
               <AddressFields
                 fieldNames={MAILING_ADDRESS_FORM_FIELDS}
                 defaultValue={parseAddressText(user.organization.mailingAddress)}
@@ -211,7 +212,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
                 <input name="firstName" defaultValue={user.firstName} className="field" />
                 <input name="lastName" defaultValue={user.lastName} className="field" />
               </div>
-              <input name="phone" defaultValue={user.phone ?? ""} className="field" />
+              <PhoneInput name="phone" defaultValue={user.phone ?? ""} />
               <input name="title" defaultValue={user.title ?? ""} className="field" />
               <SubmitButton>Save profile</SubmitButton>
             </form>

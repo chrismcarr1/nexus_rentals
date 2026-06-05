@@ -1,0 +1,15 @@
+name = "nexus-email-worker"
+main = "cloudflare/email-worker.js"
+compatibility_date = "2026-06-05"
+
+[[send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["welcome@noreply.nexusrentals.co"]
+
+[vars]
+DEFAULT_FROM_EMAIL = "welcome@noreply.nexusrentals.co"
+# Optional: forward inbound email handled by this Worker.
+FORWARD_TO_EMAIL = "destination@example.com"
+
+# Add this as a secret, not a plain var:
+# wrangler secret put NEXUS_EMAIL_SECRET

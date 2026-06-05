@@ -13,6 +13,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { Textarea } from "@/components/ui/textarea";
 import { createMoveInAction } from "@/lib/actions";
 import { addMonthsToDateKey, appDateKeyFromValue, DEFAULT_RENT_DUE_TIME, formatAppDate, formatRentDueTime, getAppDateKey, isValidRentDueTime } from "@/lib/app-time";
+import { formatPhoneNumber } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 
 export type MoveInPropertyOption = {
@@ -152,7 +153,7 @@ export function NewMoveInWizard({
     tenantFirstName: prefill?.tenantFirstName ?? "",
     tenantLastName: prefill?.tenantLastName ?? "",
     tenantEmail: prefill?.tenantEmail ?? "",
-    tenantPhone: prefill?.tenantPhone ?? "",
+    tenantPhone: formatPhoneNumber(prefill?.tenantPhone ?? ""),
     employer: "",
     emergencyName: "",
     emergencyPhone: "",
@@ -394,7 +395,7 @@ export function NewMoveInWizard({
                   </label>
                   <label className="block">
                     <FieldLabel label="Phone" hint="Optional" />
-                    <Input value={form.tenantPhone} onChange={(event) => patch({ tenantPhone: event.target.value })} />
+                    <Input type="tel" inputMode="tel" maxLength={14} value={form.tenantPhone} onChange={(event) => patch({ tenantPhone: formatPhoneNumber(event.target.value) })} />
                   </label>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -409,7 +410,7 @@ export function NewMoveInWizard({
                 </div>
                 <label className="block">
                   <FieldLabel label="Emergency phone" hint="Optional" />
-                  <Input value={form.emergencyPhone} onChange={(event) => patch({ emergencyPhone: event.target.value })} />
+                  <Input type="tel" inputMode="tel" maxLength={14} value={form.emergencyPhone} onChange={(event) => patch({ emergencyPhone: formatPhoneNumber(event.target.value) })} />
                 </label>
               </div>
             </div>

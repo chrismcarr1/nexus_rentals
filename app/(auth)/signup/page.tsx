@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { AddressFields, MAILING_ADDRESS_FORM_FIELDS } from "@/components/address-fields";
 import { PasswordField } from "@/components/password-field";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { signupAction } from "@/lib/actions";
 
 export default async function SignupPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
@@ -67,7 +68,7 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
           <PasswordField name="confirmPassword" required minLength={8} label="Confirm password" />
           <label className="block">
             <span className="mb-2 block text-sm font-medium">Phone</span>
-            <input name="phone" className="field" />
+            <PhoneInput name="phone" />
           </label>
           <AddressFields
             fieldNames={MAILING_ADDRESS_FORM_FIELDS}

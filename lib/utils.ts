@@ -2,7 +2,7 @@ import { clsx, type ClassValue } from "clsx";
 import { format, isThisMonth, isToday } from "date-fns";
 import { twMerge } from "tailwind-merge";
 
-import { formatAppDate } from "@/lib/app-time";
+import { formatAppDate } from "./app-time";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

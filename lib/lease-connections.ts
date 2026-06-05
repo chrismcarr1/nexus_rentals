@@ -3,10 +3,10 @@ import "server-only";
 import { createHash, randomBytes } from "crypto";
 
 import { normalizeEmail } from "@/lib/admin";
-import { dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, normalizeRentDueTime } from "@/lib/app-time";
+import { appDateIsAfter, appDateIsBefore, dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, getAppDateKey, normalizeRentDueTime } from "@/lib/app-time";
 import { formatAddress, formatUnitAddress } from "@/lib/address";
 import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
-import { createId, nowIso, readStore, updateStore, type AppStore, type Lease, type TenantInvite, type User } from "@/lib/store";
+import { createId, nowIso, readStore, updateStore, type AppStore, type Lease, type LeaseStatus, type TenantInvite, type UnitOccupancyStatus, type User } from "@/lib/store";
 
 export const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
@@ -23,9 +23,34 @@ export function isActiveLeaseStatus(status?: string) {
 }
 
 export function publicLeaseStatus(status: string) {
-  if (status === "ACTIVE" || status === "UPCOMING") return "active";
-  if (status === "EXPIRED" || status === "TERMINATED") return "ended";
+  if (status === "ACTIVE" || status === "active") return "active";
+  if (status === "UPCOMING") return "upcoming";
+  if (status === "EXPIRED" || status === "ended") return "expired";
+  if (status === "TERMINATED") return "terminated";
   return status;
+}
+
+export function isPastLeaseStatus(status?: string) {
+  const publicStatus = status ? publicLeaseStatus(status) : "";
+  return publicStatus === "expired" || publicStatus === "terminated" || publicStatus === "cancelled";
+}
+
+function normalizeLeaseLifecycleStatus(lease: Lease, todayKey = getAppDateKey()): LeaseStatus {
+  if (lease.status === "TERMINATED" || lease.status === "cancelled") return lease.status;
+  if (lease.endDate && appDateIsBefore(lease.endDate, todayKey)) return "EXPIRED";
+  if (lease.status === "EXPIRED" || lease.status === "ended") return "EXPIRED";
+  if (lease.status === "draft" || lease.status === "invited") return lease.status;
+  if (lease.startDate && appDateIsAfter(lease.startDate, todayKey)) return "UPCOMING";
+  if (lease.status === "UPCOMING" || lease.status === "ACTIVE" || lease.status === "active") return "ACTIVE";
+  return lease.status;
+}
+
+function leaseDrivenUnitState(leases: Array<{ status: LeaseStatus }>): { leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus } | null {
+  if (!leases.length) return null;
+  if (leases.some((lease) => lease.status === "ACTIVE" || lease.status === "active")) return { leaseStatus: "ACTIVE", occupancyStatus: "OCCUPIED" };
+  if (leases.some((lease) => lease.status === "UPCOMING" || lease.status === "invited" || lease.status === "draft")) return { leaseStatus: "UPCOMING", occupancyStatus: "VACANT" };
+  if (leases.some((lease) => lease.status === "TERMINATED" || lease.status === "cancelled")) return { leaseStatus: "TERMINATED", occupancyStatus: "VACANT" };
+  return { leaseStatus: "EXPIRED", occupancyStatus: "VACANT" };
 }
 
 export function getInviteStatus(invite?: TenantInvite | null) {
@@ -83,6 +108,7 @@ function getCanonicalLeaseForUnit(store: AppStore, unitId?: string) {
 export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
   await updateStore((store) => {
     const now = nowIso();
+    const todayKey = getAppDateKey();
     let changed = false;
     const seenLeaseIds = new Set<string>();
     const seenNexusIds = new Set<string>();
@@ -136,6 +162,7 @@ export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
       const resolvedManagerUserId = lease.managerUserId ?? property?.managerId;
       const resolvedTenantUserId = lease.tenantUserId ?? matchedTenantUser?.id;
       const resolvedTenantEmail = lease.tenantEmail ?? (tenantEmail || undefined);
+      const resolvedStatus = normalizeLeaseLifecycleStatus(lease, todayKey);
       const leaseChanged =
         id !== lease.id ||
         nexusLeaseId !== lease.nexusLeaseId ||
@@ -143,6 +170,7 @@ export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
         (lease.managerUserId ?? undefined) !== resolvedManagerUserId ||
         (lease.tenantUserId ?? undefined) !== resolvedTenantUserId ||
         (lease.tenantEmail ?? undefined) !== resolvedTenantEmail ||
+        lease.status !== resolvedStatus ||
         tenantIds.length !== (lease.tenantIds ?? []).length;
 
       const next = {
@@ -154,6 +182,7 @@ export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
         tenantUserId: resolvedTenantUserId,
         tenantEmail: resolvedTenantEmail,
         tenantIds,
+        status: resolvedStatus,
         updatedAt: leaseChanged ? now : lease.updatedAt
       };
 
@@ -169,6 +198,14 @@ export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
       if (!lease?.managerUserId) return property;
       changed = true;
       return { ...property, managerId: lease.managerUserId, updatedAt: now };
+    });
+
+    const units = store.units.map((unit) => {
+      const nextState = leaseDrivenUnitState(leases.filter((lease) => lease.unitId === unit.id));
+      if (!nextState) return unit;
+      if (unit.leaseStatus === nextState.leaseStatus && unit.occupancyStatus === nextState.occupancyStatus) return unit;
+      changed = true;
+      return { ...unit, ...nextState, updatedAt: now };
     });
 
     const payments = store.payments.map((payment) => {
@@ -224,7 +261,7 @@ export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
       return { ...next, updatedAt: now };
     });
 
-    return changed ? { ...store, properties, leases, payments, inspections, tenantInvites, discussionThreads } : store;
+    return changed ? { ...store, properties, units, leases, payments, inspections, tenantInvites, discussionThreads } : store;
   });
 }
 
@@ -377,6 +414,7 @@ export async function createTenantInvite(leaseId: string, manager: User) {
     if (!targetLease) throw new Error("Lease not found.");
     if (!userOwnsLease(store, manager, targetLease)) throw new Error("Lease not found.");
     if (!targetLease.tenantEmail) throw new Error("Lease is missing a tenant email.");
+    if (isPastLeaseStatus(normalizeLeaseLifecycleStatus(targetLease))) throw new Error("Expired leases cannot receive new tenant invites.");
 
     const now = nowIso();
     invite = {
