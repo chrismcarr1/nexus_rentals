@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
-import { BookOpen, Building2, ChevronDown, Gauge, LogOut, Settings, UserRound } from "lucide-react";
+import { BookOpen, ChevronDown, Gauge, LogOut, Settings, UserRound } from "lucide-react";
 
 import { DropdownDismissListener } from "@/components/dropdown-dismiss-listener";
 import { SidebarNav } from "@/components/sidebar-nav";
@@ -52,46 +52,39 @@ export function AppShell({
     <div className="app-frame">
       <DropdownDismissListener />
       <div className="app-shell-layout">
-        <aside className="surface-panel app-sidebar">
-          <Link href="/dashboard" className="mb-4 flex items-center gap-2.5 rounded-md px-1.5 py-1.5 transition hover:bg-[var(--surface-hover)]">
-            <div className="app-brand-mark flex h-10 w-10 items-center justify-center text-sm font-bold">NR</div>
+        <aside className="app-sidebar">
+          <Link href="/dashboard" className="app-sidebar-brand">
+            <div className="app-brand-mark flex h-8 w-8 items-center justify-center text-xs font-bold">NR</div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-[var(--text)]">Nexus Rentals</p>
-              <p className="truncate text-xs text-[var(--muted)]">Property operations</p>
+              <p className="truncate text-sm font-semibold text-white">Nexus</p>
+              <p className="truncate text-[11px] text-[var(--sidebar-muted)]">{user.organization.name}</p>
             </div>
           </Link>
-          <div className="mb-2">
-            <span className="role-tag">{role.label}</span>
+          <div className="app-sidebar-scroll">
+            <SidebarNav items={role.nav} />
           </div>
-          <SidebarNav items={role.nav} />
-          <div className="mt-auto space-y-3">
+          <div className="app-sidebar-footer">
             {guideLink ? (
               <Link
                 href={guideLink.href}
                 className={cn(
-                  "group flex items-center gap-2.5 rounded-md border px-3 py-2.5 transition duration-150",
+                  "group flex items-center gap-2.5 px-3 py-2 transition duration-150",
                   pathname === guideLink.href
-                    ? "border-[var(--brand)] bg-[var(--accent-soft)] text-[var(--text)]"
-                    : "border-transparent bg-transparent text-[var(--muted)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                    ? "bg-[var(--sidebar-active)] text-white"
+                    : "text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-hover)] hover:text-white"
                 )}
               >
-                <span
-                  className={cn(
-                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition",
-                    pathname === guideLink.href ? "border-[var(--brand)] bg-white text-[var(--brand)]" : "border-[var(--line)] bg-[var(--panel)] text-[var(--muted)] group-hover:border-[var(--line-strong)]"
-                  )}
-                >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center text-[var(--sidebar-muted)] group-hover:text-white">
                   <BookOpen className="h-4 w-4" />
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-sm font-semibold">{guideLink.label}</span>
-                  <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{guideLink.description}</span>
+                  <span className="block truncate text-xs font-medium">{user.role === "MANAGER" ? "Manager guide" : "Renter guide"}</span>
                 </span>
               </Link>
             ) : null}
             <div ref={accountMenuRef} className="relative">
               {accountOpen ? (
-                <div className="absolute bottom-[calc(100%+10px)] left-0 right-0 z-30 rounded-md border border-[var(--line)] bg-[var(--surface-strong)] p-2 shadow-[0_18px_40px_rgba(0,0,0,0.36)]">
+                <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-30 border border-[var(--line)] bg-white p-1.5 shadow-[0_16px_36px_rgba(15,23,42,0.18)]">
                   <div className="px-3 py-2">
                     <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">Signed in as</p>
                     <p className="mt-1 truncate text-sm font-semibold text-[var(--text)]">{user.firstName} {user.lastName}</p>
@@ -128,21 +121,18 @@ export function AppShell({
                 onClick={() => setAccountOpen((open) => !open)}
                 aria-expanded={accountOpen}
                 className={cn(
-                  "flex w-full items-center gap-2.5 rounded-md border bg-[var(--panel)] p-2.5 text-left transition hover:bg-[var(--surface-hover)]",
-                  accountOpen ? "border-[var(--brand)] shadow-[0_10px_24px_rgba(0,0,0,0.32)]" : "border-[var(--line)]"
+                  "flex w-full items-center gap-2.5 border-t border-[var(--sidebar-line)] px-2 py-3 text-left transition hover:bg-[var(--sidebar-hover)]",
+                  accountOpen && "bg-[var(--sidebar-hover)]"
                 )}
               >
                 <div className="avatar-mark flex h-9 w-9 shrink-0 items-center justify-center text-xs font-bold">
                   {initials(user.firstName, user.lastName)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-[var(--text)]">{user.firstName} {user.lastName}</p>
-                  <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-[var(--muted)]">
-                    <Building2 className="h-3.5 w-3.5 shrink-0" />
-                    {user.organization.name}
-                  </p>
+                  <p className="truncate text-sm font-medium text-white">{user.firstName} {user.lastName}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-[var(--sidebar-muted)]">{role.label}</p>
                 </div>
-                <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--muted)] transition", accountOpen && "rotate-180")} />
+                <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--sidebar-muted)] transition", accountOpen && "rotate-180")} />
               </button>
             </div>
           </div>
@@ -155,9 +145,7 @@ export function AppShell({
             searchQuery={searchQuery}
             searchResults={searchResults}
           />
-          <div className="app-content">
-            {children}
-          </div>
+          <div className="app-content"><div className="app-content-inner">{children}</div></div>
         </main>
       </div>
     </div>

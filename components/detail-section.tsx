@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { DetailPanel } from "@/components/detail-panel";
 
 export function DetailSection({
   id,
@@ -16,7 +17,7 @@ export function DetailSection({
   className?: string;
 }) {
   return (
-    <section id={id} className={cn("surface-panel detail-section", className)}>
+    <DetailPanel id={id} className={cn("detail-section", className)}>
       <div className="detail-section-header">
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-[var(--text)]">{title}</h2>
@@ -25,6 +26,6 @@ export function DetailSection({
         {actions ? <div className="shrink-0">{actions}</div> : null}
       </div>
       <div className="detail-section-body">{children}</div>
-    </section>
+    </DetailPanel>
   );
 }

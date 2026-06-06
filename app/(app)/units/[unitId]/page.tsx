@@ -2,9 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Plus } from "lucide-react";
 
+import { DataTable } from "@/components/data-table";
+import { DetailSection } from "@/components/detail-section";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
 import { SingleUploadInput } from "@/components/upload-inputs";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { addUnitAssetAction } from "@/lib/actions";
 import { formatUnitAddress } from "@/lib/address";
@@ -42,97 +46,98 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
     unit.property.managerId === user.id &&
     ["VACANT", "TURNOVER"].includes(unit.occupancyStatus) &&
     !unit.leases.some((lease) => ["ACTIVE", "UPCOMING", "active", "invited", "draft"].includes(lease.status));
+  const activeLease = unit.leases.find((lease) => ["ACTIVE", "UPCOMING", "active", "upcoming"].includes(lease.status));
 
   return (
     <div className="space-y-4">
-      <Card className="p-6">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <p className="text-sm uppercase tracking-[0.24em] text-[var(--brand)]">Unit detail</p>
-            <h1 className="page-title mt-3 font-[var(--font-display)]">
-              {unit.property.name} <span className="text-[var(--brand)]">{unit.unitNumber}</span>
-            </h1>
-            <p className="mt-3 text-sm text-stone-600">{formatUnitAddress(unit.property, unit)}</p>
-            <p className="mt-4 text-sm text-stone-600">{unit.nickname || unit.unitType} - {unit.bedrooms} bd / {unit.bathrooms} ba / {unit.squareFeet ?? "n/a"} sf</p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {parseTags(unit.amenities).map((tag) => <Badge key={tag}>{tag}</Badge>)}
-            </div>
-          </div>
-          <div className="panel-muted p-5">
-            <p className="text-3xl font-semibold">{formatCurrency(unit.monthlyRent)}/mo</p>
-            <p className="mt-2 text-sm text-stone-500">Deposit {formatCurrency(unit.depositAmount)}</p>
-            <div className="mt-4 flex gap-2">
-              <Badge tone={unit.occupancyStatus === "OCCUPIED" ? "success" : "warning"}>{unit.occupancyStatus}</Badge>
-              <Badge>{unit.leaseStatus}</Badge>
-            </div>
-            {canStartMoveIn ? (
+      <PageHeader
+        eyebrow="Unit detail"
+        title={`${unit.property.name} / Unit ${unit.unitNumber}`}
+        description={`${formatUnitAddress(unit.property, unit)} · ${unit.nickname || unit.unitType} · ${unit.bedrooms} bd / ${unit.bathrooms} ba / ${unit.squareFeet ?? "n/a"} sf`}
+        actions={
+          canStartMoveIn ? (
               <Link
                 href={`/move-ins/new?propertyId=${encodeURIComponent(unit.propertyId)}&unitId=${encodeURIComponent(unit.id)}`}
-                className="mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]"
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]"
               >
                 <Plus className="h-4 w-4" />
                 New Move-In
               </Link>
-            ) : null}
-          </div>
-        </div>
-      </Card>
+          ) : null
+        }
+      />
 
-      <section className="content-split-tight">
-        <Card className="p-6">
-          <p className="text-sm uppercase tracking-[0.24em] text-stone-400">Gallery</p>
-          <div className="card-grid-compact mt-5">
+      <div className="ops-grid">
+        <StatCard label="Monthly rent" value={formatCurrency(unit.monthlyRent)} detail={`Deposit ${formatCurrency(unit.depositAmount)}`} />
+        <StatCard label="Occupancy" value={unit.occupancyStatus} detail={activeLease ? "Lease assigned" : "No active lease"} tone={unit.occupancyStatus === "OCCUPIED" ? "success" : "warning"} />
+        <StatCard label="Lease status" value={unit.leaseStatus} detail={activeLease ? `Through ${formatDateOrUnset(activeLease.endDate)}` : "No current term"} />
+        <StatCard label="Work orders" value={unit.maintenance.length} detail="Recent requests in view" tone={unit.maintenance.length ? "warning" : "success"} />
+      </div>
+
+      {parseTags(unit.amenities).length ? (
+        <div className="flex flex-wrap gap-2 border-b border-[var(--line)] pb-4">
+          {parseTags(unit.amenities).map((tag) => <Badge key={tag}>{tag}</Badge>)}
+        </div>
+      ) : null}
+
+      <DetailSection title="Unit gallery" description="Reference photos and unit-specific visual records.">
+        {unitFiles.length ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {unitFiles.map((file) => (
-              <div key={file.id} className="overflow-hidden rounded-2xl border border-[var(--line)] bg-white">
+              <figure key={file.id} className="overflow-hidden rounded-md border border-[var(--line)] bg-white">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={file.path} alt={file.label ?? "Unit image"} className="h-40 w-full object-cover" />
-                <div className="p-3 text-sm text-stone-500">{file.kind}</div>
-              </div>
+                <figcaption className="border-t border-[var(--line)] px-3 py-2 text-xs font-medium text-[var(--muted)]">{file.kind}</figcaption>
+              </figure>
             ))}
           </div>
+        ) : (
+          <EmptyState title="No unit photos" description="Upload the first unit image to build a visual record for inspections, listings, and turnover." />
+        )}
+        <div className="mt-5 border-t border-[var(--line)] pt-5">
           <form action={addUnitAssetAction} className="mt-6 space-y-4">
             <input type="hidden" name="unitId" value={unit.id} />
             <input type="hidden" name="kind" value="UNIT_IMAGE" />
             <SingleUploadInput name="path" label="Upload new gallery image" />
             <SubmitButton>Add to gallery</SubmitButton>
           </form>
-        </Card>
-        <div className="space-y-4">
-          <Card className="p-6">
-            <p className="text-sm uppercase tracking-[0.24em] text-stone-400">Lease history</p>
-            <div className="mt-5 space-y-3">
-              {unit.leases.map((lease) => (
-                <div key={lease.id} className="panel-muted p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold">{lease.tenants.map((row) => `${row.tenant.firstName} ${row.tenant.lastName}`).join(", ") || "Unassigned"}</p>
-                      <p className="text-sm text-stone-500">{formatDateOrUnset(lease.startDate)} - {formatDateOrUnset(lease.endDate)}</p>
-                    </div>
-                    <Badge>{lease.status}</Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-          <Card className="p-6">
-            <p className="text-sm uppercase tracking-[0.24em] text-stone-400">Financial activity</p>
-            <div className="mt-5 space-y-3">
-              {unit.payments.map((payment) => (
-                <div key={payment.id} className="panel-muted p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="font-semibold">{payment.description}</p>
-                    <Badge tone={payment.status === "PAID" ? "success" : payment.status === "LATE" ? "danger" : "warning"}>{payment.status}</Badge>
-                  </div>
-                  <p className="mt-2 text-sm text-stone-500">
-                    {payment.tenant ? `${payment.tenant.firstName} ${payment.tenant.lastName}` : "Tenant unassigned"} - {formatDate(payment.dueDate)}
-                  </p>
-                  <p className="mt-3 text-lg font-semibold">{formatCurrency(payment.amount)}</p>
-                </div>
-              ))}
-            </div>
-          </Card>
         </div>
-      </section>
+      </DetailSection>
+
+      <DetailSection title="Lease history" description="Current and historical occupancy for this unit.">
+        {unit.leases.length ? (
+          <DataTable columns={["Tenant", "Term", "Monthly rent", "Status"]}>
+            {unit.leases.map((lease) => (
+              <tr key={lease.id} className="table-row">
+                <td className="table-cell font-semibold text-[var(--text)]">{lease.tenants.map((row) => `${row.tenant.firstName} ${row.tenant.lastName}`).join(", ") || "Unassigned"}</td>
+                <td className="table-cell text-[var(--muted)]">{formatDateOrUnset(lease.startDate)} - {formatDateOrUnset(lease.endDate)}</td>
+                <td className="table-cell font-semibold">{formatCurrency(lease.monthlyRent)}</td>
+                <td className="table-cell"><Badge>{lease.status}</Badge></td>
+              </tr>
+            ))}
+          </DataTable>
+        ) : (
+          <EmptyState title="No lease history" description="Lease records connected to this unit will appear here." />
+        )}
+      </DetailSection>
+
+      <DetailSection title="Financial activity" description="Recent charges and collections assigned to this unit.">
+        {unit.payments.length ? (
+          <DataTable columns={["Description", "Tenant", "Due date", "Amount", "Status"]}>
+            {unit.payments.map((payment) => (
+              <tr key={payment.id} className="table-row">
+                <td className="table-cell font-semibold text-[var(--text)]">{payment.description}</td>
+                <td className="table-cell text-[var(--muted)]">{payment.tenant ? `${payment.tenant.firstName} ${payment.tenant.lastName}` : "Unassigned"}</td>
+                <td className="table-cell text-[var(--muted)]">{formatDate(payment.dueDate)}</td>
+                <td className="table-cell font-semibold">{formatCurrency(payment.amount)}</td>
+                <td className="table-cell"><Badge tone={payment.status === "PAID" ? "success" : payment.status === "LATE" ? "danger" : "warning"}>{payment.status}</Badge></td>
+              </tr>
+            ))}
+          </DataTable>
+        ) : (
+          <EmptyState title="No financial activity" description="Charges and payments for this unit will appear here." />
+        )}
+      </DetailSection>
     </div>
   );
 }

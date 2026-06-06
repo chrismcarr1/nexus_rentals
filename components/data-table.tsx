@@ -12,9 +12,9 @@ export function DataTable({
   minWidth?: string;
 }) {
   return (
-    <div className={cn("data-table-scroll", className)}>
+    <div className={cn("data-table-frame data-table-scroll", className)}>
       <table className="responsive-table text-left text-sm" style={{ minWidth }}>
-        <thead className="border-b border-[var(--line)] text-xs font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
+        <thead className="border-b border-[var(--line)] text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
           <tr>
             {columns.map((column, index) => (
               <th key={typeof column === "string" ? column : index} className="pb-3 pr-4">

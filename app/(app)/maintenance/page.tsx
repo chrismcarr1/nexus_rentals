@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {
   CalendarClock,
   ClipboardList,
@@ -5,14 +6,23 @@ import {
   Hash,
   Home,
   KeyRound,
+  Plus,
   Phone,
-  Send
+  Send,
+  Sparkles
 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 
+import { DataTable } from "@/components/data-table";
+import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
+import { FilterBar } from "@/components/filter-bar";
 import { MaintenanceAiRequestForm } from "@/components/maintenance-ai-request-form";
 import { MaintenanceResolveForm } from "@/components/maintenance-resolve-form";
+import { PageHeader } from "@/components/page-header";
+import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
+import { StatCard } from "@/components/stat-card";
+import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -116,6 +126,278 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
   const pastMaintenance = portal.scope.maintenance
     .filter((item) => item.status === "RESOLVED" || item.status === "CLOSED")
     .sort((a, b) => String(b.resolvedAt ?? b.updatedAt).localeCompare(String(a.resolvedAt ?? a.updatedAt)));
+
+  if (user.role !== "TENANT") {
+    const query = params.q?.trim().toLowerCase() ?? "";
+    const statusFilter = params.status ?? "active";
+    const priorityFilter = params.priority ?? "all";
+    const selectedWorkOrder = portal.scope.maintenance.find((item) => item.id === params.workOrder) ?? null;
+    const filteredMaintenance = portal.scope.maintenance
+      .filter((item) => {
+        const property = portal.scope.properties.find((candidate) => candidate.id === item.propertyId);
+        const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;
+        const text = `${item.title} ${item.description} ${item.category ?? ""} ${item.assignedTo ?? ""} ${property?.name ?? ""} ${unit?.unitNumber ?? ""}`.toLowerCase();
+        if (query && !text.includes(query)) return false;
+        if (statusFilter === "active" && (item.status === "RESOLVED" || item.status === "CLOSED")) return false;
+        if (statusFilter === "history" && item.status !== "RESOLVED" && item.status !== "CLOSED") return false;
+        if (statusFilter !== "all" && statusFilter !== "active" && statusFilter !== "history" && item.status !== statusFilter) return false;
+        if (priorityFilter !== "all" && item.priority !== priorityFilter) return false;
+        return true;
+      })
+      .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
+    const urgentCount = activeMaintenance.filter((item) => item.priority === "URGENT" || item.priority === "HIGH").length;
+    const inProgressCount = activeMaintenance.filter((item) => item.status === "IN_PROGRESS").length;
+
+    return (
+      <div className="space-y-5">
+        <PageHeader
+          eyebrow="Operations"
+          title="Maintenance"
+          description="Triage, assign, and resolve work orders from a scalable operations register."
+          actions={
+            <div className="flex gap-2">
+              <Link href="/maintenance?ai=1" className="inline-flex min-h-9 items-center justify-center gap-2 border border-[var(--line-strong)] bg-white px-3 text-sm font-semibold hover:bg-[var(--surface-hover)]">
+                <Sparkles className="h-4 w-4" />
+                AI intake
+              </Link>
+              <Link href="/maintenance?create=1" className="inline-flex min-h-9 items-center justify-center gap-2 border border-[var(--brand)] bg-[var(--brand)] px-3 text-sm font-semibold text-white hover:bg-[var(--brand-strong)]">
+                <Plus className="h-4 w-4" />
+                New work order
+              </Link>
+            </div>
+          }
+        />
+
+        <section className="ops-grid">
+          <StatCard label="Active work orders" value={String(activeMaintenance.length)} detail="Open and in progress" tone="brand" />
+          <StatCard label="Urgent / high" value={String(urgentCount)} detail="Priority response required" tone={urgentCount ? "danger" : "success"} />
+          <StatCard label="In progress" value={String(inProgressCount)} detail="Assigned or underway" tone={inProgressCount ? "warning" : "default"} />
+          <StatCard label="Resolved history" value={String(pastMaintenance.length)} detail="Closed operational record" />
+        </section>
+
+        <DetailSection title="Work order register" description={`${filteredMaintenance.length} work order${filteredMaintenance.length === 1 ? "" : "s"} match the current view.`}>
+          <FilterBar
+            action="/maintenance"
+            query={params.q}
+            queryPlaceholder="Search issue, property, unit, category, or vendor"
+            filters={[
+              {
+                name: "status",
+                label: "Status",
+                value: statusFilter,
+                options: [
+                  { label: "Active work orders", value: "active" },
+                  { label: "Resolved history", value: "history" },
+                  { label: "All statuses", value: "all" },
+                  { label: "Open", value: "OPEN" },
+                  { label: "In progress", value: "IN_PROGRESS" },
+                  { label: "Resolved", value: "RESOLVED" },
+                  { label: "Closed", value: "CLOSED" }
+                ]
+              },
+              {
+                name: "priority",
+                label: "Priority",
+                value: priorityFilter,
+                options: [
+                  { label: "All priorities", value: "all" },
+                  { label: "Urgent", value: "URGENT" },
+                  { label: "High", value: "HIGH" },
+                  { label: "Medium", value: "MEDIUM" },
+                  { label: "Low", value: "LOW" }
+                ]
+              }
+            ]}
+          />
+
+          {filteredMaintenance.length ? (
+            <DataTable className="mt-4" minWidth="74rem" columns={["Work order", "Property / unit", "Category", "Priority", "Status", "Requested", "Vendor", "Estimate", ""]}>
+              {filteredMaintenance.map((item) => {
+                const property = portal.scope.properties.find((candidate) => candidate.id === item.propertyId);
+                const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;
+                return (
+                  <tr key={item.id} className="table-row">
+                    <td className="table-cell">
+                      <Link href={`/maintenance?workOrder=${encodeURIComponent(item.id)}`} className="table-link font-semibold">
+                        {item.title}
+                        <span className="mt-0.5 block font-mono text-[11px] font-normal text-[var(--muted)]">{requestCode(item.id)}</span>
+                      </Link>
+                    </td>
+                    <td className="table-cell text-[var(--muted)]">{property?.name ?? "Property"}{unit ? <span className="block text-xs">Unit {unit.unitNumber}</span> : null}</td>
+                    <td className="table-cell text-[var(--muted)]">{item.category || "Uncategorized"}</td>
+                    <td className="table-cell"><StatusBadge status={item.priority} /></td>
+                    <td className="table-cell"><StatusBadge status={item.status} /></td>
+                    <td className="table-cell text-[var(--muted)]">{formatDate(item.requestedAt)}</td>
+                    <td className="table-cell text-[var(--muted)]">{item.assignedTo || "Unassigned"}</td>
+                    <td className="table-cell font-semibold">{item.estimatedCost ? formatCurrency(item.estimatedCost) : "Not set"}</td>
+                    <td className="table-cell text-right">
+                      <RowActionsMenu>
+                        <RowActionLink href={`/maintenance?workOrder=${encodeURIComponent(item.id)}`}>View details</RowActionLink>
+                        {property ? <RowActionLink href={`/properties/${property.id}`}>View property</RowActionLink> : null}
+                        {unit ? <RowActionLink href={`/units/${unit.id}`}>View unit</RowActionLink> : null}
+                      </RowActionsMenu>
+                    </td>
+                  </tr>
+                );
+              })}
+            </DataTable>
+          ) : (
+            <div className="mt-4">
+              <EmptyState title="No work orders match" description="Adjust the search or filters, or create a new work order." />
+            </div>
+          )}
+        </DetailSection>
+
+        {params.create === "1" ? (
+          <DetailSection id="new-work-order" title="New work order" description="Create and assign an operational maintenance record.">
+            {params.error === "invalid-maintenance" ? (
+              <div className="mb-4 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Fill in the required property, title, and issue description.
+              </div>
+            ) : null}
+            <form action={createMaintenanceAction} className="grid gap-5 lg:grid-cols-2">
+              <div className="space-y-4">
+                <label className="block text-sm font-semibold">
+                  Property
+                  <select name="propertyId" className="field mt-2" required>
+                    {portal.scope.properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+                  </select>
+                </label>
+                <label className="block text-sm font-semibold">
+                  Unit
+                  <select name="unitId" className="field mt-2">
+                    <option value="">No specific unit</option>
+                    {portal.scope.units.map((unit) => {
+                      const property = portal.scope.properties.find((item) => item.id === unit.propertyId);
+                      return <option key={unit.id} value={unit.id}>{property?.name} - Unit {unit.unitNumber}</option>;
+                    })}
+                  </select>
+                </label>
+                <div className="form-grid-2">
+                  <label className="block text-sm font-semibold">
+                    Category
+                    <select name="category" className="field mt-2" defaultValue="">
+                      <option value="">Select category</option>
+                      {maintenanceCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-sm font-semibold">
+                    Priority
+                    <select name="priority" className="field mt-2" defaultValue="MEDIUM">
+                      {["LOW", "MEDIUM", "HIGH", "URGENT"].map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <label className="block text-sm font-semibold">
+                  Issue title
+                  <input name="title" required minLength={2} className="field mt-2" />
+                </label>
+                <label className="block text-sm font-semibold">
+                  Description
+                  <textarea name="description" required minLength={4} className="field mt-2 min-h-28" />
+                </label>
+              </div>
+              <div className="space-y-4">
+                <div className="form-grid-2">
+                  <label className="block text-sm font-semibold">
+                    Status
+                    <select name="status" className="field mt-2" defaultValue="OPEN">
+                      {["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"].map((status) => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-sm font-semibold">
+                    Issue started
+                    <input name="issueStartedAt" type="date" className="field mt-2" />
+                  </label>
+                </div>
+                <label className="block text-sm font-semibold">
+                  Assigned vendor or team member
+                  <input name="assignedTo" className="field mt-2" />
+                </label>
+                <div className="form-grid-2">
+                  <label className="block text-sm font-semibold">
+                    Estimated cost
+                    <input name="estimatedCost" type="number" min="0" step="0.01" className="field mt-2" />
+                  </label>
+                  <label className="block text-sm font-semibold">
+                    Actual cost
+                    <input name="actualCost" type="number" min="0" step="0.01" className="field mt-2" />
+                  </label>
+                </div>
+                <label className="block text-sm font-semibold">
+                  Timeline or next step
+                  <textarea name="timeline" className="field mt-2 min-h-28" />
+                </label>
+                <input type="hidden" name="entryPermission" value="REQUEST_APPROVAL" />
+                <input type="hidden" name="contactPreference" value="APP" />
+                <input type="hidden" name="petsOnSite" value="UNKNOWN" />
+                <div className="flex gap-2">
+                  <SubmitButton>Create work order</SubmitButton>
+                  <Link href="/maintenance" className="inline-flex min-h-10 items-center justify-center border border-[var(--line-strong)] bg-white px-3.5 py-2 text-sm font-semibold hover:bg-[var(--surface-hover)]">Cancel</Link>
+                </div>
+              </div>
+            </form>
+          </DetailSection>
+        ) : null}
+
+        {params.ai === "1" ? (
+          <DetailSection title="AI photo intake" description="Generate a structured maintenance draft from up to three photos.">
+            <MaintenanceAiRequestForm
+              userRole={user.role}
+              userName={`${user.firstName} ${user.lastName}`.trim()}
+              properties={portal.scope.properties.map((property) => ({ id: property.id, name: property.name }))}
+              units={portal.scope.units.map((unit) => {
+                const property = portal.scope.properties.find((item) => item.id === unit.propertyId);
+                return { id: unit.id, propertyId: unit.propertyId, unitNumber: unit.unitNumber, propertyName: property?.name ?? "Property" };
+              })}
+              currentProperty={null}
+              currentUnit={null}
+            />
+          </DetailSection>
+        ) : null}
+
+        {selectedWorkOrder ? (
+          <aside className="workflow-drawer" aria-label="Work order detail drawer">
+            <div className="workflow-drawer-header">
+              <div className="min-w-0">
+                <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{requestCode(selectedWorkOrder.id)}</p>
+                <h2 className="mt-1 truncate text-lg font-semibold">{selectedWorkOrder.title}</h2>
+              </div>
+              <Link href="/maintenance" className="border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)]">Close</Link>
+            </div>
+            <div className="workflow-drawer-body">
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge status={selectedWorkOrder.priority} />
+                <StatusBadge status={selectedWorkOrder.status} />
+                {selectedWorkOrder.category ? <StatusBadge status={selectedWorkOrder.category} /> : null}
+              </div>
+              <p className="whitespace-pre-line text-sm leading-6 text-[var(--muted-strong)]">{selectedWorkOrder.description}</p>
+              <div className="drawer-grid">
+                <div><span>Requested</span><strong>{formatDate(selectedWorkOrder.requestedAt)}</strong></div>
+                <div><span>Vendor</span><strong>{selectedWorkOrder.assignedTo || "Unassigned"}</strong></div>
+                <div><span>Estimate</span><strong>{selectedWorkOrder.estimatedCost ? formatCurrency(selectedWorkOrder.estimatedCost) : "Not set"}</strong></div>
+                <div><span>Actual</span><strong>{selectedWorkOrder.actualCost ? formatCurrency(selectedWorkOrder.actualCost) : "Not set"}</strong></div>
+              </div>
+              {selectedWorkOrder.timeline ? <DetailSection title="Timeline"><p className="whitespace-pre-line text-sm text-[var(--muted)]">{selectedWorkOrder.timeline}</p></DetailSection> : null}
+              {(selectedWorkOrder.imagePaths ?? []).filter((path) => isAllowedStoredAssetPath(path, { allowDemo: true })).length ? (
+                <DetailSection title="Attachments">
+                  <div className="grid gap-2">
+                    {(selectedWorkOrder.imagePaths ?? []).filter((path) => isAllowedStoredAssetPath(path, { allowDemo: true })).map((path) => (
+                      <a key={path} href={path} target="_blank" rel="noreferrer" className="flex items-center gap-2 border border-[var(--line)] px-3 py-2 text-sm font-semibold hover:bg-[var(--surface-hover)]">
+                        <FileImage className="h-4 w-4 text-[var(--brand)]" />
+                        <span className="truncate">{fileNameFromPath(path)}</span>
+                      </a>
+                    ))}
+                  </div>
+                </DetailSection>
+              ) : null}
+              <MaintenanceResolveForm maintenanceId={selectedWorkOrder.id} />
+            </div>
+          </aside>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

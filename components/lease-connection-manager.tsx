@@ -4,20 +4,19 @@ import Link from "next/link";
 import {
   Ban,
   Building2,
-  CalendarClock,
   FileText,
-  Home,
   Mail,
   Plus,
-  RefreshCw,
-  type LucideIcon
+  RefreshCw
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { useMemo, useState } from "react";
 
 import { DataTable } from "@/components/data-table";
+import { PageHeader } from "@/components/page-header";
 import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
 import { SectionHeader } from "@/components/section-header";
+import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -130,43 +129,6 @@ function FieldLabel({ children, hint }: { children: ReactNode; hint?: string }) 
       <span>{children}</span>
       {hint ? <span className="text-xs font-medium text-[var(--muted)]">{hint}</span> : null}
     </span>
-  );
-}
-
-function MetricTile({
-  label,
-  value,
-  detail,
-  Icon,
-  tone = "brand"
-}: {
-  label: string;
-  value: string | number;
-  detail: string;
-  Icon: LucideIcon;
-  tone?: "brand" | "blue" | "success" | "warning";
-}) {
-  return (
-    <div className="min-w-0 rounded-md border border-[var(--line)] bg-white p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{label}</p>
-          <p className="mt-2 text-2xl font-semibold text-[var(--text)]">{value}</p>
-        </div>
-        <span
-          className={cn(
-            "flex h-10 w-10 shrink-0 items-center justify-center rounded-md border",
-            tone === "brand" && "border-[rgba(13,143,123,0.18)] bg-[var(--accent-soft)] text-[var(--brand)]",
-            tone === "blue" && "border-[rgba(49,92,207,0.16)] bg-[var(--accent-blue)] text-[var(--brand-2)]",
-            tone === "success" && "border-emerald-600/15 bg-emerald-600/10 text-emerald-700",
-            tone === "warning" && "border-amber-600/18 bg-amber-500/12 text-amber-800"
-          )}
-        >
-          <Icon className="h-4 w-4" />
-        </span>
-      </div>
-      <p className="mt-3 text-sm leading-5 text-[var(--muted)]">{detail}</p>
-    </div>
   );
 }
 
@@ -341,15 +303,12 @@ export function LeaseConnectionManager({
 
   return (
     <div className="space-y-4">
-      <Card className="overflow-hidden">
-        <div className="border-b border-[rgba(13,143,123,0.18)] bg-[var(--accent-soft)] p-5">
-          <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-            <SectionHeader
-              eyebrow="Lease command center"
-              title="Portfolio lease board"
-              description="Create lease records, send tenant invites, and watch account connections from one focused workspace."
-            />
-            <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row">
+      <PageHeader
+        eyebrow="Leases"
+        title="Portfolio lease board"
+        description="Create lease records, send tenant invites, and monitor account connections and upcoming renewals."
+        actions={
+          <>
               <Link href="/move-ins/new" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(13,143,123,0.18)] transition hover:bg-[var(--brand-strong)]">
                 <Plus className="h-4 w-4" />
                 New Move-In
@@ -358,16 +317,16 @@ export function LeaseConnectionManager({
                 <RefreshCw className={cn("h-4 w-4", pendingAction === "refresh" && "animate-spin")} />
                 {pendingAction === "refresh" ? "Refreshing" : "Refresh"}
               </Button>
-            </div>
-          </div>
-        </div>
-        <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricTile label="Leases" value={leases.length} detail="Total lease records in scope" Icon={FileText} />
-          <MetricTile label="Active" value={activeLeases} detail="Tenancies currently connected to operations" Icon={Home} tone="success" />
-          <MetricTile label="Pending invites" value={pendingInvites} detail="Tenants still need to accept access" Icon={Mail} tone="warning" />
-          <MetricTile label="Renewal watch" value={endingSoon} detail="Active leases ending within 60 days" Icon={CalendarClock} tone="blue" />
-        </div>
-      </Card>
+          </>
+        }
+      />
+
+      <div className="ops-grid">
+        <StatCard label="Lease records" value={leases.length} detail="Total records in scope" />
+        <StatCard label="Active" value={activeLeases} detail="Current operational tenancies" tone="success" />
+        <StatCard label="Pending invites" value={pendingInvites} detail="Awaiting tenant acceptance" tone="warning" />
+        <StatCard label="Renewal watch" value={endingSoon} detail="Ending within 60 days" tone="blue" />
+      </div>
 
       {error || message ? (
         <div className="grid gap-2">

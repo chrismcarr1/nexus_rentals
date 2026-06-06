@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { StatTile } from "@/components/stat-tile";
 
 export function StatCard({
   label,
@@ -8,16 +8,10 @@ export function StatCard({
   className
 }: {
   label: string;
-  value: string;
+  value: string | number;
   detail?: string;
-  tone?: "default" | "success" | "warning" | "danger" | "brand";
+  tone?: "default" | "success" | "warning" | "danger" | "brand" | "blue";
   className?: string;
 }) {
-  return (
-    <div className={cn("stat-card", `stat-card-${tone}`, className)}>
-      <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{label}</p>
-      <p className="mt-2 truncate text-2xl font-semibold text-[var(--text)]">{value}</p>
-      {detail ? <p className="mt-1 truncate text-xs text-[var(--muted)]">{detail}</p> : null}
-    </div>
-  );
+  return <StatTile label={label} value={value} detail={detail} tone={tone} className={className} />;
 }
