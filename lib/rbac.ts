@@ -43,6 +43,7 @@ type NavItem = {
   label: string;
   icon: NavIconName;
   description: string;
+  section?: string;
 };
 
 type RoleConfig = {
@@ -78,18 +79,18 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
     homeLabel: "Operations dashboard",
     description: "Day-to-day property operations for assigned assets.",
     nav: [
-      { href: "/dashboard", label: "Dashboard", icon: "gauge", description: "Assigned property performance and action queues" },
-      { href: "/properties", label: "Properties", icon: "building2", description: "Assigned buildings and unit status" },
-      { href: "/units", label: "Units", icon: "tableProperties", description: "Unit inventory, occupancy, and lease status" },
-      { href: "/tenants", label: "Tenants", icon: "users", description: "Resident roster and communications" },
-      { href: "/leases", label: "Leases", icon: "home", description: "Renewals, move-ins, and upcoming expirations" },
-      { href: "/applications", label: "Applications", icon: "fileCheck2", description: "Rental applications and applicant review" },
-      { href: "/transactions", label: "Payments", icon: "creditCard", description: "Overdue rent and rent status" },
-      { href: "/maintenance", label: "Maintenance", icon: "clipboardList", description: "Open issues and vendor progress" },
-      { href: "/messages", label: "Messages", icon: "messageSquare", description: "Tenant and lease conversations" },
-      { href: "/documents", label: "Documents", icon: "fileText", description: "Lease, property, unit, and inspection files" },
-      { href: "/reports", label: "Reports", icon: "barChart3", description: "Portfolio reporting and operating visibility" },
-      { href: "/settings", label: "Settings", icon: "settings", description: "Profile and assigned property context" }
+      { href: "/dashboard", label: "Dashboard", icon: "gauge", description: "Assigned property performance and action queues", section: "Workspace" },
+      { href: "/properties", label: "Properties", icon: "building2", description: "Assigned buildings and unit status", section: "Portfolio" },
+      { href: "/units", label: "Units", icon: "tableProperties", description: "Unit inventory, occupancy, and lease status", section: "Portfolio" },
+      { href: "/tenants", label: "Tenants", icon: "users", description: "Resident roster and communications", section: "Portfolio" },
+      { href: "/leases", label: "Leases", icon: "home", description: "Renewals, move-ins, and upcoming expirations", section: "Portfolio" },
+      { href: "/applications", label: "Applications", icon: "fileCheck2", description: "Rental applications and applicant review", section: "Portfolio" },
+      { href: "/transactions", label: "Payments", icon: "creditCard", description: "Overdue rent and rent status", section: "Operations" },
+      { href: "/maintenance", label: "Maintenance", icon: "clipboardList", description: "Open issues and vendor progress", section: "Operations" },
+      { href: "/documents", label: "Documents", icon: "fileText", description: "Lease, property, unit, and inspection files", section: "Operations" },
+      { href: "/messages", label: "Messages", icon: "messageSquare", description: "Tenant and lease conversations", section: "Operations" },
+      { href: "/reports", label: "Reports", icon: "barChart3", description: "Portfolio reporting and operating visibility", section: "Insights" },
+      { href: "/settings", label: "Settings", icon: "settings", description: "Profile and assigned property context", section: "Administration" }
     ],
     routes: ["/dashboard", "/properties", "/units", "/tenants", "/leases", "/applications", "/move-ins", "/transactions", "/expenses", "/maintenance", "/messages", "/documents", "/reports", "/ai-assessments", "/settings", "/manager-guide", "/api/stripe/connect"]
   },

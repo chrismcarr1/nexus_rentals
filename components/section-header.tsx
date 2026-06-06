@@ -16,7 +16,7 @@ export function SectionHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("flex min-w-0 flex-col items-stretch gap-3", className)}>
+    <div className={cn("section-header", className)}>
       <div className="min-w-0">
         {eyebrow ? <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">{eyebrow}</p> : null}
         <h2 className="mt-1 text-lg font-semibold text-[var(--text)]">{title}</h2>

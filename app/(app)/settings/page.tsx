@@ -185,7 +185,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Organization settings</p>
             <h1 className="mt-2 text-3xl font-semibold">Account and business profile</h1>
             {params.error ? (
-              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 {params.error === "invalid-address"
                   ? "Enter a complete mailing address with street, city, state, ZIP or postal code, and country."
                   : "Review the organization settings and try again."}
@@ -219,31 +219,39 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
           </Card>
         )}
         <Card className="p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Profile</p>
-          <div className="mt-5 rounded-2xl bg-[linear-gradient(135deg,#102842,#1f6b5f)] p-6 text-white">
-            <p className="text-sm uppercase tracking-[0.24em] text-white/70">Signed in as</p>
-            <h2 className="mt-3 text-4xl font-semibold">{user.firstName} {user.lastName}</h2>
-            <p className="mt-3 text-sm text-white/80">{user.email}</p>
-            <p className="mt-1 text-sm text-white/80">{user.role}</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Account summary</p>
+          <div className="mt-4 divide-y divide-[var(--line)] border-y border-[var(--line)]">
+            <div className="grid gap-1 py-3 sm:grid-cols-[8rem_1fr] sm:items-center">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Name</span>
+              <span className="font-semibold text-[var(--text)]">{user.firstName} {user.lastName}</span>
+            </div>
+            <div className="grid gap-1 py-3 sm:grid-cols-[8rem_1fr] sm:items-center">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Email</span>
+              <span className="text-sm text-[var(--text)]">{user.email}</span>
+            </div>
+            <div className="grid gap-1 py-3 sm:grid-cols-[8rem_1fr] sm:items-center">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Access</span>
+              <Badge>{user.role}</Badge>
+            </div>
           </div>
-          <div className="mt-5 space-y-3">
+          <div className="mt-5 divide-y divide-[var(--line)] border-y border-[var(--line)]">
             {user.role === "ADMIN" ? (
               portal.managers.map((manager) => (
-                <div key={manager.id} className="panel-muted p-4">
+                <div key={manager.id} className="py-3">
                   <p className="font-semibold">{manager.firstName} {manager.lastName}</p>
                   <p className="mt-1 text-sm text-[var(--muted)]">{manager.title || "Property Manager"}</p>
                 </div>
               ))
             ) : user.role === "MANAGER" ? (
               portal.scope.properties.map((property) => (
-                <div key={property.id} className="panel-muted p-4">
+                <div key={property.id} className="py-3">
                   <p className="font-semibold">{property.name}</p>
                   <p className="mt-1 text-sm text-[var(--muted)]">{formatAddress(property)}</p>
                 </div>
               ))
             ) : (
               portal.documents.map((file) => (
-                <div key={file.id} className="panel-muted p-4">
+                <div key={file.id} className="py-3">
                   <p className="font-semibold">{file.label || file.kind}</p>
                   <p className="mt-1 text-sm text-[var(--muted)]">{file.path}</p>
                 </div>

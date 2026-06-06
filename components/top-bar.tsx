@@ -30,7 +30,7 @@ export function TopBar({
   useClickOutside(alertsMenuRef, () => setAlertsOpen(false), alertsOpen);
 
   return (
-    <header className="surface-panel app-topbar">
+    <header className="app-topbar">
       <div className="flex min-w-0 items-center gap-2">
         <form action="/dashboard" className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
@@ -38,7 +38,7 @@ export function TopBar({
             name="q"
             defaultValue={searchQuery}
             placeholder={role === "TENANT" ? "Search your records" : "Search properties, units, tenants"}
-            className="field app-shell-search-input h-10 text-sm"
+            className="field app-shell-search-input h-9 max-w-xl text-sm"
           />
           <span className="pointer-events-none absolute right-2.5 top-1/2 hidden -translate-y-1/2 rounded border border-[var(--line)] bg-[var(--panel)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted)] sm:inline-flex">
             /
@@ -74,7 +74,7 @@ export function TopBar({
             aria-controls="alerts-menu"
             aria-expanded={alertsOpen}
             className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--panel)] text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]",
+              "flex h-9 w-9 items-center justify-center border border-[var(--line)] bg-white text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]",
               alertsOpen && "border-[var(--brand)] bg-[var(--accent-soft)] text-[var(--brand)]"
             )}
           >
@@ -112,9 +112,7 @@ export function TopBar({
           </div>
         </div>
 
-        <div className="workspace-chip flex h-10 min-w-44 max-w-72 items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--panel)] px-3">
-          <p className="min-w-0 truncate text-sm font-semibold text-[var(--text)]">{organizationName}</p>
-        </div>
+        <p className="workspace-chip min-w-0 max-w-52 truncate px-2 text-xs font-medium text-[var(--muted)]">{organizationName}</p>
       </div>
     </header>
   );

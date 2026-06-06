@@ -47,18 +47,34 @@ type NavItem = {
   label: string;
   description: string;
   icon: NavIconName;
+  section?: string;
 };
 
 export function SidebarNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
+  const groups = items.reduce<Array<{ label?: string; items: NavItem[] }>>((result, item) => {
+    const current = result[result.length - 1];
+    if (!current || current.label !== item.section) {
+      result.push({ label: item.section, items: [item] });
+    } else {
+      current.items.push(item);
+    }
+    return result;
+  }, []);
 
   return (
-    <nav className="sidebar-nav">
-      {items.map((item) => {
-        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-
-        return <SidebarItem key={item.href} item={item} active={active} />;
-      })}
+    <nav className="sidebar-nav" aria-label="Primary navigation">
+      {groups.map((group, groupIndex) => (
+        <div key={`${group.label ?? "navigation"}-${groupIndex}`} className="sidebar-nav-group">
+          {group.label ? <p className="sidebar-nav-label">{group.label}</p> : null}
+          <div className="sidebar-nav-list">
+            {group.items.map((item) => {
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              return <SidebarItem key={item.href} item={item} active={active} />;
+            })}
+          </div>
+        </div>
+      ))}
     </nav>
   );
 }
@@ -71,16 +87,16 @@ export function SidebarItem({ item, active }: { item: NavItem; active: boolean }
       href={item.href}
       title={item.description}
       className={cn(
-        "sidebar-nav-item group relative flex items-center gap-2 rounded-md border px-2 py-1 transition duration-150",
+        "sidebar-nav-item group relative flex items-center gap-2 px-3 transition duration-150",
         active
-          ? "border-[var(--brand)] bg-[var(--accent-soft)] text-[var(--text)] shadow-[0_0_0_1px_rgba(13,143,123,0.12)_inset]"
-          : "border-transparent text-[var(--muted)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+          ? "bg-[var(--sidebar-active)] text-[var(--sidebar-active-text)]"
+          : "text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-hover)] hover:text-white"
       )}
     >
       <span
         aria-hidden="true"
         className={cn(
-          "absolute left-1 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-sm bg-transparent transition",
+          "absolute inset-y-1 left-0 w-0.5 bg-transparent transition",
           active && "bg-[var(--brand)]"
         )}
       />
@@ -88,14 +104,14 @@ export function SidebarItem({ item, active }: { item: NavItem; active: boolean }
         className={cn(
           "sidebar-nav-icon transition",
           active
-            ? "border-[rgba(13,143,123,0.28)] bg-white text-[var(--brand)]"
-            : "bg-transparent text-[var(--muted)] group-hover:border-[var(--line)] group-hover:bg-white group-hover:text-[var(--text)]"
+            ? "text-[var(--brand)]"
+            : "text-[var(--sidebar-muted)] group-hover:text-white"
         )}
       >
         <Icon className="h-4 w-4" />
       </span>
       <span className="min-w-0">
-        <span className="block text-[13px] font-semibold">{item.label}</span>
+        <span className="block text-[13px] font-medium">{item.label}</span>
         <span className="sidebar-nav-description sr-only">{item.description}</span>
       </span>
     </Link>

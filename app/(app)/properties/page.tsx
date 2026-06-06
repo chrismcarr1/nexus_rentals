@@ -22,7 +22,7 @@ import { getPortalContext } from "@/services/portal";
 
 function sortHref(params: Record<string, string>, sort: string) {
   const next = new URLSearchParams();
-  for (const key of ["q", "status", "occupancy", "view"]) {
+  for (const key of ["q", "status", "occupancy"]) {
     if (params[key]) next.set(key, params[key]);
   }
   next.set("sort", sort);
@@ -41,7 +41,6 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
   const statusFilter = params.status ?? "all";
   const occupancyFilter = params.occupancy ?? "all";
   const sort = params.sort ?? "name";
-  const view = params.view === "cards" ? "cards" : "table";
   const showCreate = params.create === "1";
   const propertyCoverImages = new Map<string, string>();
 
@@ -132,18 +131,12 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
       <DetailSection
         title="Property register"
         description="Search, filter, sort, and open property detail pages from a dense operating table."
-        actions={
-          <div className="flex gap-1 rounded-md border border-[var(--line)] bg-[var(--surface)] p-1">
-            <Link href={`/properties?${new URLSearchParams({ ...params, view: "table" }).toString()}`} className={`rounded px-2 py-1 text-xs font-semibold ${view === "table" ? "bg-white text-[var(--text)]" : "text-[var(--muted)]"}`}>Table</Link>
-            <Link href={`/properties?${new URLSearchParams({ ...params, view: "cards" }).toString()}`} className={`rounded px-2 py-1 text-xs font-semibold ${view === "cards" ? "bg-white text-[var(--text)]" : "text-[var(--muted)]"}`}>Compact</Link>
-          </div>
-        }
       >
         <FilterBar
           action="/properties"
           query={query}
           queryPlaceholder="Search property name or address"
-          hidden={{ sort, view }}
+          hidden={{ sort }}
           filters={[
             {
               name: "status",
@@ -170,8 +163,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
         />
 
         {filtered.length ? (
-          view === "table" ? (
-            <DataTable
+          <DataTable
               className="mt-4"
               minWidth="72rem"
               columns={[
@@ -233,27 +225,6 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
                 </tr>
               ))}
             </DataTable>
-          ) : (
-            <div className="mt-4 grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-              {filtered.map((row) => (
-                <Link key={row.property.id} href={`/properties/${row.property.id}`} className="rounded-md border border-[var(--line)] bg-white p-4 transition hover:border-[var(--line-strong)] hover:bg-[var(--surface)]">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-[var(--text)]">{row.property.name}</p>
-                      <p className="mt-1 truncate text-xs text-[var(--muted)]">{formatAddress(row.property)}</p>
-                    </div>
-                    <StatusBadge status={row.property.status} />
-                  </div>
-                  <div className="mt-4 grid grid-cols-4 gap-2 text-sm">
-                    <div><p className="font-semibold">{row.units.length}</p><p className="text-xs text-[var(--muted)]">units</p></div>
-                    <div><p className="font-semibold">{Math.round(row.occupancyRate * 100)}%</p><p className="text-xs text-[var(--muted)]">occ</p></div>
-                    <div><p className="font-semibold">{row.vacant}</p><p className="text-xs text-[var(--muted)]">vacant</p></div>
-                    <div><p className="font-semibold">{row.openMaintenance}</p><p className="text-xs text-[var(--muted)]">open</p></div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )
         ) : (
           <div className="mt-4">
             <EmptyState title="No properties match" description="Adjust search or filters, or create the first property in this portfolio." />

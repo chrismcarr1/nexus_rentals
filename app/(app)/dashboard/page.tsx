@@ -8,7 +8,6 @@ import {
   FileText,
   Home,
   MessageSquare,
-  Plus,
   ReceiptText,
   ShieldCheck,
   Sparkles,
@@ -84,7 +83,6 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       .filter((submission) => managerApplications.some((application) => application.id === submission.applicationId))
       .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
     const pendingApplicationCount = managerSubmissions.filter((submission) => submission.status === "SUBMITTED" || submission.status === "UNDER_REVIEW").length;
-    const vacantUnits = portal.scope.units.filter((unit) => unit.occupancyStatus !== "OCCUPIED").length;
     const monthlyRentRoll = portal.scope.units.reduce((sum, unit) => sum + unit.monthlyRent, 0);
     const upcomingMoveIns = portal.scope.leases.filter((lease) => {
       if (lease.moveInDate) return appDateIsOnOrAfter(lease.moveInDate, getAppDateKey());
@@ -135,76 +133,54 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         ) : null}
 
         <section className="ops-grid">
-          <StatCard label="Total properties" value={String(portal.metrics.totalProperties)} detail="Assigned assets" tone="brand" />
-          <StatCard label="Total units" value={String(portal.metrics.totalUnits)} detail="Managed inventory" />
-          <StatCard label="Occupied units" value={String(portal.metrics.occupiedUnits)} detail={`${Math.round(portal.metrics.occupancyRate * 100)}% occupancy`} tone="success" />
-          <StatCard label="Vacant units" value={String(vacantUnits)} detail="Vacant, notice, or turnover" tone={vacantUnits ? "warning" : "success"} />
           <StatCard label="Monthly rent roll" value={formatCurrency(monthlyRentRoll)} detail="Scheduled unit rent" tone="brand" />
-          <StatCard label="Overdue rent" value={formatCurrency(portal.metrics.overdue)} detail={`${portal.overduePayments.length} unpaid charges`} tone={portal.metrics.overdue ? "danger" : "success"} />
+          <StatCard label="Occupancy" value={`${Math.round(portal.metrics.occupancyRate * 100)}%`} detail={`${portal.metrics.occupiedUnits} of ${portal.metrics.totalUnits} units`} tone="success" />
+          <StatCard label="Overdue balances" value={formatCurrency(portal.metrics.overdue)} detail={`${portal.overduePayments.length} open charges`} tone={portal.metrics.overdue ? "danger" : "success"} />
           <StatCard label="Pending applications" value={String(pendingApplicationCount)} detail={`${managerApplications.length} active application links`} tone={pendingApplicationCount ? "warning" : "default"} />
           <StatCard label="Upcoming move-ins" value={String(upcomingMoveIns.length)} detail="Upcoming or invited leases" tone={upcomingMoveIns.length ? "brand" : "default"} />
         </section>
 
         <section className="ops-split">
           <DetailSection
-            title="Tasks and alerts"
-            description="The highest-friction work that needs manager attention."
-            actions={<Link href="/maintenance" className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">Open maintenance</Link>}
+            title="Collections priority"
+            description="Open balances sorted for immediate follow-up."
+            actions={<Link href="/transactions" className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">Open collections</Link>}
           >
-            <div className="grid gap-4 xl:grid-cols-2">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Open work orders</p>
-                <div className="mt-3">
-                  {urgentMaintenance.length ? urgentMaintenance.map((item) => {
-                    const property = portal.scope.properties.find((candidate) => candidate.id === item.propertyId);
-                    const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;
-                    return (
-                      <div key={item.id} className="activity-item">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold">{item.title}</p>
-                          <p className="mt-1 truncate text-xs text-[var(--muted)]">{property?.name ?? "Property"}{unit ? `, Unit ${unit.unitNumber}` : ""}</p>
-                        </div>
-                        <StatusBadge status={item.priority} />
-                      </div>
-                    );
-                  }) : <EmptyState title="No open work orders" description="Maintenance exceptions will appear here." />}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Collections follow-up</p>
-                <div className="mt-3">
-                  {recentOverdue.length ? recentOverdue.map((payment) => {
-                    const unit = portal.scope.units.find((candidate) => candidate.id === payment.unitId);
-                    const property = unit ? portal.scope.properties.find((candidate) => candidate.id === unit.propertyId) : null;
-                    return (
-                      <div key={payment.id} className="activity-item">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold">{payment.description}</p>
-                          <p className="mt-1 truncate text-xs text-[var(--muted)]">{property?.name ?? "Property"}{unit ? `, Unit ${unit.unitNumber}` : ""} - due {formatDate(payment.dueDate)}</p>
-                        </div>
-                        <p className="text-sm font-semibold text-[var(--danger)]">{formatCurrency(payment.balanceDue || payment.amount)}</p>
-                      </div>
-                    );
-                  }) : <EmptyState title="No overdue rent" description="Collections are clear for the current scope." />}
-                </div>
-              </div>
-            </div>
+            {recentOverdue.length ? (
+              <DataTable columns={["Charge", "Property / unit", "Due", "Balance"]} minWidth="38rem">
+                {recentOverdue.map((payment) => {
+                  const unit = portal.scope.units.find((candidate) => candidate.id === payment.unitId);
+                  const property = unit ? portal.scope.properties.find((candidate) => candidate.id === unit.propertyId) : null;
+                  return (
+                    <tr key={payment.id} className="table-row">
+                      <td className="table-cell font-semibold">{payment.description}</td>
+                      <td className="table-cell text-[var(--muted)]">{property?.name ?? "Property"}{unit ? ` / ${unit.unitNumber}` : ""}</td>
+                      <td className="table-cell text-[var(--muted)]">{formatDate(payment.dueDate)}</td>
+                      <td className="table-cell font-semibold text-[var(--danger)]">{formatCurrency(payment.balanceDue || payment.amount)}</td>
+                    </tr>
+                  );
+                })}
+              </DataTable>
+            ) : <EmptyState title="Collections are clear" description="There are no overdue balances in the current portfolio." />}
           </DetailSection>
 
-          <DetailSection title="Recent activity" description="Payments, requests, notices, and system updates.">
-            <div>
-              {portal.recentActivity.length ? portal.recentActivity.slice(0, 8).map((item) => (
-                <div key={item.id} className="activity-item">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{item.title}</p>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{item.detail}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">{item.kind}</p>
-                    <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(item.date)}</p>
-                  </div>
-                </div>
-              )) : <EmptyState title="No recent activity" description="New operational updates will appear here." />}
+          <DetailSection title="Quick actions" description="Start the most common manager workflows.">
+            <div className="grid gap-1">
+              {[
+                { href: "/move-ins/new", label: "Start move-in", detail: "Create lease, charges, and invite" },
+                { href: "/transactions?create=charge", label: "Create charge", detail: "Add an open resident balance" },
+                { href: "/maintenance?create=1", label: "New work order", detail: "Log and assign maintenance" },
+                { href: "/applications/new", label: "Publish application", detail: "Open a leasing funnel" },
+                { href: "/properties?create=1", label: "Add property", detail: "Expand portfolio inventory" }
+              ].map((item) => (
+                <Link key={item.href} href={item.href} className="flex items-center justify-between gap-4 border-b border-[var(--line)] px-1 py-2.5 text-sm last:border-b-0 hover:text-[var(--brand)]">
+                  <span>
+                    <span className="block font-semibold">{item.label}</span>
+                    <span className="mt-0.5 block text-xs text-[var(--muted)]">{item.detail}</span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 shrink-0" />
+                </Link>
+              ))}
             </div>
           </DetailSection>
         </section>
@@ -240,22 +216,59 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           </DetailSection>
 
           <DetailSection
-            title="Quick navigation"
-            description="Fast paths into the portfolio tables designed for large inventories."
+            title="Open work orders"
+            description="Active maintenance ordered by most recent request."
+            actions={<Link href="/maintenance" className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">View all</Link>}
           >
-            <div className="grid gap-2">
-              {[
-                { href: "/properties", label: "Properties", detail: `${portal.metrics.totalProperties} assets` },
-                { href: "/units", label: "Units", detail: `${portal.metrics.totalUnits} units` },
-                { href: "/tenants", label: "Tenants", detail: `${portal.scope.tenants.length} residents` },
-                { href: "/transactions", label: "Payments", detail: `${portal.scope.payments.length} ledger entries` },
-                { href: "/documents", label: "Documents", detail: `${portal.documents.length} recent files` }
-              ].map((item) => (
-                <Link key={item.href} href={item.href} className="flex items-center justify-between gap-3 rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm transition hover:bg-[var(--surface-hover)]">
-                  <span className="font-semibold text-[var(--text)]">{item.label}</span>
-                  <span className="text-xs text-[var(--muted)]">{item.detail}</span>
-                </Link>
-              ))}
+            {urgentMaintenance.length ? urgentMaintenance.map((item) => {
+              const property = portal.scope.properties.find((candidate) => candidate.id === item.propertyId);
+              const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;
+              return (
+                <div key={item.id} className="activity-item">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{item.title}</p>
+                    <p className="mt-1 truncate text-xs text-[var(--muted)]">{property?.name ?? "Property"}{unit ? ` / Unit ${unit.unitNumber}` : ""}</p>
+                  </div>
+                  <StatusBadge status={item.priority} />
+                </div>
+              );
+            }) : <EmptyState title="No open work orders" description="Maintenance exceptions will appear here." />}
+          </DetailSection>
+        </section>
+
+        <section className="ops-split">
+          <DetailSection title="Upcoming lease events" description="Renewals and expirations requiring a decision.">
+            {portal.expiringLeases.length ? (
+              <DataTable columns={["Lease", "Unit", "End date", "Days remaining"]} minWidth="36rem">
+                {portal.expiringLeases.slice(0, 6).map((lease) => {
+                  const unit = portal.scope.units.find((item) => item.id === lease.unitId);
+                  return (
+                    <tr key={lease.id} className="table-row">
+                      <td className="table-cell font-semibold"><Link href={`/leases/${lease.id}`}>{lease.nexusLeaseId ?? lease.id}</Link></td>
+                      <td className="table-cell text-[var(--muted)]">{unit ? `Unit ${unit.unitNumber}` : "Unassigned"}</td>
+                      <td className="table-cell text-[var(--muted)]">{formatDate(lease.endDate!)}</td>
+                      <td className="table-cell"><StatusBadge status={`${Math.max(lease.daysRemaining, 0)} days`} tone={lease.daysRemaining <= 30 ? "warning" : "default"} /></td>
+                    </tr>
+                  );
+                })}
+              </DataTable>
+            ) : <EmptyState title="No near-term lease events" description="Upcoming renewals and expirations will appear here." />}
+          </DetailSection>
+
+          <DetailSection title="Recent activity" description="Payments, requests, notices, and system updates.">
+            <div>
+              {portal.recentActivity.length ? portal.recentActivity.slice(0, 7).map((item) => (
+                <div key={item.id} className="activity-item">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{item.title}</p>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{item.detail}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{item.kind}</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(item.date)}</p>
+                  </div>
+                </div>
+              )) : <EmptyState title="No recent activity" description="New operational updates will appear here." />}
             </div>
           </DetailSection>
         </section>
