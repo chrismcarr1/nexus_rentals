@@ -5,7 +5,6 @@ import {
   Ban,
   Building2,
   CalendarClock,
-  Copy,
   FileText,
   Home,
   Mail,
@@ -24,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { DEFAULT_RENT_DUE_TIME, differenceInAppCalendarDays, formatRentDueTime, formatShortAppDate, getAppDateKey } from "@/lib/app-time";
 import { cn } from "@/lib/utils";
 
 type PropertyOption = {
@@ -59,23 +59,15 @@ type LeaseRow = {
   startDate: string | null;
   endDate: string | null;
   monthlyRent: number | null;
+  dueDay: number;
+  rentDueTime?: string | null;
   securityDeposit: number | null;
   createdAt: string;
   updatedAt: string;
 };
 
-function formatDate(value: string | null) {
-  if (!value) return "Not set";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not set";
-  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
-}
-
 function formatShortDate(value: string | null) {
-  if (!value) return "Not set";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not set";
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "2-digit" }).format(date);
+  return formatShortAppDate(value);
 }
 
 function formatCurrency(value: number | null) {
@@ -84,6 +76,9 @@ function formatCurrency(value: number | null) {
 }
 
 function combinedLeaseStatus(lease: LeaseRow) {
+  if (leaseIsPast(lease.status)) {
+    return { label: humanizeStatus(lease.status), detail: "Past lease", tone: "danger" as const };
+  }
   if (lease.tenantConnected && lease.status === "active") {
     return { label: "Active", detail: "Tenant connected", tone: "success" as const };
   }
@@ -107,9 +102,13 @@ function combinedLeaseStatus(lease: LeaseRow) {
 
 function leaseTone(status: string): "default" | "success" | "warning" | "danger" {
   if (status === "active") return "success";
-  if (status === "invited" || status === "draft") return "warning";
-  if (status === "ended" || status === "cancelled") return "danger";
+  if (status === "upcoming" || status === "invited" || status === "draft") return "warning";
+  if (leaseIsPast(status)) return "danger";
   return "default";
+}
+
+function leaseIsPast(status: string) {
+  return status === "expired" || status === "terminated" || status === "cancelled";
 }
 
 function humanizeStatus(value: string) {
@@ -122,12 +121,7 @@ function humanizeStatus(value: string) {
 
 function daysUntil(value: string | null) {
   if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  date.setHours(0, 0, 0, 0);
-  return Math.ceil((date.getTime() - today.getTime()) / 86_400_000);
+  return differenceInAppCalendarDays(value, getAppDateKey());
 }
 
 function FieldLabel({ children, hint }: { children: ReactNode; hint?: string }) {
@@ -190,6 +184,18 @@ function Notice({ tone, children }: { tone: "success" | "danger"; children: Reac
   );
 }
 
+async function readApiPayload(response: Response, fallbackMessage: string) {
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+
+  if (!contentType.includes("application/json")) {
+    throw new Error(response.redirected ? "Your session could not complete this request. Refresh the page and try again." : fallbackMessage);
+  }
+
+  return response.json().catch(() => {
+    throw new Error(fallbackMessage);
+  });
+}
+
 export function LeaseConnectionManager({
   properties,
   units,
@@ -207,27 +213,31 @@ export function LeaseConnectionManager({
     startDate: "",
     endDate: "",
     monthlyRent: "",
+    dueDay: "1",
+    rentDueTime: DEFAULT_RENT_DUE_TIME,
     securityDeposit: ""
   });
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [manualInviteUrl, setManualInviteUrl] = useState("");
   const [pendingAction, setPendingAction] = useState("");
 
   const propertyUnits = useMemo(() => units.filter((unit) => unit.propertyId === selectedPropertyId), [selectedPropertyId, units]);
   const selectedProperty = useMemo(() => properties.find((property) => property.id === selectedPropertyId) ?? null, [properties, selectedPropertyId]);
-  const pendingInvites = leases.filter((lease) => lease.inviteStatus === "pending").length;
-  const connectedTenants = leases.filter((lease) => lease.tenantConnected).length;
-  const activeLeases = leases.filter((lease) => lease.status === "active").length;
-  const endingSoon = leases.filter((lease) => {
+  const currentLeases = leases.filter((lease) => !leaseIsPast(lease.status));
+  const pastLeases = leases.filter((lease) => leaseIsPast(lease.status));
+  const pendingInvites = currentLeases.filter((lease) => lease.inviteStatus === "pending").length;
+  const connectedTenants = currentLeases.filter((lease) => lease.tenantConnected).length;
+  const activeLeases = currentLeases.filter((lease) => lease.status === "active").length;
+  const endingSoon = currentLeases.filter((lease) => {
     const days = daysUntil(lease.endDate);
     return lease.status === "active" && days != null && days >= 0 && days <= 60;
   }).length;
 
   async function refreshLeases() {
     const response = await fetch("/api/leases/manager", { cache: "no-store" });
-    const payload = await response.json().catch(() => ({}));
+    const payload = await readApiPayload(response, "Could not refresh leases.");
     if (!response.ok) throw new Error(payload.error || "Could not refresh leases.");
+    if (!Array.isArray(payload.leases)) throw new Error("The lease service returned an invalid response.");
     setLeases(payload.leases ?? []);
   }
 
@@ -250,7 +260,6 @@ export function LeaseConnectionManager({
     event.preventDefault();
     setError("");
     setMessage("");
-    setManualInviteUrl("");
     setPendingAction("create");
 
     try {
@@ -264,14 +273,17 @@ export function LeaseConnectionManager({
           startDate: form.startDate || undefined,
           endDate: form.endDate || undefined,
           monthlyRent: form.monthlyRent ? Number(form.monthlyRent) : undefined,
+          dueDay: form.dueDay ? Number(form.dueDay) : undefined,
+          rentDueTime: form.rentDueTime || DEFAULT_RENT_DUE_TIME,
           securityDeposit: form.securityDeposit ? Number(form.securityDeposit) : undefined
         })
       });
-      const payload = await response.json().catch(() => ({}));
+      const payload = await readApiPayload(response, "Could not create lease.");
       if (!response.ok) throw new Error(payload.error || "Could not create lease.");
+      if (!payload.lease?.id) throw new Error("The lease service returned an invalid response.");
 
       setLeases((current) => [payload.lease, ...current.filter((lease) => lease.id !== payload.lease.id)]);
-      setForm({ tenantEmail: "", unitId: "", startDate: "", endDate: "", monthlyRent: "", securityDeposit: "" });
+      setForm({ tenantEmail: "", unitId: "", startDate: "", endDate: "", monthlyRent: "", dueDay: "1", rentDueTime: DEFAULT_RENT_DUE_TIME, securityDeposit: "" });
       setMessage("Lease created. Send the tenant invite when you are ready.");
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Could not create lease.");
@@ -283,7 +295,6 @@ export function LeaseConnectionManager({
   async function sendInvite(leaseId: string) {
     setError("");
     setMessage("");
-    setManualInviteUrl("");
     setPendingAction(`send-${leaseId}`);
 
     try {
@@ -292,16 +303,12 @@ export function LeaseConnectionManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ leaseId })
       });
-      const payload = await response.json().catch(() => ({}));
+      const payload = await readApiPayload(response, "Could not send invite.");
       if (!response.ok) throw new Error(payload.error || "Could not send invite.");
+      if (!payload.emailSent || !payload.tenantEmail) throw new Error("The email service did not confirm tenant invite delivery.");
 
       await refreshLeases();
-      if (payload.inviteUrl && !payload.emailSent) {
-        setManualInviteUrl(payload.inviteUrl);
-        setMessage("Email delivery is unavailable, but the tenant invite link is ready to share.");
-      } else {
-        setMessage("Tenant invite sent.");
-      }
+      setMessage(`A fresh tenant setup link was emailed to ${payload.tenantEmail}. Previous pending invite links are no longer valid.`);
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Could not send invite.");
     } finally {
@@ -312,7 +319,6 @@ export function LeaseConnectionManager({
   async function revokeInvite(leaseId: string) {
     setError("");
     setMessage("");
-    setManualInviteUrl("");
     setPendingAction(`revoke-${leaseId}`);
 
     try {
@@ -321,7 +327,7 @@ export function LeaseConnectionManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ leaseId })
       });
-      const payload = await response.json().catch(() => ({}));
+      const payload = await readApiPayload(response, "Could not revoke invite.");
       if (!response.ok) throw new Error(payload.error || "Could not revoke invite.");
 
       await refreshLeases();
@@ -330,17 +336,6 @@ export function LeaseConnectionManager({
       setError(revokeError instanceof Error ? revokeError.message : "Could not revoke invite.");
     } finally {
       setPendingAction("");
-    }
-  }
-
-  async function copyManualInviteLink() {
-    if (!manualInviteUrl) return;
-
-    try {
-      await navigator.clipboard.writeText(manualInviteUrl);
-      setMessage("Invite link copied. Send it to the tenant from your email, text, or messaging app.");
-    } catch {
-      setError("Could not copy the invite link automatically. Select and copy it manually.");
     }
   }
 
@@ -379,28 +374,6 @@ export function LeaseConnectionManager({
           {error ? <Notice tone="danger">{error}</Notice> : null}
           {message ? <Notice tone="success">{message}</Notice> : null}
         </div>
-      ) : null}
-
-      {manualInviteUrl ? (
-        <Card className="p-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="section-kicker">Delivery fallback</p>
-              <h2 className="mt-2 text-xl font-semibold text-[var(--text)]">Manual invite link</h2>
-              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                Email delivery is unavailable. Copy this secure link and send it to the tenant directly.
-              </p>
-            </div>
-            <Badge tone="warning">Copy required</Badge>
-          </div>
-          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-            <Input readOnly value={manualInviteUrl} className="font-mono text-xs" />
-            <Button type="button" variant="secondary" onClick={() => void copyManualInviteLink()}>
-              <Copy className="h-4 w-4" />
-              Copy link
-            </Button>
-          </div>
-        </Card>
       ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">
@@ -503,6 +476,27 @@ export function LeaseConnectionManager({
                 </label>
               </div>
 
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                <label className="block">
+                  <FieldLabel>Rent due day</FieldLabel>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="28"
+                    value={form.dueDay}
+                    onChange={(event) => setForm((current) => ({ ...current, dueDay: event.target.value }))}
+                  />
+                </label>
+                <label className="block">
+                  <FieldLabel>Rent due time</FieldLabel>
+                  <Input
+                    type="time"
+                    value={form.rentDueTime}
+                    onChange={(event) => setForm((current) => ({ ...current, rentDueTime: event.target.value }))}
+                  />
+                </label>
+              </div>
+
               <div className="border-t border-[var(--line)] pt-4">
                 <p className="text-xs leading-5 text-[var(--muted)]">Create the record first. Invite actions appear on each lease row.</p>
                 <Button type="submit" disabled={pendingAction === "create"} className="mt-3 w-full">
@@ -518,18 +512,18 @@ export function LeaseConnectionManager({
           <div className="border-b border-[var(--line)] p-5">
             <SectionHeader
               eyebrow="Lease records"
-              title="Connections and invite status"
-              description={`${connectedTenants} connected tenants, ${pendingInvites} pending invites, ${endingSoon} renewals to watch.`}
+              title="Current leases and invites"
+              description={`${currentLeases.length} current records, ${connectedTenants} connected tenants, ${pendingInvites} pending invites, ${endingSoon} renewals to watch.`}
             />
           </div>
 
-          {leases.length ? (
+          {currentLeases.length ? (
             <DataTable
               className="lease-records-table"
               minWidth="min(52rem, 100%)"
               columns={["Lease", "Tenant", "Property / unit", "Status", "Term", "Financials", ""]}
             >
-              {leases.map((lease) => {
+              {currentLeases.map((lease) => {
                 const canSend = lease.inviteStatus !== "accepted" && lease.status !== "active";
                 const canRevoke = lease.inviteStatus === "pending";
                 const daysLeft = daysUntil(lease.endDate);
@@ -582,6 +576,7 @@ export function LeaseConnectionManager({
                     </td>
                     <td className="table-cell">
                       <span className="block truncate text-sm font-semibold text-[var(--text)]">{formatCurrency(lease.monthlyRent)}</span>
+                      <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">Day {lease.dueDay} at {formatRentDueTime(lease.rentDueTime)}</span>
                       <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">Deposit {formatCurrency(lease.securityDeposit)}</span>
                     </td>
                     <td className="table-cell text-right">
@@ -620,15 +615,90 @@ export function LeaseConnectionManager({
             <div className="p-6">
               <div className="rounded-md border border-dashed border-[var(--line-strong)] bg-[var(--surface)] p-8 text-center">
                 <FileText className="mx-auto h-7 w-7 text-[var(--brand)]" />
-                <h3 className="mt-3 text-base font-semibold text-[var(--text)]">No leases yet</h3>
+                <h3 className="mt-3 text-base font-semibold text-[var(--text)]">No current leases</h3>
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted)]">
-                  Create a lease with a tenant email, then send an invite to connect the tenant account.
+                  Create a lease with a tenant email, then send an invite to connect the tenant account. Expired records are kept below.
                 </p>
               </div>
             </div>
           )}
         </Card>
       </div>
+
+      {pastLeases.length ? (
+        <Card className="overflow-hidden">
+          <div className="border-b border-[var(--line)] p-5">
+            <SectionHeader
+              eyebrow="Past leases"
+              title="Expired and closed records"
+              description={`${pastLeases.length} past lease${pastLeases.length === 1 ? "" : "s"} kept for reference, reporting, and history.`}
+            />
+          </div>
+          <DataTable
+            className="lease-records-table"
+            minWidth="min(52rem, 100%)"
+            columns={["Lease", "Tenant", "Property / unit", "Status", "Term", "Financials", ""]}
+          >
+            {pastLeases.map((lease) => {
+              const daysLeft = daysUntil(lease.endDate);
+              const status = combinedLeaseStatus(lease);
+              const tenantHasName = Boolean(lease.tenantFirstName || lease.tenantLastName);
+
+              return (
+                <tr key={lease.id} className="table-row">
+                  <td className="table-cell">
+                    <Link href={`/leases/${lease.id}`} className="table-link">
+                      <span className="inline-flex max-w-full items-center rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1 font-mono text-[11px] font-semibold text-[var(--muted-strong)]">
+                        <span className="truncate">{lease.nexusLeaseId ?? lease.id}</span>
+                      </span>
+                      <span className="mt-1.5 block truncate text-xs font-medium text-[var(--muted)]">Past lease</span>
+                    </Link>
+                  </td>
+                  <td className="table-cell">
+                    {tenantHasName ? (
+                      <>
+                        <span className="block truncate text-sm font-semibold text-[var(--text)]">{lease.tenantLastName || "Last name"}</span>
+                        <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{lease.tenantFirstName || "First name"}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="block truncate text-sm font-semibold text-[var(--text)]">Past tenant</span>
+                        <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{lease.tenantEmail || "Email not set"}</span>
+                      </>
+                    )}
+                  </td>
+                  <td className="table-cell">
+                    <span className="block truncate text-sm font-medium text-[var(--text)]">{lease.property?.name ?? "Property"}</span>
+                    <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">
+                      {lease.unit?.unitNumber ? `Unit ${lease.unit.unitNumber}` : "No unit assigned"}
+                    </span>
+                  </td>
+                  <td className="table-cell">
+                    <Badge tone={status.tone}>{status.label}</Badge>
+                    <span className="mt-1 block text-xs text-[var(--muted)]">{status.detail}</span>
+                  </td>
+                  <td className="table-cell">
+                    <span className="block truncate text-xs font-medium text-[var(--muted)]">{formatShortDate(lease.startDate)} - {formatShortDate(lease.endDate)}</span>
+                    <span className="mt-1 block text-xs text-[var(--muted)]">
+                      {daysLeft != null && daysLeft < 0 ? `${Math.abs(daysLeft)}d past end` : "Closed lease"}
+                    </span>
+                  </td>
+                  <td className="table-cell">
+                    <span className="block truncate text-sm font-semibold text-[var(--text)]">{formatCurrency(lease.monthlyRent)}</span>
+                    <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">Deposit {formatCurrency(lease.securityDeposit)}</span>
+                  </td>
+                  <td className="table-cell text-right">
+                    <RowActionsMenu>
+                      <RowActionLink href={`/leases/${lease.id}`}>View</RowActionLink>
+                      {lease.unit?.id ? <RowActionLink href={`/units/${lease.unit.id}`}>View unit</RowActionLink> : null}
+                    </RowActionsMenu>
+                  </td>
+                </tr>
+              );
+            })}
+          </DataTable>
+        </Card>
+      ) : null}
     </div>
   );
 }

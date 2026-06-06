@@ -1,6 +1,7 @@
 import "server-only";
 
 import { DEFAULT_COUNTRY, type StoredAddress } from "@/lib/address";
+import { normalizeRentDueTime } from "@/lib/app-time";
 import { ensureAppStoreTable, getSql } from "@/lib/database";
 
 export type UserRole = "ADMIN" | "MANAGER" | "TENANT";
@@ -49,11 +50,15 @@ export type User = {
   avatarPath?: string;
   title?: string;
   phone?: string;
+  stripeAccountId?: string;
   stripeConnectedAccountId?: string;
   stripeChargesEnabled?: boolean;
   stripePayoutsEnabled?: boolean;
   stripeDetailsSubmitted?: boolean;
   stripeOnboardingComplete?: boolean;
+  stripeDisabledReason?: string;
+  stripeCurrentlyDue?: string[];
+  stripeEventuallyDue?: string[];
   stripeUpdatedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -75,6 +80,8 @@ export type Lease = {
   moveInDate?: string;
   monthlyRent: number;
   dueDay: number;
+  rentDueTime?: string;
+  lastRentChargeMonth?: string;
   securityDeposit: number;
   recurringCharges: string;
   lateFeePolicy?: string;
@@ -92,6 +99,7 @@ export type TenantInvite = {
   tokenHash: string;
   status: TenantInviteStatus;
   expiresAt: string;
+  sentAt?: string;
   acceptedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -100,6 +108,7 @@ export type Payment = {
   id: string;
   unitId: string;
   leaseId?: string;
+  tenantId?: string;
   description: string;
   amount: number;
   dueDate: string;
@@ -108,6 +117,7 @@ export type Payment = {
   lateFeeAmount: number;
   balanceDue: number;
   categoryTag?: string;
+  generatedRentMonth?: string;
   amountPaid?: number;
   stripeCheckoutSessionId?: string;
   stripePaymentIntentId?: string;
@@ -300,6 +310,17 @@ export async function readStore(): Promise<AppStore> {
 }
 
 function normalizeStore(store: AppStore): AppStore {
+  const sourceLeases = store.leases ?? [];
+  const activeLeaseStatuses = new Set(["ACTIVE", "UPCOMING", "active", "invited"]);
+  const inferPaymentLease = (payment: Payment) => {
+    if (payment.leaseId) {
+      return sourceLeases.find((lease) => lease.id === payment.leaseId) ?? null;
+    }
+    return sourceLeases
+      .filter((lease) => lease.unitId === payment.unitId && activeLeaseStatuses.has(lease.status))
+      .sort((a, b) => (b.startDate ?? b.createdAt ?? "").localeCompare(a.startDate ?? a.createdAt ?? ""))[0] ?? null;
+  };
+
   return {
     ...emptyStore(),
     ...store,
@@ -338,8 +359,18 @@ function normalizeStore(store: AppStore): AppStore {
         tenantIds: lease.tenantIds ?? [],
         monthlyRent: lease.monthlyRent ?? 0,
         dueDay: lease.dueDay ?? 1,
+        rentDueTime: normalizeRentDueTime(lease.rentDueTime),
         securityDeposit: lease.securityDeposit ?? 0,
         recurringCharges: lease.recurringCharges ?? ""
+      };
+    }),
+    payments: (store.payments ?? []).map((payment) => {
+      const lease = inferPaymentLease(payment);
+      return {
+        ...payment,
+        tenantId: payment.tenantId ?? lease?.tenantIds?.[0],
+        lateFeeAmount: payment.lateFeeAmount ?? 0,
+        balanceDue: payment.balanceDue ?? (payment.status === "PAID" ? 0 : payment.amount)
       };
     })
   };

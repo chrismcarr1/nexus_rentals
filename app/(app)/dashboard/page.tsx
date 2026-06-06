@@ -30,6 +30,7 @@ import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createStripeCheckoutAction } from "@/lib/actions";
 import { managerOwnsApplication, primaryApplicant } from "@/lib/applications";
+import { appDateIsOnOrAfter, getAppDateKey } from "@/lib/app-time";
 import { requireUser } from "@/lib/auth";
 import { getRoleConfig } from "@/lib/rbac";
 import { readStore } from "@/lib/store";
@@ -86,7 +87,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     const vacantUnits = portal.scope.units.filter((unit) => unit.occupancyStatus !== "OCCUPIED").length;
     const monthlyRentRoll = portal.scope.units.reduce((sum, unit) => sum + unit.monthlyRent, 0);
     const upcomingMoveIns = portal.scope.leases.filter((lease) => {
-      if (lease.moveInDate) return new Date(lease.moveInDate).getTime() >= Date.now();
+      if (lease.moveInDate) return appDateIsOnOrAfter(lease.moveInDate, getAppDateKey());
       return lease.status === "UPCOMING" || lease.status === "invited";
     });
     const urgentMaintenance = [...portal.maintenanceOpen].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)).slice(0, 5);

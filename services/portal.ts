@@ -1,10 +1,11 @@
 import "server-only";
 
-import { addDays, differenceInCalendarDays, endOfMonth, isAfter, isBefore, startOfMonth } from "date-fns";
 import { cache } from "react";
 
 import { getEffectiveUserRole } from "@/lib/admin";
+import { addDaysToDateKey, appDateIsBefore, differenceInAppCalendarDays, getAppDateKey, monthKeyFromValue } from "@/lib/app-time";
 import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
+import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
 import { getOrganizationSnapshot, type Notification, type UserRole } from "@/lib/store";
 
 function leaseIsVisibleCurrent(status: string) {
@@ -26,14 +27,14 @@ type AppUser = {
 
 export const getPortalContext = cache(async (user: AppUser) => {
   await ensureLeaseConnectionIntegrity(user.organizationId);
+  await ensureScheduledLeasePayments(user.organizationId);
   const snapshot = await getOrganizationSnapshot(user.organizationId);
   const effectiveUsers = snapshot.users.map((candidate) => ({
     ...candidate,
     role: getEffectiveUserRole(candidate.role, candidate.email)
   }));
-  const now = new Date();
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
+  const todayKey = getAppDateKey();
+  const currentMonthKey = todayKey.slice(0, 7);
 
   const managerAssignments = new Map(snapshot.properties.map((property) => [property.id, property.managerId ?? null]));
   const tenantProfile =
@@ -49,6 +50,10 @@ export const getPortalContext = cache(async (user: AppUser) => {
       : [];
   const tenantLeases = snapshot.leases.filter((lease) => tenantLeaseIds.includes(lease.id));
   const tenantUnitIds = tenantLeases.map((lease) => lease.unitId).filter(Boolean) as string[];
+  const tenantDirectPaymentUnitIds =
+    user.role === "TENANT" && tenantProfile
+      ? snapshot.payments.filter((payment) => payment.tenantId === tenantProfile.id).map((payment) => payment.unitId).filter(Boolean)
+      : [];
   const tenantPropertyIds = tenantLeases
     .map((lease) => {
       if (lease.propertyId) return lease.propertyId;
@@ -56,17 +61,20 @@ export const getPortalContext = cache(async (user: AppUser) => {
       return unit?.propertyId;
     })
     .filter(Boolean) as string[];
+  const tenantDirectPaymentPropertyIds = tenantDirectPaymentUnitIds
+    .map((unitId) => snapshot.units.find((candidate) => candidate.id === unitId)?.propertyId)
+    .filter(Boolean) as string[];
 
   const propertyIds =
     user.role === "ADMIN"
       ? snapshot.properties.map((property) => property.id)
       : user.role === "MANAGER"
         ? snapshot.properties.filter((property) => property.managerId === user.id).map((property) => property.id)
-        : Array.from(new Set(tenantPropertyIds));
+        : Array.from(new Set([...tenantPropertyIds, ...tenantDirectPaymentPropertyIds]));
 
   const unitIds =
     user.role === "TENANT"
-      ? Array.from(new Set(tenantUnitIds))
+      ? Array.from(new Set([...tenantUnitIds, ...tenantDirectPaymentUnitIds]))
       : snapshot.units.filter((unit) => propertyIds.includes(unit.propertyId)).map((unit) => unit.id);
   const leaseIds =
     user.role === "TENANT"
@@ -84,7 +92,14 @@ export const getPortalContext = cache(async (user: AppUser) => {
     units: snapshot.units.filter((unit) => unitIds.includes(unit.id)),
     leases: snapshot.leases.filter((lease) => leaseIds.includes(lease.id)),
     tenants: snapshot.tenants.filter((tenant) => tenantIds.includes(tenant.id)),
-    payments: snapshot.payments.filter((payment) => unitIds.includes(payment.unitId)),
+    payments: snapshot.payments.filter((payment) => {
+      if (user.role !== "TENANT") return unitIds.includes(payment.unitId);
+      if (tenantProfile && payment.tenantId === tenantProfile.id) return true;
+      if (!unitIds.includes(payment.unitId)) return false;
+      if (payment.tenantId) return false;
+      if (payment.leaseId && tenantLeaseIds.includes(payment.leaseId)) return true;
+      return false;
+    }),
     expenses: snapshot.expenses.filter((expense) => propertyIds.includes(expense.propertyId)),
     maintenance: snapshot.maintenanceRequests.filter((item) => {
       if (!propertyIds.includes(item.propertyId)) return false;
@@ -134,13 +149,13 @@ export const getPortalContext = cache(async (user: AppUser) => {
     : null;
 
   const collected = scoped.payments
-    .filter((payment) => payment.paidDate && isAfter(new Date(payment.paidDate), monthStart) && isBefore(new Date(payment.paidDate), monthEnd))
+    .filter((payment) => payment.paidDate && monthKeyFromValue(payment.paidDate) === currentMonthKey)
     .reduce((sum, payment) => sum + payment.amount, 0);
   const outstanding = scoped.payments
     .filter((payment) => payment.status !== "PAID")
     .reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0);
   const overduePayments = scoped.payments.filter(
-    (payment) => payment.status === "LATE" || (payment.status !== "PAID" && isBefore(new Date(payment.dueDate), now))
+    (payment) => payment.status === "LATE" || (payment.status !== "PAID" && appDateIsBefore(payment.dueDate, todayKey))
   );
   const overdue = overduePayments.reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0);
   const totalUnits = scoped.units.length;
@@ -151,13 +166,13 @@ export const getPortalContext = cache(async (user: AppUser) => {
     .sort((a, b) => (a.endDate ?? "").localeCompare(b.endDate ?? ""))
     .map((lease) => ({
       ...lease,
-      daysRemaining: differenceInCalendarDays(new Date(lease.endDate!), now)
+      daysRemaining: differenceInAppCalendarDays(lease.endDate!, todayKey)
     }));
   const recurringRent = scoped.leases
     .filter((lease) => leaseIsVisibleCurrent(lease.status))
     .reduce((sum, lease) => sum + lease.monthlyRent, 0);
   const monthExpenses = scoped.expenses
-    .filter((expense) => isAfter(new Date(expense.incurredAt), monthStart) && isBefore(new Date(expense.incurredAt), monthEnd))
+    .filter((expense) => monthKeyFromValue(expense.incurredAt) === currentMonthKey)
     .reduce((sum, expense) => sum + expense.amount, 0);
 
   const delinquencyRate = scoped.payments.length ? overduePayments.length / scoped.payments.length : 0;
@@ -251,7 +266,7 @@ export const getPortalContext = cache(async (user: AppUser) => {
       ...maintenanceOpen.slice(0, 3).map((item) => ({
         id: item.id,
         label: "Work order",
-        date: addDays(new Date(item.requestedAt), 2).toISOString(),
+        date: addDaysToDateKey(item.requestedAt, 2),
         note: item.title
       }))
     ].sort((a, b) => a.date.localeCompare(b.date))

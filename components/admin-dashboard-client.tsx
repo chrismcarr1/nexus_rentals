@@ -8,6 +8,7 @@ import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { formatPhoneNumber } from "@/lib/phone";
 
 type AdminRole = "ADMIN" | "MANAGER" | "TENANT";
 
@@ -151,7 +152,7 @@ function toAccountForm(account: SafeAccount): AccountForm {
     email: account.email,
     role: account.role === "TENANT" ? "TENANT" : "MANAGER",
     isActive: account.isActive,
-    phone: account.phone ?? "",
+    phone: formatPhoneNumber(account.phone ?? ""),
     title: account.title ?? ""
   };
 }
@@ -401,8 +402,12 @@ export function AdminDashboardClient() {
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium">Phone</span>
                     <input
+                      type="tel"
+                      inputMode="tel"
+                      maxLength={14}
+                      placeholder="(555) 123-4567"
                       value={accountForm.phone}
-                      onChange={(event) => setAccountForm({ ...accountForm, phone: event.target.value })}
+                      onChange={(event) => setAccountForm({ ...accountForm, phone: formatPhoneNumber(event.target.value) })}
                       className="field"
                     />
                   </label>

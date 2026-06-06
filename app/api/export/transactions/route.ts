@@ -12,11 +12,12 @@ export async function GET() {
   });
 
   const rows = [
-    ["description", "property", "unit", "status", "amount", "dueDate", "paidDate"],
+    ["description", "property", "unit", "tenant", "status", "amount", "dueDate", "paidDate"],
     ...payments.map((payment) => [
       payment.description,
       payment.unit.property.name,
       payment.unit.unitNumber,
+      payment.tenant ? `${payment.tenant.firstName} ${payment.tenant.lastName}` : "",
       payment.status,
       String(payment.amount),
       payment.dueDate.toISOString(),

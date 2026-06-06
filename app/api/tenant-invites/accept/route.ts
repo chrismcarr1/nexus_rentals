@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { normalizeEmail } from "@/lib/admin";
-import { ensureLeaseConnectionIntegrity, getInviteByRawToken, getInviteStatus, toSafeLeaseRow } from "@/lib/lease-connections";
+import { ensureLeaseConnectionIntegrity, getInviteByRawToken, getInviteStatus, isPastLeaseStatus, toSafeLeaseRow } from "@/lib/lease-connections";
 import { getCurrentUser } from "@/lib/auth";
 import { createId, nowIso, updateStore } from "@/lib/store";
 
@@ -26,9 +26,13 @@ export async function POST(request: Request) {
     return Response.json({ error: "Missing invite token." }, { status: 400 });
   }
 
+  await ensureLeaseConnectionIntegrity();
   const { invite, lease } = await getInviteByRawToken(result.data.token);
   if (!invite || !lease) {
     return Response.json({ error: "Invite not found." }, { status: 404 });
+  }
+  if (isPastLeaseStatus(lease.status)) {
+    return Response.json({ error: "This lease has expired. Ask your manager for a new lease invite." }, { status: 400 });
   }
 
   const inviteStatus = getInviteStatus(invite);

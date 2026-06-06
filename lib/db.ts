@@ -84,10 +84,16 @@ function hydrateUnitBare(store: AppStore, unit: any) {
 
 function hydratePayment(store: AppStore, payment: any) {
   const unit = store.units.find((item) => item.id === payment.unitId)!;
+  const lease = payment.leaseId ? store.leases.find((item) => item.id === payment.leaseId) ?? null : null;
+  const tenant =
+    (payment.tenantId ? store.tenants.find((item) => item.id === payment.tenantId) : null) ??
+    (lease?.tenantIds?.[0] ? store.tenants.find((item) => item.id === lease.tenantIds[0]) : null) ??
+    null;
   return {
     ...toDateFields(payment, ["dueDate", "paidDate", "stripePaidAt", "createdAt", "updatedAt"]),
     unit: hydrateUnitBare(store, unit),
-    lease: payment.leaseId ? hydrateLease(store, store.leases.find((item) => item.id === payment.leaseId)!) : null
+    lease: lease ? hydrateLease(store, lease) : null,
+    tenant: tenant ? toDateFields(tenant, ["createdAt", "updatedAt"]) : null
   };
 }
 

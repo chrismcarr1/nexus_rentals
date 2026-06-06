@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { addDays, differenceInCalendarDays, endOfMonth, isAfter, isBefore, startOfMonth, startOfYear } from "date-fns";
 import {
   Banknote,
   BookOpenCheck,
@@ -28,8 +27,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { createPaymentAction, createStripeCheckoutAction } from "@/lib/actions";
+import { createPaymentAction, createStripeCheckoutAction, deletePaymentAction, updatePaymentAction } from "@/lib/actions";
+import { addDaysToDateKey, appDateIsAfter, appDateIsBefore, appDateKeyFromValue, differenceInAppCalendarDays, getAppDateKey, getAppYear, monthKeyFromValue } from "@/lib/app-time";
 import { requireUser } from "@/lib/auth";
+import { getStripeConnectState } from "@/lib/stripe-connect";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { badgeToneFromPayment, getPortalContext } from "@/services/portal";
 
@@ -41,6 +42,8 @@ function stripeStatusMessage(status?: string) {
   if (status === "invalid-payment") return "That rent payment could not be found for your tenant account.";
   if (status === "already-paid") return "That rent payment is already marked paid.";
   if (status === "missing-lease") return "This rent charge is not connected to an active lease. Ask your manager to link the charge to your lease or unit.";
+  if (status === "manager-missing") return "This charge is not connected to a manager payout account. Ask management to assign the property manager before paying online.";
+  if (status === "manager-setup-required") return "Online checkout is not available yet because the property manager still needs to finish Stripe payout setup.";
   if (status === "invalid-amount") return "This rent charge has no payable balance.";
   if (status === "amount-below-platform-fee") return "Stripe checkout requires the rent balance to be greater than the $1 Nexus platform fee.";
   if (status === "checkout-error") return "Stripe checkout could not be started. Please try again or contact management.";
@@ -122,9 +125,9 @@ function taxClassification(category: string) {
 }
 
 function collectionStatus(payment: { status: string; dueDate: string }) {
-  const today = new Date();
-  const daysLate = differenceInCalendarDays(today, new Date(payment.dueDate));
-  const daysUntilDue = differenceInCalendarDays(new Date(payment.dueDate), today);
+  const today = getAppDateKey();
+  const daysLate = differenceInAppCalendarDays(today, payment.dueDate);
+  const daysUntilDue = differenceInAppCalendarDays(payment.dueDate, today);
 
   if (payment.status === "PARTIAL") return { label: "Partial", tone: "warning" as const };
   if (daysLate >= 30) return { label: "Severely Late", tone: "danger" as const };
@@ -135,7 +138,7 @@ function collectionStatus(payment: { status: string; dueDate: string }) {
 
 function withinYear(value: string | undefined, year: number) {
   if (!value) return false;
-  return new Date(value).getFullYear() === year;
+  return appDateKeyFromValue(value).startsWith(`${year}-`);
 }
 
 export default async function TransactionsPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
@@ -146,6 +149,20 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const nextPaymentAmount = portal.nextPayment ? portal.nextPayment.balanceDue || portal.nextPayment.amount : 0;
 
   if (user.role === "TENANT") {
+    const currentTenantId = portal.currentTenant?.id;
+    const tenantLeaseIds = new Set(
+      portal.scope.leases
+        .filter((lease) => lease.tenantUserId === user.id || (currentTenantId ? lease.tenantIds.includes(currentTenantId) : false))
+        .map((lease) => lease.id)
+    );
+    const tenantPaymentHistory = portal.scope.payments
+      .filter((payment) => {
+        if (payment.tenantId) return currentTenantId ? payment.tenantId === currentTenantId : false;
+        if (payment.leaseId) return tenantLeaseIds.has(payment.leaseId);
+        return false;
+      })
+      .sort((a, b) => (b.paidDate ?? b.dueDate).localeCompare(a.paidDate ?? a.dueDate));
+
     return (
       <div className="space-y-4">
         <PageHeader
@@ -230,17 +247,37 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
           </Card>
           <Card className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Payment history</p>
-            <DataTable columns={["Description", "Due", "Status", "Channel", "Amount"]} className="mt-5">
-              {portal.scope.payments.map((payment) => (
-                <tr key={payment.id} className="table-row">
-                  <td className="py-4 pr-4 font-semibold">{payment.description}</td>
-                  <td className="py-4 pr-4 text-[var(--muted)]">{formatDate(payment.dueDate)}</td>
-                  <td className="py-4 pr-4"><Badge tone={badgeToneFromPayment(payment.status)}>{payment.status}</Badge></td>
-                  <td className="py-4 pr-4 text-[var(--muted)]">{methodFor(payment)}</td>
-                  <td className="py-4 pr-4 font-semibold">{formatCurrency(payment.amount)}</td>
-                </tr>
-              ))}
-            </DataTable>
+            {tenantPaymentHistory.length ? (
+              <DataTable columns={["Description", "Due", "Status", "Channel", "Amount", "Reference", "Action"]} className="mt-5">
+                {tenantPaymentHistory.map((payment) => (
+                  <tr key={payment.id} className="table-row">
+                    <td className="py-4 pr-4 font-semibold">{payment.description}</td>
+                    <td className="py-4 pr-4 text-[var(--muted)]">{formatDate(payment.dueDate)}</td>
+                    <td className="py-4 pr-4"><Badge tone={badgeToneFromPayment(payment.status)}>{payment.status}</Badge></td>
+                    <td className="py-4 pr-4 text-[var(--muted)]">{methodFor(payment)}</td>
+                    <td className="py-4 pr-4 font-semibold">{formatCurrency(payment.status === "PAID" ? paidAmountFor(payment) : balanceFor(payment))}</td>
+                    <td className="py-4 pr-4 font-mono text-xs text-[var(--muted)]">{referenceFor(payment)}</td>
+                    <td className="py-4 pr-4">
+                      {payment.status !== "PAID" ? (
+                        <form action={createStripeCheckoutAction}>
+                          <input type="hidden" name="paymentId" value={payment.id} />
+                          <SubmitButton pendingLabel="Opening..." className="button-compact px-3">
+                            <CreditCard className="h-4 w-4" />
+                            Pay
+                          </SubmitButton>
+                        </form>
+                      ) : (
+                        <Badge tone="success">Paid</Badge>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </DataTable>
+            ) : (
+              <div className="mt-5">
+                <EmptyState title="No payment history yet" description="Tenant-linked payments and charges will appear here once your manager creates them." />
+              </div>
+            )}
           </Card>
         </div>
       </div>
@@ -248,9 +285,10 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   }
 
   const activeTab: PaymentsTab = params.tab === "payments" || params.tab === "accounting" ? params.tab : "collections";
-  const today = new Date();
-  const next30 = addDays(today, 30);
-  const currentYear = new Date().getFullYear();
+  const today = getAppDateKey();
+  const next30 = addDaysToDateKey(today, 30);
+  const currentYear = getAppYear();
+  const currentMonthKey = today.slice(0, 7);
   const selectedYear = Number(params.year ?? currentYear) || currentYear;
   const propertyFilter = params.propertyId ?? "all";
   const statusFilter = params.status ?? "all";
@@ -263,29 +301,36 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const createMode = params.create;
   const selectedUnitId = portal.scope.units.some((unit) => unit.id === params.unitId) ? params.unitId : "";
   const selectedLeaseId = portal.scope.leases.some((lease) => lease.id === params.leaseId) ? params.leaseId : "";
+  const selectedLeaseForForm = selectedLeaseId ? portal.scope.leases.find((lease) => lease.id === selectedLeaseId) ?? null : null;
+  const selectedTenantId = portal.scope.tenants.some((tenant) => tenant.id === params.tenantId)
+    ? params.tenantId ?? ""
+    : selectedLeaseForForm?.tenantIds?.[0] ?? "";
 
-  const managerPaymentsReady = Boolean(
-    user.stripeConnectedAccountId && user.stripeChargesEnabled && user.stripePayoutsEnabled && user.stripeOnboardingComplete
-  );
+  const managerConnectState = getStripeConnectState(user);
+  const managerPaymentsReady = managerConnectState.ready;
 
   const rows = portal.scope.payments.map((payment) => {
     const unit = portal.scope.units.find((item) => item.id === payment.unitId) ?? null;
     const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) ?? null : null;
     const lease = payment.leaseId ? portal.scope.leases.find((item) => item.id === payment.leaseId) ?? null : null;
-    const tenants = lease ? portal.scope.tenants.filter((tenant) => lease.tenantIds.includes(tenant.id)) : [];
-    const primaryTenant = tenants[0] ?? null;
-    const tenantLabel = tenants.length
-      ? tenants.map((tenant) => `${tenant.firstName} ${tenant.lastName}`).join(", ")
-      : lease?.tenantEmail ?? "No tenant";
+    const directTenant = payment.tenantId ? portal.scope.tenants.find((tenant) => tenant.id === payment.tenantId) ?? null : null;
+    const leaseTenants = lease ? portal.scope.tenants.filter((tenant) => lease.tenantIds.includes(tenant.id)) : [];
+    const tenants = directTenant ? [directTenant] : leaseTenants;
+    const primaryTenant = directTenant ?? leaseTenants[0] ?? null;
+    const tenantLabel = directTenant
+      ? `${directTenant.firstName} ${directTenant.lastName}`
+      : leaseTenants.length
+        ? leaseTenants.map((tenant) => `${tenant.firstName} ${tenant.lastName}`).join(", ")
+        : lease?.tenantEmail ?? "No tenant";
     const category = normalizeCategory(payment.categoryTag, payment.description);
     const method = methodFor(payment);
     const paidAt = paidDateFor(payment);
-    const daysLate = Math.max(0, differenceInCalendarDays(today, new Date(payment.dueDate)));
+    const daysLate = Math.max(0, differenceInAppCalendarDays(today, payment.dueDate));
     const amountDue = balanceFor(payment);
     const amountPaid = paidAmountFor(payment);
     const searchText = [
       tenantLabel,
-      primaryTenant?.email,
+      tenants.map((tenant) => tenant.email).join(" "),
       property?.name,
       unit?.unitNumber,
       payment.description,
@@ -321,14 +366,14 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const paidRows = rows
     .filter((row) => row.payment.status === "PAID" && row.paidAt)
     .filter((row) => {
-      const paidDate = row.paidAt ? new Date(row.paidAt) : null;
+      const paidDateKey = appDateKeyFromValue(row.paidAt);
       if (query && !row.searchText.includes(query)) return false;
       if (propertyFilter !== "all" && row.property?.id !== propertyFilter) return false;
       if (tenantFilter !== "all" && !row.tenants.some((tenant) => tenant.id === tenantFilter)) return false;
       if (methodFilter !== "all" && row.method.toLowerCase() !== methodFilter) return false;
       if (categoryFilter !== "all" && row.category !== categoryFilter) return false;
-      if (dateFrom && paidDate && isBefore(paidDate, new Date(dateFrom))) return false;
-      if (dateTo && paidDate && isAfter(paidDate, new Date(dateTo))) return false;
+      if (dateFrom && paidDateKey && paidDateKey < dateFrom) return false;
+      if (dateTo && paidDateKey && paidDateKey > dateTo) return false;
       return true;
     })
     .sort((a, b) => {
@@ -357,21 +402,18 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const overdueRows = rows.filter((row) => row.payment.status !== "PAID" && (row.daysLate > 0 || row.payment.status === "LATE"));
   const overdueBalance = overdueRows.reduce((sum, row) => sum + row.amountDue, 0);
   const upcomingBalance = rows
-    .filter((row) => row.payment.status !== "PAID" && isAfter(new Date(row.payment.dueDate), today) && isBefore(new Date(row.payment.dueDate), next30))
+    .filter((row) => row.payment.status !== "PAID" && appDateIsAfter(row.payment.dueDate, today) && appDateIsBefore(row.payment.dueDate, next30))
     .reduce((sum, row) => sum + row.amountDue, 0);
-  const monthStart = startOfMonth(today);
-  const monthEnd = endOfMonth(today);
   const monthPaid = rows
-    .filter((row) => row.payment.status === "PAID" && row.paidAt && isAfter(new Date(row.paidAt), monthStart) && isBefore(new Date(row.paidAt), monthEnd))
+    .filter((row) => row.payment.status === "PAID" && row.paidAt && monthKeyFromValue(row.paidAt) === currentMonthKey)
     .reduce((sum, row) => sum + row.amountPaid, 0);
   const monthDue = rows
-    .filter((row) => isAfter(new Date(row.payment.dueDate), monthStart) && isBefore(new Date(row.payment.dueDate), monthEnd))
+    .filter((row) => monthKeyFromValue(row.payment.dueDate) === currentMonthKey)
     .reduce((sum, row) => sum + row.payment.amount, 0);
   const collectionRate = monthDue ? Math.round((monthPaid / monthDue) * 100) : 100;
 
-  const yearStart = startOfYear(today);
   const collectedThisYear = rows
-    .filter((row) => row.payment.status === "PAID" && row.paidAt && isAfter(new Date(row.paidAt), yearStart))
+    .filter((row) => row.payment.status === "PAID" && row.paidAt && appDateKeyFromValue(row.paidAt).startsWith(`${currentYear}-`))
     .reduce((sum, row) => sum + row.amountPaid, 0);
   const pendingStripeTransferRows = rows.filter(
     (row) => row.payment.status === "PAID" && row.method === "Stripe" && !row.payment.stripeDestinationAccountId
@@ -379,7 +421,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const averageCollectionTime = (() => {
     const completed = rows.filter((row) => row.payment.status === "PAID" && row.paidAt);
     if (!completed.length) return "0 days";
-    const average = completed.reduce((sum, row) => sum + differenceInCalendarDays(new Date(row.paidAt!), new Date(row.payment.dueDate)), 0) / completed.length;
+    const average = completed.reduce((sum, row) => sum + differenceInAppCalendarDays(row.paidAt!, row.payment.dueDate), 0) / completed.length;
     return `${Math.max(0, Math.round(average))} days`;
   })();
 
@@ -400,6 +442,9 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const selectedCollection = rows.find((row) => row.payment.id === params.charge && row.payment.status !== "PAID");
   const selectedPayment = rows.find((row) => row.payment.id === params.payment && row.payment.status === "PAID");
   const selectedLedger = accountingRows.find((row) => row.payment.id === params.ledger);
+  const selectedEditPayment = rows.find((row) => row.payment.id === params.editPayment);
+  const selectedDeletePayment = rows.find((row) => row.payment.id === params.deletePayment);
+  const paymentMutationReturnHref = paymentsHref(params, { editPayment: undefined, deletePayment: undefined });
 
   return (
     <div className="payments-workflow space-y-4">
@@ -410,7 +455,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Link href="/settings#payments-stripe" className="inline-flex min-h-10 items-center gap-2 rounded-md border border-[var(--line-strong)] bg-[var(--panel)] px-3 py-2 text-sm font-semibold transition hover:border-[var(--brand)] hover:bg-[var(--surface-hover)]">
-              <Badge tone={managerPaymentsReady ? "success" : "warning"}>{managerPaymentsReady ? "Stripe Connected" : "Stripe Setup Required"}</Badge>
+              <Badge tone={managerPaymentsReady ? "success" : managerConnectState.tone}>{managerPaymentsReady ? "Stripe connected" : managerConnectState.label}</Badge>
             </Link>
             <details className="new-action-menu relative">
               <summary className="new-action-trigger">
@@ -535,11 +580,13 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                         <td className="table-cell"><Badge tone={status.tone}>{status.label}</Badge></td>
                         <td className="table-cell text-right">
                           <RowActionsMenu>
-                            <RowActionLink href={`${paymentsHref(params, { create: "record", unitId: row.unit?.id, leaseId: row.lease?.id })}#new-payment`}>Record Payment</RowActionLink>
+                            <RowActionLink href={`${paymentsHref(params, { create: "record", unitId: row.unit?.id, leaseId: row.lease?.id, tenantId: row.primaryTenant?.id })}#new-payment`}>Record Payment</RowActionLink>
+                            <RowActionLink href={paymentsHref(params, { editPayment: row.payment.id, deletePayment: undefined, charge: undefined, payment: undefined, ledger: undefined })}>Edit Amount</RowActionLink>
                             <RowActionLink href={`/messages?q=${encodeURIComponent(row.tenantLabel)}`}>Send Reminder</RowActionLink>
                             {row.lease ? <RowActionLink href={`/leases/${row.lease.id}`}>View Lease</RowActionLink> : null}
                             <RowActionLink href={`/tenants?q=${encodeURIComponent(row.tenantLabel)}`}>View Tenant</RowActionLink>
-                            <RowActionLink href={`${paymentsHref(params, { create: "charge", unitId: row.unit?.id, leaseId: row.lease?.id })}#new-payment`}>Add Late Fee</RowActionLink>
+                            <RowActionLink href={`${paymentsHref(params, { create: "charge", unitId: row.unit?.id, leaseId: row.lease?.id, tenantId: row.primaryTenant?.id })}#new-payment`}>Add Late Fee</RowActionLink>
+                            <RowActionLink href={paymentsHref(params, { deletePayment: row.payment.id, editPayment: undefined, charge: undefined, payment: undefined, ledger: undefined })} destructive>Delete Payment</RowActionLink>
                           </RowActionsMenu>
                         </td>
                       </tr>
@@ -614,7 +661,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
             {paidRows.length ? (
               <DataTable
                 className="money-table mt-4"
-                minWidth="82rem"
+                minWidth="88rem"
                 columns={[
                   "Date",
                   <Link key="tenant" href={paymentsHref(params, { sort: "tenant" })} className="sort-link">Tenant</Link>,
@@ -624,7 +671,8 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                   <Link key="amount" href={paymentsHref(params, { sort: "amount" })} className="sort-link">Amount</Link>,
                   <Link key="category" href={paymentsHref(params, { sort: "category" })} className="sort-link">Category</Link>,
                   "Status",
-                  "Reference Number"
+                  "Reference Number",
+                  "Actions"
                 ]}
               >
                 {paidRows.map((row) => (
@@ -640,6 +688,13 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                     <td className="table-cell text-[var(--muted)]">{row.category}</td>
                     <td className="table-cell"><Badge tone="success">Paid</Badge></td>
                     <td className="table-cell font-mono text-xs text-[var(--muted)]">{referenceFor(row.payment)}</td>
+                    <td className="table-cell text-right">
+                      <RowActionsMenu>
+                        <RowActionLink href={paymentsHref(params, { editPayment: row.payment.id, deletePayment: undefined, charge: undefined, payment: undefined, ledger: undefined })}>Edit Amount</RowActionLink>
+                        <RowActionLink href={paymentsHref(params, { payment: row.payment.id, charge: undefined, ledger: undefined })}>View Details</RowActionLink>
+                        <RowActionLink href={paymentsHref(params, { deletePayment: row.payment.id, editPayment: undefined, charge: undefined, payment: undefined, ledger: undefined })} destructive>Delete Payment</RowActionLink>
+                      </RowActionsMenu>
+                    </td>
                   </tr>
                 ))}
               </DataTable>
@@ -704,8 +759,8 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
               {accountingRows.length ? (
                 <DataTable
                   className="accounting-table mt-4"
-                  minWidth="64rem"
-                  columns={["Date", "Category", "Description", "Property", "Amount", "Tax Classification"]}
+                  minWidth="72rem"
+                  columns={["Date", "Category", "Description", "Property", "Amount", "Tax Classification", "Actions"]}
                 >
                   {accountingRows.map((row) => (
                     <tr key={row.payment.id} className="table-row">
@@ -717,6 +772,13 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                       <td className="table-cell text-[var(--muted)]">{row.property?.name ?? "Unassigned"}</td>
                       <td className="table-cell font-semibold">{formatCurrency(row.amountPaid)}</td>
                       <td className="table-cell text-[var(--muted)]">{row.taxClassification}</td>
+                      <td className="table-cell text-right">
+                        <RowActionsMenu>
+                          <RowActionLink href={paymentsHref(params, { editPayment: row.payment.id, deletePayment: undefined, charge: undefined, payment: undefined, ledger: undefined })}>Edit Amount</RowActionLink>
+                          <RowActionLink href={paymentsHref(params, { ledger: row.payment.id, charge: undefined, payment: undefined })}>View Ledger</RowActionLink>
+                          <RowActionLink href={paymentsHref(params, { deletePayment: row.payment.id, editPayment: undefined, charge: undefined, payment: undefined, ledger: undefined })} destructive>Delete Payment</RowActionLink>
+                        </RowActionsMenu>
+                      </td>
                     </tr>
                   ))}
                 </DataTable>
@@ -753,7 +815,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
           title={createMode === "record" ? "Record payment" : createMode === "request" ? "Send payment request" : "Create charge"}
           description="Create one clean ledger item. Paid records flow to Payments and Accounting; open charges flow to Collections."
         >
-          {portal.scope.units.length ? (
+          {portal.scope.units.length && portal.scope.tenants.length ? (
             <form action={createPaymentAction} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-4">
                 <select name="unitId" defaultValue={selectedUnitId} className="field" required>
@@ -774,6 +836,14 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                       </option>
                     );
                   })}
+                </select>
+                <select name="tenantId" defaultValue={selectedTenantId} className="field" required>
+                  <option value="" disabled>Select tenant</option>
+                  {portal.scope.tenants.map((tenant) => (
+                    <option key={tenant.id} value={tenant.id}>
+                      {tenant.lastName}, {tenant.firstName}{tenant.email ? ` - ${tenant.email}` : ""}
+                    </option>
+                  ))}
                 </select>
                 <input name="description" placeholder={createMode === "charge" ? "Charge description" : "Payment description"} className="field" required />
                 <select name="categoryTag" defaultValue={createMode === "charge" ? "Rent" : "Rent"} className="field">
@@ -807,9 +877,76 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
               </div>
             </form>
           ) : (
-            <EmptyState title="Create a unit before adding financial activity" description="Nexus needs a unit to connect charges, payments, leases, tenants, and accounting records." />
+            <EmptyState
+              title={portal.scope.units.length ? "Create a tenant before adding financial activity" : "Create a unit before adding financial activity"}
+              description="Nexus links every charge and payment to a tenant, unit, property, and lease context when available."
+            />
           )}
         </DetailSection>
+      ) : null}
+
+      {selectedEditPayment ? (
+        <aside className="workflow-drawer" aria-label="Edit payment drawer">
+          <div className="workflow-drawer-header">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">Edit Payment</p>
+              <h2 className="mt-1 truncate text-lg font-semibold">{selectedEditPayment.tenantLabel}</h2>
+            </div>
+            <Link href={paymentMutationReturnHref} className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)]">Close</Link>
+          </div>
+          <div className="workflow-drawer-body">
+            <div className="drawer-grid">
+              <div><span>Description</span><strong>{selectedEditPayment.payment.description}</strong></div>
+              <div><span>Status</span><strong>{selectedEditPayment.payment.status}</strong></div>
+              <div><span>Unit</span><strong>{selectedEditPayment.unit?.unitNumber ?? "No unit"}</strong></div>
+              <div><span>Reference</span><strong>{referenceFor(selectedEditPayment.payment)}</strong></div>
+            </div>
+            <form action={updatePaymentAction} className="space-y-4">
+              <input type="hidden" name="paymentId" value={selectedEditPayment.payment.id} />
+              <input type="hidden" name="returnTo" value={paymentMutationReturnHref} />
+              <label className="block space-y-2 text-sm font-semibold text-[var(--text)]">
+                <span>Amount</span>
+                <input
+                  name="amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  defaultValue={String(selectedEditPayment.payment.status === "PAID" ? selectedEditPayment.amountPaid : selectedEditPayment.payment.amount)}
+                  className="field"
+                  required
+                />
+              </label>
+              <SubmitButton pendingLabel="Updating payment...">Update Payment</SubmitButton>
+            </form>
+          </div>
+        </aside>
+      ) : null}
+
+      {selectedDeletePayment ? (
+        <aside className="workflow-drawer" aria-label="Delete payment drawer">
+          <div className="workflow-drawer-header">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">Delete Payment</p>
+              <h2 className="mt-1 truncate text-lg font-semibold">{selectedDeletePayment.tenantLabel}</h2>
+            </div>
+            <Link href={paymentMutationReturnHref} className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)]">Close</Link>
+          </div>
+          <div className="workflow-drawer-body">
+            <div className="drawer-total">
+              <span>{selectedDeletePayment.payment.description}</span>
+              <strong>{formatCurrency(selectedDeletePayment.payment.status === "PAID" ? selectedDeletePayment.amountPaid : selectedDeletePayment.amountDue)}</strong>
+            </div>
+            <form action={deletePaymentAction} className="space-y-4">
+              <input type="hidden" name="paymentId" value={selectedDeletePayment.payment.id} />
+              <input type="hidden" name="returnTo" value={paymentMutationReturnHref} />
+              <label className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+                <input type="checkbox" name="confirmDelete" value="yes" required className="mt-1 h-4 w-4 rounded border-red-300" />
+                <span>Delete this payment record permanently.</span>
+              </label>
+              <SubmitButton variant="danger" pendingLabel="Deleting payment...">Delete Payment</SubmitButton>
+            </form>
+          </div>
+        </aside>
       ) : null}
 
       {selectedCollection ? (
@@ -841,13 +978,21 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
             </DetailSection>
             <DetailSection title="Payment history">
               <div className="space-y-2">
-                {rows.filter((row) => row.payment.status === "PAID" && row.lease?.id === selectedCollection.lease?.id).slice(0, 4).map((row) => (
+                {rows.filter((row) =>
+                  row.payment.status === "PAID" &&
+                  row.lease?.id === selectedCollection.lease?.id &&
+                  (!selectedCollection.primaryTenant || row.primaryTenant?.id === selectedCollection.primaryTenant.id)
+                ).slice(0, 4).map((row) => (
                   <div key={row.payment.id} className="flex justify-between rounded-md border border-[var(--line)] px-3 py-2 text-sm">
                     <span>{formatDateOrUnset(row.paidAt)}</span>
                     <strong>{formatCurrency(row.amountPaid)}</strong>
                   </div>
                 ))}
-                {!rows.some((row) => row.payment.status === "PAID" && row.lease?.id === selectedCollection.lease?.id) ? (
+                {!rows.some((row) =>
+                  row.payment.status === "PAID" &&
+                  row.lease?.id === selectedCollection.lease?.id &&
+                  (!selectedCollection.primaryTenant || row.primaryTenant?.id === selectedCollection.primaryTenant.id)
+                ) ? (
                   <p className="text-sm text-[var(--muted)]">No linked paid history for this lease yet.</p>
                 ) : null}
               </div>
@@ -860,10 +1005,12 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
             </DetailSection>
             <DetailSection title="Collection actions">
               <div className="grid gap-2">
-                <Link href={`${paymentsHref(params, { create: "record", unitId: selectedCollection.unit?.id, leaseId: selectedCollection.lease?.id })}#new-payment`} className="export-action">Record Payment</Link>
+                <Link href={`${paymentsHref(params, { create: "record", unitId: selectedCollection.unit?.id, leaseId: selectedCollection.lease?.id, tenantId: selectedCollection.primaryTenant?.id })}#new-payment`} className="export-action">Record Payment</Link>
+                <Link href={paymentsHref(params, { editPayment: selectedCollection.payment.id, deletePayment: undefined, charge: undefined })} className="export-action">Edit Amount</Link>
                 <Link href={`/messages?q=${encodeURIComponent(selectedCollection.tenantLabel)}`} className="export-action">Send Reminder</Link>
                 {selectedCollection.lease ? <Link href={`/leases/${selectedCollection.lease.id}`} className="export-action">View Lease</Link> : null}
                 <Link href={`/tenants?q=${encodeURIComponent(selectedCollection.tenantLabel)}`} className="export-action">View Tenant</Link>
+                <Link href={paymentsHref(params, { deletePayment: selectedCollection.payment.id, editPayment: undefined, charge: undefined })} className="export-action text-red-700">Delete Payment</Link>
               </div>
             </DetailSection>
           </div>
@@ -895,6 +1042,12 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
             <DetailSection title="Notes">
               <p className="text-sm text-[var(--muted)]">{selectedPayment.payment.description}</p>
             </DetailSection>
+            <DetailSection title="Actions">
+              <div className="grid gap-2">
+                <Link href={paymentsHref(params, { editPayment: selectedPayment.payment.id, deletePayment: undefined, payment: undefined })} className="export-action">Edit Amount</Link>
+                <Link href={paymentsHref(params, { deletePayment: selectedPayment.payment.id, editPayment: undefined, payment: undefined })} className="export-action text-red-700">Delete Payment</Link>
+              </div>
+            </DetailSection>
           </div>
         </aside>
       ) : null}
@@ -919,6 +1072,12 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
               <div><span>Unit</span><strong>{selectedLedger.unit?.unitNumber ?? "No unit"}</strong></div>
               <div><span>Reference</span><strong>{referenceFor(selectedLedger.payment)}</strong></div>
             </div>
+            <DetailSection title="Actions">
+              <div className="grid gap-2">
+                <Link href={paymentsHref(params, { editPayment: selectedLedger.payment.id, deletePayment: undefined, ledger: undefined })} className="export-action">Edit Amount</Link>
+                <Link href={paymentsHref(params, { deletePayment: selectedLedger.payment.id, editPayment: undefined, ledger: undefined })} className="export-action text-red-700">Delete Payment</Link>
+              </div>
+            </DetailSection>
           </div>
         </aside>
       ) : null}

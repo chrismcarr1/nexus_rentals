@@ -15,6 +15,7 @@ import { MaintenanceAiRequestForm } from "@/components/maintenance-ai-request-fo
 import { MaintenanceResolveForm } from "@/components/maintenance-resolve-form";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createMaintenanceAction } from "@/lib/actions";
 import { requireUser } from "@/lib/auth";
@@ -308,7 +309,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
                     <input name="contactName" placeholder={`${user.firstName} ${user.lastName}`.trim()} className="field" />
                   </FieldBlock>
                   <FieldBlock label="Contact phone">
-                    <input name="contactPhone" type="tel" placeholder="Best phone number for access coordination" className="field" />
+                    <PhoneInput name="contactPhone" placeholder="Best phone number for access coordination" />
                   </FieldBlock>
                   <FieldBlock label="Access notes">
                     <textarea name="accessNotes" placeholder="Gate code, parking note, doorbell instructions, pet instructions, or anything a vendor should know." className="field min-h-24" />

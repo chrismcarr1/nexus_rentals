@@ -8,6 +8,7 @@ import { createMaintenanceAction } from "@/lib/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { formatPhoneNumber } from "@/lib/phone";
 
 type UploadedPhoto = { path: string; name: string };
 type PropertyOption = { id: string; name: string };
@@ -84,7 +85,7 @@ export function MaintenanceAiRequestForm({
       : currentProperty?.name ?? "";
 
   function updateField(name: keyof ReturnType<typeof emptyDraftFields>, value: string) {
-    setFields((current) => ({ ...current, [name]: value }));
+    setFields((current) => ({ ...current, [name]: name === "contactPhone" ? formatPhoneNumber(value) : value }));
   }
 
   async function uploadPhotos(files: FileList | null) {

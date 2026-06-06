@@ -123,7 +123,9 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
                     <p className="font-semibold">{payment.description}</p>
                     <Badge tone={payment.status === "PAID" ? "success" : payment.status === "LATE" ? "danger" : "warning"}>{payment.status}</Badge>
                   </div>
-                  <p className="mt-2 text-sm text-stone-500">{formatDate(payment.dueDate)}</p>
+                  <p className="mt-2 text-sm text-stone-500">
+                    {payment.tenant ? `${payment.tenant.firstName} ${payment.tenant.lastName}` : "Tenant unassigned"} - {formatDate(payment.dueDate)}
+                  </p>
                   <p className="mt-3 text-lg font-semibold">{formatCurrency(payment.amount)}</p>
                 </div>
               ))}

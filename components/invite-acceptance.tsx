@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { formatAppDate } from "@/lib/app-time";
 
 type InviteDetails = {
   tenantEmail: string;
@@ -24,10 +25,7 @@ type InviteDetails = {
 };
 
 function formatDate(value: string | null) {
-  if (!value) return "Not set";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not set";
-  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
+  return value ? formatAppDate(value) : "Not set";
 }
 
 function formatCurrency(value: number | null) {

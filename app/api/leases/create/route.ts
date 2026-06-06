@@ -1,7 +1,9 @@
 import { z } from "zod";
 
+import { DEFAULT_RENT_DUE_TIME } from "@/lib/app-time";
 import { createConnectedLease, toSafeLeaseRow } from "@/lib/lease-connections";
 import { getCurrentUser } from "@/lib/auth";
+import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
 import { readStore, UserRole } from "@/lib/store";
 
 const createLeaseSchema = z.object({
@@ -11,6 +13,8 @@ const createLeaseSchema = z.object({
   startDate: z.string().optional().or(z.literal("")),
   endDate: z.string().optional().or(z.literal("")),
   monthlyRent: z.coerce.number().min(0).optional(),
+  dueDay: z.coerce.number().min(1).max(28).optional(),
+  rentDueTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().default(DEFAULT_RENT_DUE_TIME),
   securityDeposit: z.coerce.number().min(0).optional()
 });
 
@@ -35,8 +39,11 @@ export async function POST(request: Request) {
       startDate: result.data.startDate || undefined,
       endDate: result.data.endDate || undefined,
       monthlyRent: result.data.monthlyRent,
+      dueDay: result.data.dueDay,
+      rentDueTime: result.data.rentDueTime,
       securityDeposit: result.data.securityDeposit
     });
+    await ensureScheduledLeasePayments(user.organizationId);
     const store = await readStore();
 
     return Response.json({ lease: toSafeLeaseRow(store, lease) }, { status: 201 });

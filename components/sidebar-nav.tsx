@@ -53,7 +53,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
 
   return (
-    <nav className="sidebar-nav space-y-0.5">
+    <nav className="sidebar-nav">
       {items.map((item) => {
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
@@ -71,7 +71,7 @@ export function SidebarItem({ item, active }: { item: NavItem; active: boolean }
       href={item.href}
       title={item.description}
       className={cn(
-        "sidebar-nav-item group relative flex items-center gap-2.5 rounded-md border px-2 py-1.5 transition duration-150",
+        "sidebar-nav-item group relative flex items-center gap-2 rounded-md border px-2 py-1 transition duration-150",
         active
           ? "border-[var(--brand)] bg-[var(--accent-soft)] text-[var(--text)] shadow-[0_0_0_1px_rgba(13,143,123,0.12)_inset]"
           : "border-transparent text-[var(--muted)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"

@@ -34,6 +34,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCr
     throw new Error(`Stripe session ${session.id} lease metadata does not match payment ${paymentId}.`);
   }
 
+  if (session.metadata?.tenantId && payment.tenantId && payment.tenantId !== session.metadata.tenantId) {
+    throw new Error(`Stripe session ${session.id} tenant metadata does not match payment ${paymentId}.`);
+  }
+
   const amountPaidCents = session.amount_total ?? 0;
   if (session.metadata?.amountCents && Number(session.metadata.amountCents) !== amountPaidCents) {
     throw new Error(`Stripe session ${session.id} amount does not match payment ${paymentId}.`);
@@ -51,6 +55,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCr
     where: { id: paymentId },
     data: {
       status: "PAID",
+      ...(!payment.tenantId && session.metadata?.tenantId ? { tenantId: session.metadata.tenantId } : {}),
       paidDate: paidAt,
       balanceDue: 0,
       amountPaid: amountPaidCents > 0 ? amountPaidCents / 100 : payment.amount,

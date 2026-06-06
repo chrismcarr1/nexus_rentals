@@ -77,7 +77,16 @@ export async function middleware(request: NextRequest) {
     }
 
     if (isSystemAdminEmail(email)) {
+      if (isApi) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
       return NextResponse.redirect(new URL("/admin", request.url));
+    }
+
+    // Protected API routes enforce their own role and resource-level access.
+    // Let them return JSON instead of redirecting fetch requests to an HTML page.
+    if (isApi) {
+      return NextResponse.next();
     }
 
     if (!canAccessPath(role, pathname)) {

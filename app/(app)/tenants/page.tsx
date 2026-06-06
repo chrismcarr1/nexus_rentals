@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/page-header";
 import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createTenantAction } from "@/lib/actions";
 import { requireRouteAccess } from "@/lib/auth";
@@ -46,7 +47,12 @@ export default async function TenantsPage({ searchParams }: { searchParams?: Pro
     const property = unit ? portal.scope.properties.find((item) => item.id === unit.propertyId) : null;
     const balance = unit
       ? portal.scope.payments
-          .filter((payment) => payment.unitId === unit.id && payment.status !== "PAID")
+          .filter((payment) => {
+            if (payment.status === "PAID") return false;
+            if (payment.tenantId) return payment.tenantId === tenant.id;
+            if (currentLease && payment.leaseId) return payment.leaseId === currentLease.id;
+            return !payment.leaseId && payment.unitId === unit.id;
+          })
           .reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0)
       : 0;
 
@@ -189,13 +195,13 @@ export default async function TenantsPage({ searchParams }: { searchParams?: Pro
                 <input name="lastName" placeholder="Last name" className="field" />
               </div>
               <input name="email" type="email" placeholder="Email" className="field" />
-              <input name="phone" placeholder="Phone" className="field" />
+              <PhoneInput name="phone" placeholder="Phone" />
             </div>
             <div className="space-y-4">
               <input name="employer" placeholder="Employer" className="field" />
               <div className="form-grid-2">
                 <input name="emergencyName" placeholder="Emergency contact" className="field" />
-                <input name="emergencyPhone" placeholder="Emergency phone" className="field" />
+                <PhoneInput name="emergencyPhone" placeholder="Emergency phone" autoComplete="tel" />
               </div>
               <textarea name="notes" placeholder="Notes" className="field min-h-24" />
               <div className="flex gap-2">

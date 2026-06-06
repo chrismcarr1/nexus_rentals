@@ -1,8 +1,20 @@
 import { z } from "zod";
 
+import { appDateKeyFromValue, DEFAULT_RENT_DUE_TIME } from "@/lib/app-time";
+import { formatPhoneNumber } from "@/lib/phone";
+
 const optionalMoney = z.preprocess(
   (value) => (value === "" || value == null ? undefined : value),
   z.coerce.number().min(0).optional()
+);
+const rentDueTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().default(DEFAULT_RENT_DUE_TIME);
+const optionalPhone = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    const formatted = formatPhoneNumber(value);
+    return formatted || undefined;
+  },
+  z.string().optional()
 );
 
 export const signupSchema = z
@@ -14,7 +26,7 @@ export const signupSchema = z
     email: z.string().email(),
     password: z.string().min(8),
     confirmPassword: z.string().min(8),
-    phone: z.string().optional()
+    phone: optionalPhone
   })
   .refine((value) => value.password === value.confirmPassword, {
     message: "Passwords do not match",
@@ -69,10 +81,10 @@ export const tenantSchema = z.object({
   firstName: z.string().min(2),
   lastName: z.string().min(2),
   email: z.string().email().optional().or(z.literal("")),
-  phone: z.string().optional(),
+  phone: optionalPhone,
   employer: z.string().optional(),
   emergencyName: z.string().optional(),
-  emergencyPhone: z.string().optional(),
+  emergencyPhone: optionalPhone,
   notes: z.string().optional()
 });
 
@@ -83,6 +95,7 @@ export const leaseSchema = z.object({
   endDate: z.string().min(1),
   monthlyRent: z.coerce.number().min(0),
   dueDay: z.coerce.number().min(1).max(28),
+  rentDueTime: rentDueTimeSchema,
   securityDeposit: z.coerce.number().min(0),
   recurringCharges: z.string().optional(),
   lateFeePolicy: z.string().optional(),
@@ -98,18 +111,19 @@ export const newMoveInSchema = z
     tenantFirstName: z.string().min(2),
     tenantLastName: z.string().min(2),
     tenantEmail: z.string().email(),
-    tenantPhone: z.string().optional(),
+    tenantPhone: optionalPhone,
     employer: z.string().optional(),
     emergencyName: z.string().optional(),
-    emergencyPhone: z.string().optional(),
+    emergencyPhone: optionalPhone,
     startDate: z.string().min(1),
     endDate: z.string().min(1),
     moveInDate: z.string().min(1),
     monthlyRent: z.coerce.number().min(1),
     securityDeposit: z.coerce.number().min(0),
     dueDay: z.coerce.number().min(1).max(28),
-    firstRentDueDate: z.string().min(1),
-    securityDepositDueDate: z.string().min(1),
+    rentDueTime: rentDueTimeSchema,
+    firstRentDueDate: z.string().optional(),
+    securityDepositDueDate: z.string().optional(),
     createFirstRentCharge: z.boolean(),
     createSecurityDepositCharge: z.boolean(),
     additionalChargeDescription: z.string().optional(),
@@ -122,29 +136,29 @@ export const newMoveInSchema = z
     applicationSubmissionId: z.string().optional()
   })
   .superRefine((value, context) => {
-    const start = new Date(value.startDate);
-    const end = new Date(value.endDate);
-    const moveIn = new Date(value.moveInDate);
-    const firstRentDue = new Date(value.firstRentDueDate);
-    const depositDue = new Date(value.securityDepositDueDate);
-    const additionalDue = value.additionalChargeDueDate ? new Date(value.additionalChargeDueDate) : null;
+    const start = appDateKeyFromValue(value.startDate);
+    const end = appDateKeyFromValue(value.endDate);
+    const moveIn = appDateKeyFromValue(value.moveInDate);
+    const firstRentDue = value.firstRentDueDate ? appDateKeyFromValue(value.firstRentDueDate) : "";
+    const depositDue = value.securityDepositDueDate ? appDateKeyFromValue(value.securityDepositDueDate) : "";
+    const additionalDue = value.additionalChargeDueDate ? appDateKeyFromValue(value.additionalChargeDueDate) : "";
 
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    if (!start || !end || end < start) {
       context.addIssue({ code: "custom", path: ["endDate"], message: "End date must be after the start date." });
     }
-    if (Number.isNaN(moveIn.getTime()) || moveIn < start || moveIn > end) {
+    if (!moveIn || moveIn < start || moveIn > end) {
       context.addIssue({ code: "custom", path: ["moveInDate"], message: "Move-in date must be within the lease term." });
     }
-    if (Number.isNaN(firstRentDue.getTime())) {
+    if (value.createFirstRentCharge && !firstRentDue) {
       context.addIssue({ code: "custom", path: ["firstRentDueDate"], message: "First rent due date is required." });
     }
-    if (Number.isNaN(depositDue.getTime())) {
+    if (value.createSecurityDepositCharge && value.securityDeposit > 0 && !depositDue) {
       context.addIssue({ code: "custom", path: ["securityDepositDueDate"], message: "Deposit due date is required." });
     }
     if ((value.additionalChargeAmount ?? 0) > 0 && !value.additionalChargeDescription?.trim()) {
       context.addIssue({ code: "custom", path: ["additionalChargeDescription"], message: "Name the additional charge." });
     }
-    if (additionalDue && Number.isNaN(additionalDue.getTime())) {
+    if (value.additionalChargeDueDate && !additionalDue) {
       context.addIssue({ code: "custom", path: ["additionalChargeDueDate"], message: "Additional charge due date is invalid." });
     }
   });
@@ -166,7 +180,7 @@ export const rentalApplicationSchema = z
     publishNow: z.boolean()
   })
   .superRefine((value, context) => {
-    if (Number.isNaN(new Date(value.availableMoveInDate).getTime())) {
+    if (!appDateKeyFromValue(value.availableMoveInDate)) {
       context.addIssue({ code: "custom", path: ["availableMoveInDate"], message: "Available move-in date is invalid." });
     }
   });
@@ -176,7 +190,7 @@ export const applicationSubmissionSchema = z.object({
   firstName: z.string().min(2),
   lastName: z.string().min(2),
   email: z.string().email(),
-  phone: z.string().optional(),
+  phone: optionalPhone,
   dateOfBirth: z.string().optional(),
   currentAddress: z.string().optional(),
   monthlyIncome: optionalMoney,
@@ -188,7 +202,7 @@ export const applicationSubmissionSchema = z.object({
   coApplicantFirstName: z.string().optional(),
   coApplicantLastName: z.string().optional(),
   coApplicantEmail: z.string().email().optional().or(z.literal("")),
-  coApplicantPhone: z.string().optional(),
+  coApplicantPhone: optionalPhone,
   documentNotes: z.string().optional(),
   authorizationAccepted: z.boolean(),
   questionAnswers: z.array(z.object({ questionId: z.string(), prompt: z.string(), answer: z.string() })).max(12)
@@ -197,6 +211,7 @@ export const applicationSubmissionSchema = z.object({
 export const paymentSchema = z.object({
   unitId: z.string().min(1),
   leaseId: z.string().optional(),
+  tenantId: z.string().optional(),
   description: z.string().min(2),
   amount: z.coerce.number().min(0),
   dueDate: z.string().min(1),
@@ -205,6 +220,12 @@ export const paymentSchema = z.object({
   lateFeeAmount: z.coerce.number().optional(),
   balanceDue: z.coerce.number().optional(),
   categoryTag: z.string().optional()
+});
+
+export const paymentEditSchema = z.object({
+  paymentId: z.string().min(1),
+  amount: z.coerce.number().min(0),
+  returnTo: z.string().optional()
 });
 
 export const expenseSchema = z.object({
@@ -231,7 +252,7 @@ export const maintenanceSchema = z.object({
   accessNotes: z.string().optional(),
   contactPreference: z.enum(["APP", "PHONE", "EMAIL", "TEXT"]).optional(),
   contactName: z.string().optional(),
-  contactPhone: z.string().optional(),
+  contactPhone: optionalPhone,
   preferredWindow: z.string().optional(),
   safetyConcern: z.enum(["NO", "YES", "UNSURE"]).optional(),
   petsOnSite: z.enum(["NO", "YES", "UNKNOWN"]).optional(),
@@ -247,7 +268,7 @@ export const maintenanceSchema = z.object({
 export const settingsSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
-  phone: z.string().optional()
+  phone: optionalPhone
 });
 
 export const damageAssessmentSchema = z.object({

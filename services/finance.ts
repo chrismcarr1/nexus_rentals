@@ -1,6 +1,6 @@
-import { endOfMonth, isAfter, isBefore, startOfMonth } from "date-fns";
-
+import { addMonthsToDateKey, appDateIsBefore, appDateKeyFromValue, getAppDateKey, monthKeyFromValue } from "@/lib/app-time";
 import { db } from "@/lib/db";
+import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
 
 function leaseCountsAsCurrent(status: string) {
   return status === "ACTIVE" || status === "UPCOMING" || status === "active" || status === "invited";
@@ -11,9 +11,9 @@ function leaseCountsAsActive(status: string) {
 }
 
 export async function getDashboardSnapshot(organizationId: string) {
-  const now = new Date();
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
+  await ensureLeaseConnectionIntegrity(organizationId);
+  const todayKey = getAppDateKey();
+  const currentMonthKey = todayKey.slice(0, 7);
 
   const [properties, units, leases, payments, expenses, assessments, maintenance, notifications] = await Promise.all([
     db.property.findMany({ where: { organizationId }, include: { units: true } }),
@@ -62,41 +62,41 @@ export async function getDashboardSnapshot(organizationId: string) {
   const vacantUnits = units.filter((unit) => unit.occupancyStatus === "VACANT").length;
   const monthlyRecurringRent = units.reduce((sum, unit) => sum + unit.monthlyRent, 0);
   const rentCollectedThisMonth = payments
-    .filter((payment) => payment.paidDate && isAfter(payment.paidDate, monthStart) && isBefore(payment.paidDate, monthEnd))
+    .filter((payment) => payment.paidDate && monthKeyFromValue(payment.paidDate) === currentMonthKey)
     .reduce((sum, payment) => sum + payment.amount, 0);
   const outstanding = payments
     .filter((payment) => payment.status !== "PAID")
     .reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0);
   const overdue = payments
-    .filter((payment) => payment.status === "LATE" || (payment.status !== "PAID" && isBefore(payment.dueDate, now)))
+    .filter((payment) => payment.status === "LATE" || (payment.status !== "PAID" && appDateIsBefore(payment.dueDate, todayKey)))
     .reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0);
   const monthExpenses = expenses
-    .filter((expense) => isAfter(expense.incurredAt, monthStart) && isBefore(expense.incurredAt, monthEnd))
+    .filter((expense) => monthKeyFromValue(expense.incurredAt) === currentMonthKey)
     .reduce((sum, expense) => sum + expense.amount, 0);
   const depositsHeld = leases
     .filter((lease) => leaseCountsAsCurrent(lease.status))
     .reduce((sum, lease) => sum + lease.securityDeposit, 0);
   const upcomingLeaseExpirations = leases
     .filter((lease) => leaseCountsAsActive(lease.status) && lease.endDate)
-    .sort((a, b) => a.endDate.getTime() - b.endDate.getTime())
+    .sort((a, b) => appDateKeyFromValue(a.endDate).localeCompare(appDateKeyFromValue(b.endDate)))
     .slice(0, 5);
   const netOperatingCashFlow = rentCollectedThisMonth - monthExpenses;
 
   const trendMap = new Map<string, { rent: number; expenses: number }>();
   for (let index = 5; index >= 0; index -= 1) {
-    const cursor = new Date(now.getFullYear(), now.getMonth() - index, 1);
-    trendMap.set(cursor.toLocaleString("en-US", { month: "short" }), { rent: 0, expenses: 0 });
+    const cursorKey = addMonthsToDateKey(`${currentMonthKey}-01`, -index);
+    trendMap.set(monthLabel(cursorKey), { rent: 0, expenses: 0 });
   }
 
   for (const payment of payments) {
-    const key = payment.dueDate.toLocaleString("en-US", { month: "short" });
+    const key = monthLabel(payment.dueDate);
     if (trendMap.has(key)) {
       trendMap.get(key)!.rent += payment.status === "PAID" ? payment.amount : 0;
     }
   }
 
   for (const expense of expenses) {
-    const key = expense.incurredAt.toLocaleString("en-US", { month: "short" });
+    const key = monthLabel(expense.incurredAt);
     if (trendMap.has(key)) {
       trendMap.get(key)!.expenses += expense.amount;
     }
@@ -132,6 +132,13 @@ export async function getDashboardSnapshot(organizationId: string) {
     recentAssessments: assessments.slice(0, 4),
     upcomingLeaseExpirations
   };
+}
+
+function monthLabel(value: string | Date) {
+  const key = appDateKeyFromValue(value);
+  if (!key) return "Unset";
+  const [year, month] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(new Date(Date.UTC(year, month - 1, 1)));
 }
 
 export async function getReportsSnapshot(organizationId: string) {

@@ -1,61 +1,27 @@
 import { z } from "zod";
 
-import { createTenantInvite, getLeaseProperty, getLeaseUnit } from "@/lib/lease-connections";
-import { formatUnitAddress } from "@/lib/address";
 import { getCurrentUser } from "@/lib/auth";
-import { sendTenantInviteEmail } from "@/lib/email";
-import { getAppOrigin } from "@/lib/request-origin";
-import { readStore, UserRole } from "@/lib/store";
-import { formatDate } from "@/lib/utils";
+import { TenantInviteDeliveryError, sendLeaseTenantInvite } from "@/lib/tenant-invite-delivery";
+import { UserRole } from "@/lib/store";
 
 const sendInviteSchema = z.object({
   leaseId: z.string().min(1)
 });
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
-  if (!user) return Response.json({ error: "Log in before sending tenant invites." }, { status: 401 });
-  if (user.role !== UserRole.MANAGER) return Response.json({ error: "Only managers can send tenant invites." }, { status: 403 });
-
-  const payload = await request.json().catch(() => null);
-  const result = sendInviteSchema.safeParse(payload);
-
-  if (!result.success) {
-    return Response.json({ error: "Missing lease ID." }, { status: 400 });
-  }
-
   try {
-    const { rawToken, invite, lease } = await createTenantInvite(result.data.leaseId, user);
-    const store = await readStore();
-    const property = getLeaseProperty(store, lease);
-    const unit = getLeaseUnit(store, lease);
-    const propertyLabel = property
-      ? [property.name, unit?.unitNumber ? `Unit ${unit.unitNumber}` : null, formatUnitAddress(property, unit)].filter(Boolean).join(", ")
-      : "your lease";
-    const origin = await getAppOrigin();
-    const inviteUrl = `${origin}/invite/${encodeURIComponent(rawToken)}`;
-    let emailSent = false;
-    let emailError: string | undefined;
+    const user = await getCurrentUser();
+    if (!user) return Response.json({ error: "Log in before sending tenant invites." }, { status: 401 });
+    if (user.role !== UserRole.MANAGER) return Response.json({ error: "Only managers can send tenant invites." }, { status: 403 });
 
-    if (process.env.RESEND_API_KEY && process.env.RESET_EMAIL_FROM) {
-      try {
-        const emailResult = await sendTenantInviteEmail({
-          to: invite.tenantEmail,
-          managerName: `${user.firstName} ${user.lastName}`.trim() || user.email,
-          managerEmail: user.email,
-          propertyLabel: propertyLabel || "your lease",
-          inviteUrl,
-          expiresAt: formatDate(invite.expiresAt)
-        });
+    const payload = await request.json().catch(() => null);
+    const result = sendInviteSchema.safeParse(payload);
 
-        emailSent = emailResult.sent;
-        emailError = emailResult.error;
-      } catch (error) {
-        emailError = error instanceof Error ? error.message : "Tenant invite email failed.";
-      }
-    } else {
-      emailError = "Tenant invite email is not configured.";
+    if (!result.success) {
+      return Response.json({ error: "Missing lease ID." }, { status: 400 });
     }
+
+    const { invite, tenantEmail } = await sendLeaseTenantInvite(result.data.leaseId, user);
 
     return Response.json({
       invite: {
@@ -65,11 +31,12 @@ export async function POST(request: Request) {
         status: invite.status,
         expiresAt: invite.expiresAt
       },
-      inviteUrl,
-      emailSent,
-      emailError
+      tenantEmail,
+      emailSent: true
     });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Could not send invite." }, { status: 400 });
+    console.error("[tenant-invites] Could not deliver tenant invite", error);
+    const status = error instanceof TenantInviteDeliveryError ? 502 : 400;
+    return Response.json({ error: error instanceof Error ? error.message : "Could not deliver the tenant invite." }, { status });
   }
 }

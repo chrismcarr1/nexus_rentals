@@ -12,6 +12,8 @@ import { Select } from "@/components/ui/select";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Textarea } from "@/components/ui/textarea";
 import { createMoveInAction } from "@/lib/actions";
+import { addMonthsToDateKey, appDateKeyFromValue, DEFAULT_RENT_DUE_TIME, formatAppDate, formatRentDueTime, getAppDateKey, isValidRentDueTime } from "@/lib/app-time";
+import { formatPhoneNumber } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 
 export type MoveInPropertyOption = {
@@ -63,6 +65,7 @@ type MoveInFormState = {
   monthlyRent: string;
   securityDeposit: string;
   dueDay: string;
+  rentDueTime: string;
   firstRentDueDate: string;
   securityDepositDueDate: string;
   createFirstRentCharge: boolean;
@@ -85,26 +88,13 @@ const steps = [
   { label: "Review", icon: CheckCircle2 }
 ];
 
-function toDateInput(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function addMonths(date: Date, months: number) {
-  const next = new Date(date);
-  next.setMonth(next.getMonth() + months);
-  return next;
-}
-
 function formatCurrency(value: string | number) {
   const amount = typeof value === "number" ? value : Number(value || 0);
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
 }
 
 function formatDate(value: string) {
-  if (!value) return "Not set";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not set";
-  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
+  return value ? formatAppDate(value) : "Not set";
 }
 
 function isEmail(value: string) {
@@ -144,7 +134,7 @@ export function NewMoveInWizard({
   prefill?: MoveInPrefill;
   error?: string;
 }) {
-  const today = toDateInput(new Date());
+  const today = getAppDateKey();
   const requestedPropertyId = prefill?.propertyId ?? initialPropertyId;
   const requestedUnitId = prefill?.unitId ?? initialUnitId;
   const requestedPropertyHasUnits = Boolean(requestedPropertyId && units.some((unit) => unit.propertyId === requestedPropertyId));
@@ -163,16 +153,17 @@ export function NewMoveInWizard({
     tenantFirstName: prefill?.tenantFirstName ?? "",
     tenantLastName: prefill?.tenantLastName ?? "",
     tenantEmail: prefill?.tenantEmail ?? "",
-    tenantPhone: prefill?.tenantPhone ?? "",
+    tenantPhone: formatPhoneNumber(prefill?.tenantPhone ?? ""),
     employer: "",
     emergencyName: "",
     emergencyPhone: "",
     startDate: prefill?.startDate ?? prefill?.moveInDate ?? today,
-    endDate: toDateInput(addMonths(new Date(), 12)),
+    endDate: addMonthsToDateKey(today, 12),
     moveInDate: prefill?.moveInDate ?? today,
     monthlyRent: prefill?.monthlyRent != null ? String(prefill.monthlyRent) : defaultUnit?.monthlyRent ? String(defaultUnit.monthlyRent) : "",
     securityDeposit: prefill?.securityDeposit != null ? String(prefill.securityDeposit) : defaultUnit?.depositAmount ? String(defaultUnit.depositAmount) : "0",
     dueDay: "1",
+    rentDueTime: DEFAULT_RENT_DUE_TIME,
     firstRentDueDate: today,
     securityDepositDueDate: today,
     createFirstRentCharge: true,
@@ -228,18 +219,19 @@ export function NewMoveInWizard({
       if (!isEmail(form.tenantEmail)) return "Enter a valid tenant email.";
     }
     if (index === 2) {
-      const start = new Date(form.startDate);
-      const end = new Date(form.endDate);
-      const moveIn = new Date(form.moveInDate);
+      const start = appDateKeyFromValue(form.startDate);
+      const end = appDateKeyFromValue(form.endDate);
+      const moveIn = appDateKeyFromValue(form.moveInDate);
       if (!form.startDate || !form.endDate || !form.moveInDate) return "Set the lease start, lease end, and move-in dates.";
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return "Lease end date must be after the start date.";
-      if (Number.isNaN(moveIn.getTime()) || moveIn < start || moveIn > end) return "Move-in date must be within the lease term.";
+      if (!start || !end || end < start) return "Lease end date must be after the start date.";
+      if (!moveIn || moveIn < start || moveIn > end) return "Move-in date must be within the lease term.";
       if (Number(form.monthlyRent) < 1) return "Set a monthly rent greater than zero.";
       if (Number(form.securityDeposit) < 0) return "Security deposit cannot be negative.";
     }
     if (index === 3) {
       const dueDay = Number(form.dueDay);
       if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 28) return "Set a rent due day from 1 to 28.";
+      if (!isValidRentDueTime(form.rentDueTime)) return "Set a valid rent due time.";
       if (form.createFirstRentCharge && !form.firstRentDueDate) return "Set the first rent charge due date.";
       if (form.createSecurityDepositCharge && !form.securityDepositDueDate) return "Set the security deposit due date.";
       if (Number(form.additionalChargeAmount || 0) > 0 && !form.additionalChargeDescription.trim()) return "Name the additional move-in charge.";
@@ -403,7 +395,7 @@ export function NewMoveInWizard({
                   </label>
                   <label className="block">
                     <FieldLabel label="Phone" hint="Optional" />
-                    <Input value={form.tenantPhone} onChange={(event) => patch({ tenantPhone: event.target.value })} />
+                    <Input type="tel" inputMode="tel" maxLength={14} value={form.tenantPhone} onChange={(event) => patch({ tenantPhone: formatPhoneNumber(event.target.value) })} />
                   </label>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -418,7 +410,7 @@ export function NewMoveInWizard({
                 </div>
                 <label className="block">
                   <FieldLabel label="Emergency phone" hint="Optional" />
-                  <Input value={form.emergencyPhone} onChange={(event) => patch({ emergencyPhone: event.target.value })} />
+                  <Input type="tel" inputMode="tel" maxLength={14} value={form.emergencyPhone} onChange={(event) => patch({ emergencyPhone: formatPhoneNumber(event.target.value) })} />
                 </label>
               </div>
             </div>
@@ -481,7 +473,11 @@ export function NewMoveInWizard({
                     <FieldLabel label="Rent due day" />
                     <Input type="number" min="1" max="28" value={form.dueDay} onChange={(event) => patch({ dueDay: event.target.value })} />
                   </label>
-                  <label className="block sm:col-span-2">
+                  <label className="block">
+                    <FieldLabel label="Rent due time" />
+                    <Input type="time" value={form.rentDueTime} onChange={(event) => patch({ rentDueTime: event.target.value })} />
+                  </label>
+                  <label className="block">
                     <FieldLabel label="First rent due date" />
                     <Input type="date" value={form.firstRentDueDate} onChange={(event) => patch({ firstRentDueDate: event.target.value })} />
                   </label>
@@ -545,7 +541,7 @@ export function NewMoveInWizard({
                   <ReviewRow label="Move-in" value={formatDate(form.moveInDate)} />
                   <ReviewRow label="Monthly rent" value={formatCurrency(form.monthlyRent)} />
                   <ReviewRow label="Security deposit" value={formatCurrency(form.securityDeposit)} />
-                  <ReviewRow label="Rent schedule" value={`Due day ${form.dueDay}`} />
+                  <ReviewRow label="Rent schedule" value={`Day ${form.dueDay} at ${formatRentDueTime(form.rentDueTime)}`} />
                   <ReviewRow label="Initial charges" value={formatCurrency(totalInitialCharges)} />
                 </div>
                 <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-4">

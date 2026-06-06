@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getEffectiveUserRole, getSystemAdminEmail, isSystemAdminEmail, normalizeEmail } from "@/lib/admin";
 import { getAdminDashboardData } from "@/lib/admin-dashboard";
 import { getCurrentUser } from "@/lib/auth";
+import { formatPhoneNumber } from "@/lib/phone";
 import { createId, nowIso, updateStore } from "@/lib/store";
 
 const accountUpdateSchema = z.object({
@@ -77,7 +78,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ us
 
       const updatedAt = nowIso();
       const role = currentTargetIsAdmin ? "ADMIN" : getEffectiveUserRole(parsed.role, nextEmail);
-      const phone = parsed.phone || undefined;
+      const phone = formatPhoneNumber(parsed.phone) || undefined;
       const title = parsed.title || undefined;
       const previousEmail = target.email;
 

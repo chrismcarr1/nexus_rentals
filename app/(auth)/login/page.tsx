@@ -3,6 +3,7 @@ import { ArrowRight, Bot, Building2, CheckCircle2, CreditCard, Home, ShieldCheck
 
 import { PasswordField } from "@/components/password-field";
 import { loginAction } from "@/lib/actions";
+import { getInviteByRawToken, getInviteStatus } from "@/lib/lease-connections";
 
 const sections = [
   {
@@ -46,6 +47,8 @@ const sections = [
 export default async function LoginPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const params = (await searchParams) ?? {};
   const inviteToken = params.invite;
+  const inviteLookup = inviteToken ? await getInviteByRawToken(inviteToken) : null;
+  const inviteEmail = inviteLookup?.invite && getInviteStatus(inviteLookup.invite) === "pending" ? inviteLookup.invite.tenantEmail : "";
 
   return (
     <main className="min-h-screen bg-[#080f0d] text-white">
@@ -121,6 +124,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
                   required
                   className="w-full rounded-xl border border-[var(--line)] bg-white px-4 py-3 outline-none transition focus:border-[var(--brand)]/40 focus:ring-4 focus:ring-[var(--brand)]/10"
                   placeholder="you@company.com"
+                  defaultValue={inviteEmail}
                 />
               </label>
               <PasswordField

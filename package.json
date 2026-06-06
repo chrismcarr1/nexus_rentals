@@ -19,6 +19,8 @@
     "db:push": "node scripts/db-migrate.mjs",
     "db:seed": "tsx scripts/db-setup.mjs",
     "db:setup": "tsx scripts/db-setup.mjs",
+    "email:check": "node scripts/check-email-config.mjs",
+    "email:probe": "node scripts/check-email-config.mjs --probe",
     "test": "vitest run --pool=threads --maxWorkers=1"
   },
   "dependencies": {

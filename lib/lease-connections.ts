@@ -3,8 +3,10 @@ import "server-only";
 import { createHash, randomBytes } from "crypto";
 
 import { normalizeEmail } from "@/lib/admin";
+import { appDateIsAfter, appDateIsBefore, dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, getAppDateKey, normalizeRentDueTime } from "@/lib/app-time";
 import { formatAddress, formatUnitAddress } from "@/lib/address";
-import { createId, nowIso, readStore, updateStore, type AppStore, type Lease, type TenantInvite, type User } from "@/lib/store";
+import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
+import { createId, nowIso, readStore, updateStore, type AppStore, type Lease, type LeaseStatus, type TenantInvite, type UnitOccupancyStatus, type User } from "@/lib/store";
 
 export const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
@@ -21,9 +23,34 @@ export function isActiveLeaseStatus(status?: string) {
 }
 
 export function publicLeaseStatus(status: string) {
-  if (status === "ACTIVE" || status === "UPCOMING") return "active";
-  if (status === "EXPIRED" || status === "TERMINATED") return "ended";
+  if (status === "ACTIVE" || status === "active") return "active";
+  if (status === "UPCOMING") return "upcoming";
+  if (status === "EXPIRED" || status === "ended") return "expired";
+  if (status === "TERMINATED") return "terminated";
   return status;
+}
+
+export function isPastLeaseStatus(status?: string) {
+  const publicStatus = status ? publicLeaseStatus(status) : "";
+  return publicStatus === "expired" || publicStatus === "terminated" || publicStatus === "cancelled";
+}
+
+function normalizeLeaseLifecycleStatus(lease: Lease, todayKey = getAppDateKey()): LeaseStatus {
+  if (lease.status === "TERMINATED" || lease.status === "cancelled") return lease.status;
+  if (lease.endDate && appDateIsBefore(lease.endDate, todayKey)) return "EXPIRED";
+  if (lease.status === "EXPIRED" || lease.status === "ended") return "EXPIRED";
+  if (lease.status === "draft" || lease.status === "invited") return lease.status;
+  if (lease.startDate && appDateIsAfter(lease.startDate, todayKey)) return "UPCOMING";
+  if (lease.status === "UPCOMING" || lease.status === "ACTIVE" || lease.status === "active") return "ACTIVE";
+  return lease.status;
+}
+
+function leaseDrivenUnitState(leases: Array<{ status: LeaseStatus }>): { leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus } | null {
+  if (!leases.length) return null;
+  if (leases.some((lease) => lease.status === "ACTIVE" || lease.status === "active")) return { leaseStatus: "ACTIVE", occupancyStatus: "OCCUPIED" };
+  if (leases.some((lease) => lease.status === "UPCOMING" || lease.status === "invited" || lease.status === "draft")) return { leaseStatus: "UPCOMING", occupancyStatus: "VACANT" };
+  if (leases.some((lease) => lease.status === "TERMINATED" || lease.status === "cancelled")) return { leaseStatus: "TERMINATED", occupancyStatus: "VACANT" };
+  return { leaseStatus: "EXPIRED", occupancyStatus: "VACANT" };
 }
 
 export function getInviteStatus(invite?: TenantInvite | null) {
@@ -81,6 +108,7 @@ function getCanonicalLeaseForUnit(store: AppStore, unitId?: string) {
 export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
   await updateStore((store) => {
     const now = nowIso();
+    const todayKey = getAppDateKey();
     let changed = false;
     const seenLeaseIds = new Set<string>();
     const seenNexusIds = new Set<string>();
@@ -134,6 +162,7 @@ export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
       const resolvedManagerUserId = lease.managerUserId ?? property?.managerId;
       const resolvedTenantUserId = lease.tenantUserId ?? matchedTenantUser?.id;
       const resolvedTenantEmail = lease.tenantEmail ?? (tenantEmail || undefined);
+      const resolvedStatus = normalizeLeaseLifecycleStatus(lease, todayKey);
       const leaseChanged =
         id !== lease.id ||
         nexusLeaseId !== lease.nexusLeaseId ||
@@ -141,6 +170,7 @@ export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
         (lease.managerUserId ?? undefined) !== resolvedManagerUserId ||
         (lease.tenantUserId ?? undefined) !== resolvedTenantUserId ||
         (lease.tenantEmail ?? undefined) !== resolvedTenantEmail ||
+        lease.status !== resolvedStatus ||
         tenantIds.length !== (lease.tenantIds ?? []).length;
 
       const next = {
@@ -152,6 +182,7 @@ export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
         tenantUserId: resolvedTenantUserId,
         tenantEmail: resolvedTenantEmail,
         tenantIds,
+        status: resolvedStatus,
         updatedAt: leaseChanged ? now : lease.updatedAt
       };
 
@@ -169,13 +200,22 @@ export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
       return { ...property, managerId: lease.managerUserId, updatedAt: now };
     });
 
+    const units = store.units.map((unit) => {
+      const nextState = leaseDrivenUnitState(leases.filter((lease) => lease.unitId === unit.id));
+      if (!nextState) return unit;
+      if (unit.leaseStatus === nextState.leaseStatus && unit.occupancyStatus === nextState.occupancyStatus) return unit;
+      changed = true;
+      return { ...unit, ...nextState, updatedAt: now };
+    });
+
     const payments = store.payments.map((payment) => {
       const mappedLeaseId = payment.leaseId ? leaseIdMap.get(payment.leaseId) ?? payment.leaseId : undefined;
       const lease = mappedLeaseId ? leases.find((item) => item.id === mappedLeaseId) ?? null : getCanonicalLeaseForUnit(normalizedStore, payment.unitId);
       if (!lease) return payment;
-      if (payment.leaseId === lease.id) return payment;
+      const tenantId = payment.tenantId ?? lease.tenantIds?.[0];
+      if (payment.leaseId === lease.id && payment.tenantId === tenantId) return payment;
       changed = true;
-      return { ...payment, leaseId: lease.id, updatedAt: now };
+      return { ...payment, leaseId: lease.id, tenantId, updatedAt: now };
     });
 
     const inspections = store.inspections.map((inspection) => {
@@ -221,7 +261,7 @@ export async function ensureLeaseConnectionIntegrity(organizationId?: string) {
       return { ...next, updatedAt: now };
     });
 
-    return changed ? { ...store, properties, leases, payments, inspections, tenantInvites, discussionThreads } : store;
+    return changed ? { ...store, properties, units, leases, payments, inspections, tenantInvites, discussionThreads } : store;
   });
 }
 
@@ -278,6 +318,8 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
     startDate: lease.startDate ?? null,
     endDate: lease.endDate ?? null,
     monthlyRent: lease.monthlyRent ?? null,
+    dueDay: lease.dueDay ?? 1,
+    rentDueTime: normalizeRentDueTime(lease.rentDueTime),
     securityDeposit: lease.securityDeposit ?? null,
     createdAt: lease.createdAt,
     updatedAt: lease.updatedAt
@@ -286,6 +328,7 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
 
 export async function getManagerLeaseRows(user: User) {
   await ensureLeaseConnectionIntegrity(user.organizationId);
+  await ensureScheduledLeasePayments(user.organizationId);
   const store = await readStore();
   const leases = store.leases.filter((lease) => userOwnsLease(store, user, lease));
   return leases.map((lease) => toSafeLeaseRow(store, lease)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -293,6 +336,7 @@ export async function getManagerLeaseRows(user: User) {
 
 export async function getTenantLeaseRows(user: User) {
   await ensureLeaseConnectionIntegrity(user.organizationId);
+  await ensureScheduledLeasePayments(user.organizationId);
   const store = await readStore();
   const leases = store.leases.filter((lease) => lease.tenantUserId === user.id);
   return leases.map((lease) => toSafeLeaseRow(store, lease)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -306,6 +350,8 @@ export async function createConnectedLease({
   startDate,
   endDate,
   monthlyRent,
+  dueDay,
+  rentDueTime,
   securityDeposit
 }: {
   manager: User;
@@ -315,6 +361,8 @@ export async function createConnectedLease({
   startDate?: string;
   endDate?: string;
   monthlyRent?: number;
+  dueDay?: number;
+  rentDueTime?: string;
   securityDeposit?: number;
 }) {
   let lease: Lease | null = null;
@@ -334,10 +382,11 @@ export async function createConnectedLease({
       propertyId,
       unitId,
       tenantIds: [],
-      startDate,
-      endDate,
+      startDate: startDate ? dateOnlyToUtcNoonIso(startDate) : undefined,
+      endDate: endDate ? dateOnlyToUtcNoonIso(endDate) : undefined,
       monthlyRent: monthlyRent ?? 0,
-      dueDay: 1,
+      dueDay: dueDay ?? 1,
+      rentDueTime: normalizeRentDueTime(rentDueTime ?? DEFAULT_RENT_DUE_TIME),
       securityDeposit: securityDeposit ?? 0,
       recurringCharges: "",
       status: "draft",
@@ -354,46 +403,56 @@ export async function createConnectedLease({
   return lease!;
 }
 
-export async function createTenantInvite(leaseId: string, manager: User) {
+export async function createTenantInviteDraft(leaseId: string, manager: User) {
   const rawToken = generateInviteToken();
   const tokenHash = hashInviteToken(rawToken);
-  let invite: TenantInvite | null = null;
-  let lease: Lease | null = null;
+  const store = await readStore();
+  const lease = store.leases.find((item) => item.id === leaseId);
+  if (!lease || !userOwnsLease(store, manager, lease)) throw new Error("Lease not found.");
+  if (!lease.tenantEmail) throw new Error("Lease is missing a tenant email.");
+  if (isPastLeaseStatus(normalizeLeaseLifecycleStatus(lease))) throw new Error("Expired leases cannot receive new tenant invites.");
+  if (lease.tenantUserId) throw new Error("This lease is already connected to a tenant account.");
+
+  const now = nowIso();
+  const invite: TenantInvite = {
+    id: createId("invite"),
+    leaseId,
+    managerUserId: manager.id,
+    tenantEmail: normalizeEmail(lease.tenantEmail),
+    tokenHash,
+    status: "pending",
+    expiresAt: new Date(Date.now() + INVITE_TTL_MS).toISOString(),
+    createdAt: now,
+    updatedAt: now
+  };
+
+  return { rawToken, invite, lease };
+}
+
+export async function saveSentTenantInvite(invite: TenantInvite, manager: User) {
+  let deliveredInvite: TenantInvite | null = null;
 
   await updateStore((store) => {
-    const targetLease = store.leases.find((item) => item.id === leaseId);
-    if (!targetLease) throw new Error("Lease not found.");
-    if (!userOwnsLease(store, manager, targetLease)) throw new Error("Lease not found.");
-    if (!targetLease.tenantEmail) throw new Error("Lease is missing a tenant email.");
+    const lease = store.leases.find((item) => item.id === invite.leaseId);
+    if (!lease || !userOwnsLease(store, manager, lease)) throw new Error("Lease not found.");
+    if (lease.tenantUserId) throw new Error("This lease is already connected to a tenant account.");
 
     const now = nowIso();
-    invite = {
-      id: createId("invite"),
-      leaseId,
-      managerUserId: manager.id,
-      tenantEmail: normalizeEmail(targetLease.tenantEmail),
-      tokenHash,
-      status: "pending",
-      expiresAt: new Date(Date.now() + INVITE_TTL_MS).toISOString(),
-      createdAt: now,
-      updatedAt: now
-    };
-
-    lease = { ...targetLease, status: "invited", updatedAt: now };
+    deliveredInvite = { ...invite, status: "pending", sentAt: now, updatedAt: now };
 
     return {
       ...store,
-      leases: store.leases.map((item) => (item.id === leaseId ? lease! : item)),
-      tenantInvites: [
-        ...store.tenantInvites.map((item) =>
-          item.leaseId === leaseId && item.status === "pending" ? { ...item, status: "revoked" as const, updatedAt: now } : item
-        ),
-        invite
-      ]
+      leases: store.leases.map((item) => (item.id === lease.id ? { ...item, status: "invited", updatedAt: now } : item)),
+      tenantInvites: store.tenantInvites.map((item) => {
+        if (item.leaseId === lease.id && item.status === "pending") {
+          return { ...item, status: "revoked" as const, updatedAt: now };
+        }
+        return item;
+      }).concat(deliveredInvite)
     };
   });
 
-  return { rawToken, invite: invite!, lease: lease! };
+  return deliveredInvite!;
 }
 
 export async function getInviteByRawToken(rawToken: string) {
