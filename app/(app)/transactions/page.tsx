@@ -251,13 +251,13 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
               <DataTable columns={["Description", "Due", "Status", "Channel", "Amount", "Reference", "Action"]} className="mt-5">
                 {tenantPaymentHistory.map((payment) => (
                   <tr key={payment.id} className="table-row">
-                    <td className="py-4 pr-4 font-semibold">{payment.description}</td>
-                    <td className="py-4 pr-4 text-[var(--muted)]">{formatDate(payment.dueDate)}</td>
-                    <td className="py-4 pr-4"><Badge tone={badgeToneFromPayment(payment.status)}>{payment.status}</Badge></td>
-                    <td className="py-4 pr-4 text-[var(--muted)]">{methodFor(payment)}</td>
-                    <td className="py-4 pr-4 font-semibold">{formatCurrency(payment.status === "PAID" ? paidAmountFor(payment) : balanceFor(payment))}</td>
-                    <td className="py-4 pr-4 font-mono text-xs text-[var(--muted)]">{referenceFor(payment)}</td>
-                    <td className="py-4 pr-4">
+                    <td className="table-cell font-semibold">{payment.description}</td>
+                    <td className="table-cell text-[var(--muted)]">{formatDate(payment.dueDate)}</td>
+                    <td className="table-cell"><Badge tone={badgeToneFromPayment(payment.status)}>{payment.status}</Badge></td>
+                    <td className="table-cell text-[var(--muted)]">{methodFor(payment)}</td>
+                    <td className="table-cell font-semibold">{formatCurrency(payment.status === "PAID" ? paidAmountFor(payment) : balanceFor(payment))}</td>
+                    <td className="table-cell font-mono text-xs text-[var(--muted)]">{referenceFor(payment)}</td>
+                    <td className="table-cell">
                       {payment.status !== "PAID" ? (
                         <form action={createStripeCheckoutAction}>
                           <input type="hidden" name="paymentId" value={payment.id} />
@@ -434,10 +434,6 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
     .filter((row) => row.category !== "Rent" && row.category !== "Deposit" && row.category !== "Late Fee")
     .reduce((sum, row) => sum + row.amountPaid, 0);
 
-  const priorityRows = rows
-    .filter((row) => row.payment.status !== "PAID")
-    .sort((a, b) => b.daysLate - a.daysLate || b.amountDue - a.amountDue)
-    .slice(0, 8);
   const categoryOptions = Array.from(new Set(rows.map((row) => row.category))).sort((a, b) => a.localeCompare(b));
   const selectedCollection = rows.find((row) => row.payment.id === params.charge && row.payment.status !== "PAID");
   const selectedPayment = rows.find((row) => row.payment.id === params.payment && row.payment.status === "PAID");
@@ -507,12 +503,11 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
             <StatCard label="Collection Rate This Month" value={`${collectionRate}%`} detail={`${formatCurrency(monthPaid)} collected`} tone={collectionRate >= 95 ? "success" : collectionRate >= 75 ? "warning" : "danger"} />
           </section>
 
-          <div className="payments-main-grid">
-            <DetailSection
-              title="Outstanding charges"
-              description="Start here: every unpaid balance, sorted and filterable for daily collection work."
-              actions={<Badge tone={collectionsRows.length ? "warning" : "success"}>{collectionsRows.length} open</Badge>}
-            >
+          <DetailSection
+            title="Outstanding charges"
+            description="Start here: every unpaid balance, sorted and filterable for daily collection work."
+            actions={<Badge tone={collectionsRows.length ? "warning" : "success"}>{collectionsRows.length} open</Badge>}
+          >
               <FilterBar
                 action="/transactions"
                 query={params.q}
@@ -546,7 +541,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
               {collectionsRows.length ? (
                 <DataTable
                   className="collections-table mt-4"
-                  minWidth="86rem"
+                  minWidth="72rem"
                   columns={[
                     <Link key="tenant" href={paymentsHref(params, { sort: "tenant" })} className="sort-link">Tenant</Link>,
                     <Link key="property" href={paymentsHref(params, { sort: "property" })} className="sort-link">Property</Link>,
@@ -598,28 +593,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                   <EmptyState title="No outstanding charges" description="Every scoped charge is paid or filtered out. Create a charge when there is a new balance to collect." />
                 </div>
               )}
-            </DetailSection>
-
-            <DetailSection title="Collections Priority Queue" description="Highest-risk balances first.">
-              <div className="priority-list">
-                {priorityRows.length ? (
-                  priorityRows.map((row) => (
-                    <Link key={row.payment.id} href={paymentsHref(params, { charge: row.payment.id })} className="priority-item">
-                      <span className="min-w-0">
-                        <span className="block truncate font-semibold text-[var(--text)]">{row.tenantLabel}</span>
-                        <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                          {row.daysLate ? `${row.daysLate} days overdue` : `Due ${formatDate(row.payment.dueDate)}`}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-right font-semibold">{formatCurrency(row.amountDue)}</span>
-                    </Link>
-                  ))
-                ) : (
-                  <p className="text-sm text-[var(--muted)]">No collection follow-up needed right now.</p>
-                )}
-              </div>
-            </DetailSection>
-          </div>
+          </DetailSection>
         </>
       ) : null}
 
@@ -661,7 +635,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
             {paidRows.length ? (
               <DataTable
                 className="money-table mt-4"
-                minWidth="88rem"
+                minWidth="78rem"
                 columns={[
                   "Date",
                   <Link key="tenant" href={paymentsHref(params, { sort: "tenant" })} className="sort-link">Tenant</Link>,
@@ -759,7 +733,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
               {accountingRows.length ? (
                 <DataTable
                   className="accounting-table mt-4"
-                  minWidth="72rem"
+                  minWidth="64rem"
                   columns={["Date", "Category", "Description", "Property", "Amount", "Tax Classification", "Actions"]}
                 >
                   {accountingRows.map((row) => (

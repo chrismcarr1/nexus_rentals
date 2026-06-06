@@ -2,6 +2,7 @@ import Link from "next/link";
 import { MessageSquare, Send } from "lucide-react";
 
 import { EmptyState } from "@/components/empty-state";
+import { MessageScrollArea } from "@/components/message-scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -79,7 +80,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
                 return (
                   <Link
                     key={conversation.key}
-                    href={`/messages?conversation=${encodeURIComponent(conversation.key)}`}
+                    href={`/api/discussions/read?conversation=${encodeURIComponent(conversation.key)}`}
                     className={cn(
                       "group relative mb-1 flex items-start gap-3 rounded-md border px-3 py-3 pr-5 transition",
                       active
@@ -147,7 +148,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
                     </p>
                   </div>
 
-                  <div className="flex-1 space-y-3 overflow-y-auto px-5 py-5">
+                  <MessageScrollArea conversationKey={selected.key} messageCount={data.messages.length}>
                     {data.messages.length ? (
                       data.messages.map((message) => (
                         <div key={message.id} className={`flex ${message.isCurrentUser ? "justify-end" : "justify-start"}`}>
@@ -178,7 +179,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
                         </div>
                       </div>
                     )}
-                  </div>
+                  </MessageScrollArea>
 
                   <form action={sendDiscussionMessageAction} className="border-t border-[var(--line)] bg-[var(--panel)] p-4">
                     <input type="hidden" name="leaseId" value={selected.leaseId} />

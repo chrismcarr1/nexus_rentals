@@ -22,7 +22,7 @@ function formatDateOrUnset(value?: string | null) {
 
 function sortHref(params: Record<string, string>, sort: string) {
   const next = new URLSearchParams();
-  for (const key of ["q", "propertyId", "occupancy", "lease"]) {
+  for (const key of ["q", "propertyId", "occupancy"]) {
     if (params[key]) next.set(key, params[key]);
   }
   next.set("sort", sort);
@@ -36,7 +36,6 @@ export default async function UnitsPage({ searchParams }: { searchParams?: Promi
   const query = params.q?.trim().toLowerCase() ?? "";
   const propertyFilter = params.propertyId ?? "all";
   const occupancyFilter = params.occupancy ?? "all";
-  const leaseFilter = params.lease ?? "all";
   const sort = params.sort ?? "unit";
   const showCreate = params.create === "1";
 
@@ -61,7 +60,6 @@ export default async function UnitsPage({ searchParams }: { searchParams?: Promi
       if (query && !text.includes(query)) return false;
       if (propertyFilter !== "all" && row.unit.propertyId !== propertyFilter) return false;
       if (occupancyFilter !== "all" && row.unit.occupancyStatus !== occupancyFilter) return false;
-      if (leaseFilter !== "all" && row.unit.leaseStatus !== leaseFilter) return false;
       return true;
     })
     .sort((a, b) => {
@@ -81,7 +79,7 @@ export default async function UnitsPage({ searchParams }: { searchParams?: Promi
       <PageHeader
         eyebrow="Unit inventory"
         title="Units"
-        description="Filter every unit by property, tenant, lease state, occupancy, rent, and balance without opening individual property pages."
+        description="Filter every unit by property, tenant, occupancy, rent, and balance without opening individual property pages."
         actions={
           <Link href="/units?create=1" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]">
             <Plus className="h-4 w-4" />
@@ -124,18 +122,6 @@ export default async function UnitsPage({ searchParams }: { searchParams?: Promi
                 { label: "Notice", value: "NOTICE" },
                 { label: "Turnover", value: "TURNOVER" }
               ]
-            },
-            {
-              name: "lease",
-              label: "Lease",
-              value: leaseFilter,
-              options: [
-                { label: "All lease states", value: "all" },
-                { label: "Active", value: "ACTIVE" },
-                { label: "Upcoming", value: "UPCOMING" },
-                { label: "Expired", value: "EXPIRED" },
-                { label: "Terminated", value: "TERMINATED" }
-              ]
             }
           ]}
         />
@@ -143,13 +129,12 @@ export default async function UnitsPage({ searchParams }: { searchParams?: Promi
         {filtered.length ? (
           <DataTable
             className="mt-4"
-            minWidth="74rem"
+            minWidth="56rem"
             columns={[
               <Link key="unit" href={sortHref(params, "unit")} className="sort-link">Unit</Link>,
               <Link key="property" href={sortHref(params, "property")} className="sort-link">Property</Link>,
               "Tenant",
               <Link key="rent" href={sortHref(params, "rent")} className="sort-link">Rent</Link>,
-              "Lease status",
               <Link key="leaseEnd" href={sortHref(params, "leaseEnd")} className="sort-link">Lease end</Link>,
               <Link key="balance" href={sortHref(params, "balance")} className="sort-link">Balance due</Link>,
               "Occupancy",
@@ -175,7 +160,6 @@ export default async function UnitsPage({ searchParams }: { searchParams?: Promi
                   {row.tenants.length ? row.tenants.map((tenant) => `${tenant?.firstName} ${tenant?.lastName}`).join(", ") : "No tenant"}
                 </td>
                 <td className="table-cell font-semibold">{formatCurrency(row.unit.monthlyRent)}</td>
-                <td className="table-cell"><StatusBadge status={row.lease?.status ?? row.unit.leaseStatus} /></td>
                 <td className="table-cell text-[var(--muted)]">{formatDateOrUnset(row.lease?.endDate)}</td>
                 <td className="table-cell font-semibold">{formatCurrency(row.balanceDue)}</td>
                 <td className="table-cell"><StatusBadge status={row.unit.occupancyStatus} /></td>

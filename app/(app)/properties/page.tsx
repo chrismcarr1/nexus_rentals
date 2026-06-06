@@ -165,7 +165,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
         {filtered.length ? (
           <DataTable
               className="mt-4"
-              minWidth="72rem"
+              minWidth="64rem"
               columns={[
                 <Link key="name" href={sortHref(params, "name")} className="sort-link">Property</Link>,
                 "Address",
@@ -273,7 +273,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
 
       {user.role === "ADMIN" ? (
         <DetailSection title="Manager assignments" description="Compact admin controls for property manager coverage.">
-          <DataTable columns={["Property", "Current manager", "Assign"]} minWidth="48rem">
+          <DataTable columns={["Property", "Current manager", "Assign"]} minWidth="42rem">
             {rows.map((row) => (
               <tr key={row.property.id} className="table-row">
                 <td className="table-cell font-semibold">{row.property.name}</td>

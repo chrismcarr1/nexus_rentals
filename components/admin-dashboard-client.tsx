@@ -318,27 +318,27 @@ export function AdminDashboardClient() {
           <DataTable columns={["Email", "Role", "Status", "Created at", "Updated at", "Organization", "Manage"]} className="mt-5">
             {data.users.map((user) => (
               <tr key={user.id} className="table-row">
-                <td className="py-4 pr-4">
+                <td className="table-cell">
                   <p className="font-semibold">{user.email}</p>
                   <p className="mt-1 text-xs text-[var(--muted)]">
                     {user.firstName} {user.lastName}
                     {user.title ? ` / ${user.title}` : ""}
                   </p>
                 </td>
-                <td className="py-4 pr-4">
+                <td className="table-cell">
                   <Badge tone={roleTone(user.role)}>{user.role}</Badge>
                 </td>
-                <td className="py-4 pr-4">
+                <td className="table-cell">
                   <Badge tone={user.isActive ? "success" : "danger"}>{user.isActive ? "ACTIVE" : "DISABLED"}</Badge>
                 </td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{formatDate(user.createdAt)}</td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{formatDate(user.updatedAt)}</td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{user.organizationName}</td>
-                <td className="py-4 pr-4">
+                <td className="table-cell text-[var(--muted)]">{formatDate(user.createdAt)}</td>
+                <td className="table-cell text-[var(--muted)]">{formatDate(user.updatedAt)}</td>
+                <td className="table-cell text-[var(--muted)]">{user.organizationName}</td>
+                <td className="table-cell">
                   <button
                     type="button"
                     onClick={() => selectAccount(user)}
-                    className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-sm font-semibold text-[var(--text)] transition hover:bg-[var(--panel)]"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-[var(--line)] bg-white px-2.5 py-1.5 text-xs font-semibold text-[var(--text)] transition hover:bg-[var(--panel)]"
                   >
                     <Edit3 className="h-4 w-4" />
                     Edit
@@ -497,21 +497,21 @@ export function AdminDashboardClient() {
         <DataTable columns={["Property", "Status", "Manager", "Units", "Active leases", "Monthly rent", "Created"]} className="mt-5">
           {data.properties.map((property) => (
             <tr key={property.id} className="table-row">
-              <td className="py-4 pr-4">
+              <td className="table-cell">
                 <p className="font-semibold">{property.name}</p>
                 <p className="mt-1 text-xs text-[var(--muted)]">{property.organizationName} / {property.formattedAddress}</p>
               </td>
-              <td className="py-4 pr-4">
+              <td className="table-cell">
                 <Badge tone={statusTone(property.status)}>{property.status}</Badge>
               </td>
-              <td className="py-4 pr-4">
+              <td className="table-cell">
                 <p className="font-medium">{property.managerName ?? "Unassigned"}</p>
                 <p className="mt-1 text-xs text-[var(--muted)]">{property.managerEmail ?? "No manager email"}</p>
               </td>
-              <td className="py-4 pr-4 text-[var(--muted)]">{property.occupiedUnits}/{property.unitCount} occupied</td>
-              <td className="py-4 pr-4 text-[var(--muted)]">{property.activeLeases}</td>
-              <td className="py-4 pr-4 font-semibold">{formatCurrency(property.monthlyRent)}</td>
-              <td className="py-4 pr-4 text-[var(--muted)]">{formatDate(property.createdAt)}</td>
+              <td className="table-cell text-[var(--muted)]">{property.occupiedUnits}/{property.unitCount} occupied</td>
+              <td className="table-cell text-[var(--muted)]">{property.activeLeases}</td>
+              <td className="table-cell font-semibold">{formatCurrency(property.monthlyRent)}</td>
+              <td className="table-cell text-[var(--muted)]">{formatDate(property.createdAt)}</td>
             </tr>
           ))}
         </DataTable>
@@ -524,18 +524,18 @@ export function AdminDashboardClient() {
           <DataTable columns={["Organization", "Users", "Properties", "Units", "Leases"]} className="mt-5">
             {data.organizations.map((organization) => (
               <tr key={organization.id} className="table-row">
-                <td className="py-4 pr-4">
+                <td className="table-cell">
                   <p className="font-semibold">{organization.name}</p>
                   <p className="mt-1 text-xs text-[var(--muted)]">{organization.email}</p>
                 </td>
-                <td className="py-4 pr-4 text-[var(--muted)]">
+                <td className="table-cell text-[var(--muted)]">
                   {organization.userCount} total
                   <br />
                   {organization.managerCount} managers / {organization.tenantCount} tenants
                 </td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{organization.propertyCount}</td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{organization.unitCount}</td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{organization.leaseCount}</td>
+                <td className="table-cell text-[var(--muted)]">{organization.propertyCount}</td>
+                <td className="table-cell text-[var(--muted)]">{organization.unitCount}</td>
+                <td className="table-cell text-[var(--muted)]">{organization.leaseCount}</td>
               </tr>
             ))}
           </DataTable>
@@ -547,17 +547,17 @@ export function AdminDashboardClient() {
           <DataTable columns={["Unit", "Occupancy", "Lease", "Tenants", "Rent", "Updated"]} className="mt-5">
             {data.units.map((unit) => (
               <tr key={unit.id} className="table-row">
-                <td className="py-4 pr-4">
+                <td className="table-cell">
                   <p className="font-semibold">{unit.propertyName}</p>
                   <p className="mt-1 text-xs text-[var(--muted)]">Unit {unit.unitNumber}</p>
                 </td>
-                <td className="py-4 pr-4">
+                <td className="table-cell">
                   <Badge tone={statusTone(unit.occupancyStatus)}>{unit.occupancyStatus}</Badge>
                 </td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{unit.leaseStatus}</td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{unit.tenantCount}</td>
-                <td className="py-4 pr-4 font-semibold">{formatCurrency(unit.monthlyRent)}</td>
-                <td className="py-4 pr-4 text-[var(--muted)]">{formatDate(unit.updatedAt)}</td>
+                <td className="table-cell text-[var(--muted)]">{unit.leaseStatus}</td>
+                <td className="table-cell text-[var(--muted)]">{unit.tenantCount}</td>
+                <td className="table-cell font-semibold">{formatCurrency(unit.monthlyRent)}</td>
+                <td className="table-cell text-[var(--muted)]">{formatDate(unit.updatedAt)}</td>
               </tr>
             ))}
           </DataTable>

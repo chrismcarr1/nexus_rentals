@@ -35,14 +35,30 @@ export default async function ProtectedLayout({ children }: Readonly<{ children:
               label: "Work order"
             };
           });
-  const notificationAlerts = portal.notifications.map((notification) => ({
-    id: notification.id,
-    title: notification.title,
-    body: notification.body,
-    href: notification.href,
-    label: "Alert"
-  }));
-  const alerts = [...maintenanceAlerts, ...notificationAlerts].slice(0, 6);
+  const unreadNotifications = portal.notifications
+    .filter((notification) => !notification.isRead)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const seenMessageThreads = new Set<string>();
+  const notificationAlerts = unreadNotifications
+    .filter((notification) => {
+      if (!notification.href?.startsWith("/messages?conversation=")) return true;
+      if (seenMessageThreads.has(notification.href)) return false;
+      seenMessageThreads.add(notification.href);
+      return true;
+    })
+    .map((notification) => ({
+      id: notification.id,
+      title: notification.title,
+      body: notification.body,
+      href: notification.href?.startsWith("/messages?conversation=")
+        ? `/api/discussions/read?conversation=${encodeURIComponent(new URLSearchParams(notification.href.split("?")[1]).get("conversation") ?? "")}`
+        : notification.href,
+      label: notification.href?.startsWith("/messages?conversation=") ? "Message" : "Alert",
+      isUnread: true
+    }));
+  const messageAlerts = notificationAlerts.filter((alert) => alert.label === "Message");
+  const otherNotificationAlerts = notificationAlerts.filter((alert) => alert.label !== "Message");
+  const alerts = [...messageAlerts, ...otherNotificationAlerts, ...maintenanceAlerts].slice(0, 6);
 
   return (
     <AppShell

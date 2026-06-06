@@ -142,7 +142,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams?
         {filtered.length ? (
           <DataTable
             className="mt-4"
-            minWidth="78rem"
+            minWidth="68rem"
             columns={[
               <Link key="applicant" href={sortHref(params, "applicant")} className="sort-link">Applicant</Link>,
               "Property / unit",

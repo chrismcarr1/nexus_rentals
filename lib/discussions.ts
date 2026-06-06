@@ -1,5 +1,6 @@
 import "server-only";
 
+import { markConversationNotificationsRead } from "@/lib/discussion-notifications";
 import { createId, nowIso, readStore, updateStore, UserRole, type AppStore, type DiscussionMessage, type DiscussionThread, type Lease, type Tenant, type User } from "@/lib/store";
 
 export type DiscussionConversation = {
@@ -208,6 +209,18 @@ export async function getDiscussionPageData(user: User, selectedKey?: string): P
     selectedConversation: selectedCandidate ? toPublicConversation(selectedCandidate) : null,
     messages: selectedCandidate?.threadId ? getThreadMessages(store, selectedCandidate.threadId, user.id) : []
   };
+}
+
+export async function markDiscussionConversationRead(user: User, conversationKey: string) {
+  await updateStore((store) => {
+    const canAccessConversation = getDiscussionCandidates(store, user).some((candidate) => candidate.key === conversationKey);
+    if (!canAccessConversation) return store;
+
+    const href = `/messages?conversation=${encodeURIComponent(conversationKey)}`;
+    const result = markConversationNotificationsRead(store.notifications, user.id, href);
+
+    return result.changed ? { ...store, notifications: result.notifications } : store;
+  });
 }
 
 export async function sendDiscussionMessage({
