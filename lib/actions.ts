@@ -32,7 +32,7 @@ import { ensureLeaseConnectionIntegrity, isActiveLeaseStatus } from "@/lib/lease
 import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { formatPhoneNumber } from "@/lib/phone";
-import { getAppOrigin } from "@/lib/request-origin";
+import { buildAppUrl, getAppBaseUrl } from "@/lib/request-origin";
 import { FileKind, UserRole, createId, nowIso, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
 import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe } from "@/lib/stripe";
 import { createStripeExpressAccount, getStripeAccountId, getStripeConnectRedirectStatus, isStripeConnectReady, syncStripeConnectedAccount } from "@/lib/stripe-connect";
@@ -209,7 +209,7 @@ function isStripeConnectSignupError(error: unknown) {
 
 export async function connectStripeAccountAction() {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
-  const appUrl = await getAppOrigin();
+  const appUrl = getAppBaseUrl();
   let accountId = getStripeAccountId(user);
   let accountLinkUrl: string | null = null;
 
@@ -440,8 +440,7 @@ export async function requestResetAction(formData: FormData) {
   }
 
   const rawToken = randomBytes(32).toString("base64url");
-  const origin = await getAppOrigin();
-  const resetUrl = `${origin}/reset-password?token=${encodeURIComponent(rawToken)}`;
+  const resetUrl = buildAppUrl("/reset-password", { token: rawToken });
 
   await db.passwordResetToken.updateMany({
     where: { userId: user.id, usedAt: null },
@@ -2041,7 +2040,7 @@ export async function createStripeCheckoutAction(formData: FormData) {
   }
 
   const paymentMonth = getPaymentMonth(payment.dueDate);
-  const appUrl = await getAppOrigin();
+  const appUrl = getAppBaseUrl();
 
   if (
     (!payment.leaseId && leaseId) ||

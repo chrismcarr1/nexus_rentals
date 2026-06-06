@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   saveSentTenantInvite: vi.fn(),
   sendTenantInviteEmail: vi.fn(),
   readStore: vi.fn(),
-  getAppOrigin: vi.fn()
+  buildAppUrl: vi.fn()
 }));
 
 vi.mock("../lib/address", () => ({
@@ -26,7 +26,7 @@ vi.mock("../lib/lease-connections", () => ({
 }));
 
 vi.mock("../lib/request-origin", () => ({
-  getAppOrigin: mocks.getAppOrigin
+  buildAppUrl: mocks.buildAppUrl
 }));
 
 vi.mock("../lib/store", () => ({
@@ -67,7 +67,7 @@ describe("sendLeaseTenantInvite", () => {
       lease: { id: "lease_1" }
     });
     mocks.readStore.mockResolvedValue({});
-    mocks.getAppOrigin.mockResolvedValue("https://app.nexusrentals.co");
+    mocks.buildAppUrl.mockReturnValue("https://app.nexusrentals.co/invite/fresh-token");
     mocks.saveSentTenantInvite.mockResolvedValue({ ...invite, sentAt: "2026-06-05T12:01:00.000Z" });
   });
 
