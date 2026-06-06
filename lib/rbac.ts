@@ -86,6 +86,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/applications", label: "Applications", icon: "fileCheck2", description: "Rental applications and applicant review" },
       { href: "/transactions", label: "Payments", icon: "creditCard", description: "Overdue rent and rent status" },
       { href: "/maintenance", label: "Maintenance", icon: "clipboardList", description: "Open issues and vendor progress" },
+      { href: "/messages", label: "Messages", icon: "messageSquare", description: "Tenant and lease conversations" },
       { href: "/documents", label: "Documents", icon: "fileText", description: "Lease, property, unit, and inspection files" },
       { href: "/reports", label: "Reports", icon: "barChart3", description: "Portfolio reporting and operating visibility" },
       { href: "/settings", label: "Settings", icon: "settings", description: "Profile and assigned property context" }

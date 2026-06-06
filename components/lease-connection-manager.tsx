@@ -5,7 +5,6 @@ import {
   Ban,
   Building2,
   CalendarClock,
-  Copy,
   FileText,
   Home,
   Mail,
@@ -14,7 +13,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
-import { useId, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { DataTable } from "@/components/data-table";
 import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
@@ -185,6 +184,18 @@ function Notice({ tone, children }: { tone: "success" | "danger"; children: Reac
   );
 }
 
+async function readApiPayload(response: Response, fallbackMessage: string) {
+  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+
+  if (!contentType.includes("application/json")) {
+    throw new Error(response.redirected ? "Your session could not complete this request. Refresh the page and try again." : fallbackMessage);
+  }
+
+  return response.json().catch(() => {
+    throw new Error(fallbackMessage);
+  });
+}
+
 export function LeaseConnectionManager({
   properties,
   units,
@@ -208,8 +219,6 @@ export function LeaseConnectionManager({
   });
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [manualInviteUrl, setManualInviteUrl] = useState("");
-  const manualInviteInputId = useId();
   const [pendingAction, setPendingAction] = useState("");
 
   const propertyUnits = useMemo(() => units.filter((unit) => unit.propertyId === selectedPropertyId), [selectedPropertyId, units]);
@@ -226,8 +235,9 @@ export function LeaseConnectionManager({
 
   async function refreshLeases() {
     const response = await fetch("/api/leases/manager", { cache: "no-store" });
-    const payload = await response.json().catch(() => ({}));
+    const payload = await readApiPayload(response, "Could not refresh leases.");
     if (!response.ok) throw new Error(payload.error || "Could not refresh leases.");
+    if (!Array.isArray(payload.leases)) throw new Error("The lease service returned an invalid response.");
     setLeases(payload.leases ?? []);
   }
 
@@ -250,7 +260,6 @@ export function LeaseConnectionManager({
     event.preventDefault();
     setError("");
     setMessage("");
-    setManualInviteUrl("");
     setPendingAction("create");
 
     try {
@@ -269,8 +278,9 @@ export function LeaseConnectionManager({
           securityDeposit: form.securityDeposit ? Number(form.securityDeposit) : undefined
         })
       });
-      const payload = await response.json().catch(() => ({}));
+      const payload = await readApiPayload(response, "Could not create lease.");
       if (!response.ok) throw new Error(payload.error || "Could not create lease.");
+      if (!payload.lease?.id) throw new Error("The lease service returned an invalid response.");
 
       setLeases((current) => [payload.lease, ...current.filter((lease) => lease.id !== payload.lease.id)]);
       setForm({ tenantEmail: "", unitId: "", startDate: "", endDate: "", monthlyRent: "", dueDay: "1", rentDueTime: DEFAULT_RENT_DUE_TIME, securityDeposit: "" });
@@ -285,7 +295,6 @@ export function LeaseConnectionManager({
   async function sendInvite(leaseId: string) {
     setError("");
     setMessage("");
-    setManualInviteUrl("");
     setPendingAction(`send-${leaseId}`);
 
     try {
@@ -294,22 +303,12 @@ export function LeaseConnectionManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ leaseId })
       });
-      const payload = await response.json().catch(() => ({}));
+      const payload = await readApiPayload(response, "Could not send invite.");
       if (!response.ok) throw new Error(payload.error || "Could not send invite.");
+      if (!payload.emailSent || !payload.tenantEmail) throw new Error("The email service did not confirm tenant invite delivery.");
 
       await refreshLeases();
-      if (payload.inviteUrl) {
-        setManualInviteUrl(payload.inviteUrl);
-        setMessage(
-          payload.emailSent
-            ? "Tenant invite email was requested, and the invite link is ready to copy."
-            : payload.emailError
-              ? `Email delivery is unavailable: ${payload.emailError} The tenant invite link is ready to share.`
-              : "Email delivery is unavailable, but the tenant invite link is ready to share."
-        );
-      } else {
-        setMessage(payload.emailSent ? "Tenant invite email was requested." : payload.emailError ? `Tenant invite created, but email delivery is unavailable: ${payload.emailError}` : "Tenant invite created.");
-      }
+      setMessage(`A fresh tenant setup link was emailed to ${payload.tenantEmail}. Previous pending invite links are no longer valid.`);
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Could not send invite.");
     } finally {
@@ -320,7 +319,6 @@ export function LeaseConnectionManager({
   async function revokeInvite(leaseId: string) {
     setError("");
     setMessage("");
-    setManualInviteUrl("");
     setPendingAction(`revoke-${leaseId}`);
 
     try {
@@ -329,7 +327,7 @@ export function LeaseConnectionManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ leaseId })
       });
-      const payload = await response.json().catch(() => ({}));
+      const payload = await readApiPayload(response, "Could not revoke invite.");
       if (!response.ok) throw new Error(payload.error || "Could not revoke invite.");
 
       await refreshLeases();
@@ -338,24 +336,6 @@ export function LeaseConnectionManager({
       setError(revokeError instanceof Error ? revokeError.message : "Could not revoke invite.");
     } finally {
       setPendingAction("");
-    }
-  }
-
-  async function copyManualInviteLink() {
-    if (!manualInviteUrl) return;
-
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(manualInviteUrl);
-      } else {
-        const input = document.getElementById(manualInviteInputId);
-        if (!(input instanceof HTMLInputElement)) throw new Error("Copy input not found.");
-        input.select();
-        document.execCommand("copy");
-      }
-      setMessage("Invite link copied. Send it to the tenant from your email, text, or messaging app.");
-    } catch {
-      setError("Could not copy the invite link automatically. Select and copy it manually.");
     }
   }
 
@@ -394,28 +374,6 @@ export function LeaseConnectionManager({
           {error ? <Notice tone="danger">{error}</Notice> : null}
           {message ? <Notice tone="success">{message}</Notice> : null}
         </div>
-      ) : null}
-
-      {manualInviteUrl ? (
-        <Card className="p-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <p className="section-kicker">Delivery fallback</p>
-              <h2 className="mt-2 text-xl font-semibold text-[var(--text)]">Manual invite link</h2>
-              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-                Copy this secure link and send it to the tenant directly by text, email, or message.
-              </p>
-            </div>
-            <Badge tone="warning">Copy ready</Badge>
-          </div>
-          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-            <Input id={manualInviteInputId} readOnly value={manualInviteUrl} className="font-mono text-xs" onFocus={(event) => event.currentTarget.select()} />
-            <Button type="button" variant="secondary" onClick={() => void copyManualInviteLink()}>
-              <Copy className="h-4 w-4" />
-              Copy link
-            </Button>
-          </div>
-        </Card>
       ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(320px,0.72fr)_minmax(0,1.28fr)]">

@@ -403,47 +403,56 @@ export async function createConnectedLease({
   return lease!;
 }
 
-export async function createTenantInvite(leaseId: string, manager: User) {
+export async function createTenantInviteDraft(leaseId: string, manager: User) {
   const rawToken = generateInviteToken();
   const tokenHash = hashInviteToken(rawToken);
-  let invite: TenantInvite | null = null;
-  let lease: Lease | null = null;
+  const store = await readStore();
+  const lease = store.leases.find((item) => item.id === leaseId);
+  if (!lease || !userOwnsLease(store, manager, lease)) throw new Error("Lease not found.");
+  if (!lease.tenantEmail) throw new Error("Lease is missing a tenant email.");
+  if (isPastLeaseStatus(normalizeLeaseLifecycleStatus(lease))) throw new Error("Expired leases cannot receive new tenant invites.");
+  if (lease.tenantUserId) throw new Error("This lease is already connected to a tenant account.");
+
+  const now = nowIso();
+  const invite: TenantInvite = {
+    id: createId("invite"),
+    leaseId,
+    managerUserId: manager.id,
+    tenantEmail: normalizeEmail(lease.tenantEmail),
+    tokenHash,
+    status: "pending",
+    expiresAt: new Date(Date.now() + INVITE_TTL_MS).toISOString(),
+    createdAt: now,
+    updatedAt: now
+  };
+
+  return { rawToken, invite, lease };
+}
+
+export async function saveSentTenantInvite(invite: TenantInvite, manager: User) {
+  let deliveredInvite: TenantInvite | null = null;
 
   await updateStore((store) => {
-    const targetLease = store.leases.find((item) => item.id === leaseId);
-    if (!targetLease) throw new Error("Lease not found.");
-    if (!userOwnsLease(store, manager, targetLease)) throw new Error("Lease not found.");
-    if (!targetLease.tenantEmail) throw new Error("Lease is missing a tenant email.");
-    if (isPastLeaseStatus(normalizeLeaseLifecycleStatus(targetLease))) throw new Error("Expired leases cannot receive new tenant invites.");
+    const lease = store.leases.find((item) => item.id === invite.leaseId);
+    if (!lease || !userOwnsLease(store, manager, lease)) throw new Error("Lease not found.");
+    if (lease.tenantUserId) throw new Error("This lease is already connected to a tenant account.");
 
     const now = nowIso();
-    invite = {
-      id: createId("invite"),
-      leaseId,
-      managerUserId: manager.id,
-      tenantEmail: normalizeEmail(targetLease.tenantEmail),
-      tokenHash,
-      status: "pending",
-      expiresAt: new Date(Date.now() + INVITE_TTL_MS).toISOString(),
-      createdAt: now,
-      updatedAt: now
-    };
-
-    lease = { ...targetLease, status: "invited", updatedAt: now };
+    deliveredInvite = { ...invite, status: "pending", sentAt: now, updatedAt: now };
 
     return {
       ...store,
-      leases: store.leases.map((item) => (item.id === leaseId ? lease! : item)),
-      tenantInvites: [
-        ...store.tenantInvites.map((item) =>
-          item.leaseId === leaseId && item.status === "pending" ? { ...item, status: "revoked" as const, updatedAt: now } : item
-        ),
-        invite
-      ]
+      leases: store.leases.map((item) => (item.id === lease.id ? { ...item, status: "invited", updatedAt: now } : item)),
+      tenantInvites: store.tenantInvites.map((item) => {
+        if (item.leaseId === lease.id && item.status === "pending") {
+          return { ...item, status: "revoked" as const, updatedAt: now };
+        }
+        return item;
+      }).concat(deliveredInvite)
     };
   });
 
-  return { rawToken, invite: invite!, lease: lease! };
+  return deliveredInvite!;
 }
 
 export async function getInviteByRawToken(rawToken: string) {

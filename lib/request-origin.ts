@@ -14,13 +14,27 @@ function normalizeOrigin(value?: string | null) {
   }
 }
 
+function isUnsafeProductionOrigin(origin: string) {
+  const { hostname } = new URL(origin);
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.endsWith(".local") ||
+    hostname === "your-vercel-domain.vercel.app"
+  );
+}
+
 export async function getAppOrigin() {
-  const configuredOrigin =
-    normalizeOrigin(process.env.APP_URL) ??
-    normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL) ??
-    normalizeOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL) ??
-    normalizeOrigin(process.env.VERCEL_BRANCH_URL) ??
-    normalizeOrigin(process.env.VERCEL_URL);
+  const configuredOrigin = [
+    process.env.APP_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    process.env.VERCEL_BRANCH_URL,
+    process.env.VERCEL_URL
+  ]
+    .map(normalizeOrigin)
+    .find((origin): origin is string => Boolean(origin && (process.env.NODE_ENV !== "production" || !isUnsafeProductionOrigin(origin))));
 
   if (configuredOrigin) return configuredOrigin;
 
@@ -32,7 +46,7 @@ export async function getAppOrigin() {
   if (requestOrigin) return requestOrigin;
 
   if (process.env.NODE_ENV === "production") {
-    throw new Error("Missing APP_URL. Set it to the canonical production origin.");
+    throw new Error("Missing a valid production APP_URL. Set it to the canonical deployed origin.");
   }
 
   return "http://localhost:3000";

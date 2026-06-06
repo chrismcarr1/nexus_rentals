@@ -60,9 +60,8 @@ export function AppShell({
               <p className="truncate text-xs text-[var(--muted)]">Property operations</p>
             </div>
           </Link>
-          <div className="role-card mb-3 px-3 py-2.5">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">{role.label}</p>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted-strong)]">{role.description}</p>
+          <div className="mb-2">
+            <span className="role-tag">{role.label}</span>
           </div>
           <SidebarNav items={role.nav} />
           <div className="mt-auto space-y-3">

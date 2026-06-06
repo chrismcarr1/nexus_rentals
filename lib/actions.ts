@@ -26,9 +26,9 @@ import { appDateKeyFromValue, dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, getAp
 import { clearSession, createSession, requireRoles, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sendDiscussionMessage } from "@/lib/discussions";
-import { sendPasswordResetEmail, sendTenantInviteEmail } from "@/lib/email";
+import { sendPasswordResetEmail } from "@/lib/email";
 import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmittedAssetPath } from "@/lib/file-security";
-import { INVITE_TTL_MS, ensureLeaseConnectionIntegrity, generateInviteToken, hashInviteToken, isActiveLeaseStatus } from "@/lib/lease-connections";
+import { ensureLeaseConnectionIntegrity, isActiveLeaseStatus } from "@/lib/lease-connections";
 import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { formatPhoneNumber } from "@/lib/phone";
@@ -36,6 +36,7 @@ import { getAppOrigin } from "@/lib/request-origin";
 import { FileKind, UserRole, createId, nowIso, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
 import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe } from "@/lib/stripe";
 import { createStripeExpressAccount, getStripeAccountId, getStripeConnectRedirectStatus, isStripeConnectReady, syncStripeConnectedAccount } from "@/lib/stripe-connect";
+import { sendLeaseTenantInvite } from "@/lib/tenant-invite-delivery";
 import {
   damageAssessmentSchema,
   expenseSchema,
@@ -1164,18 +1165,8 @@ export async function createMoveInAction(formData: FormData) {
 
   const parsed = result.data;
   const tenantEmail = normalizeEmail(parsed.tenantEmail);
-  const rawInviteToken = parsed.sendInvite ? generateInviteToken() : null;
   let createdLeaseId = "";
-  let inviteEmailInput: {
-    to: string;
-    managerName: string;
-    managerEmail: string;
-    propertyLabel: string;
-    inviteUrl: string;
-    expiresAt: string;
-  } | null = null;
   let inviteStatus = parsed.sendInvite ? "pending" : "skipped";
-  let createdInviteUrl: string | null = null;
   let inviteEmailError: string | null = null;
 
   try {
@@ -1252,7 +1243,7 @@ export async function createMoveInAction(formData: FormData) {
         recurringCharges: parsed.recurringCharges ?? "",
         lateFeePolicy: parsed.lateFeePolicy,
         notes,
-        status: rawInviteToken ? "invited" : leaseStatus,
+        status: leaseStatus,
         createdAt: now,
         updatedAt: now
       };
@@ -1310,20 +1301,6 @@ export async function createMoveInAction(formData: FormData) {
         });
       }
 
-      const invite =
-        rawInviteToken
-          ? {
-              id: createId("invite"),
-              leaseId,
-              managerUserId: user.id,
-              tenantEmail,
-              tokenHash: hashInviteToken(rawInviteToken),
-              status: "pending" as const,
-              expiresAt: new Date(Date.now() + INVITE_TTL_MS).toISOString(),
-              createdAt: now,
-              updatedAt: now
-            }
-          : null;
       const notifications =
         tenantUser && payments.length
           ? [
@@ -1342,23 +1319,12 @@ export async function createMoveInAction(formData: FormData) {
           : [];
 
       createdLeaseId = leaseId;
-      if (invite && rawInviteToken) {
-        inviteEmailInput = {
-          to: invite.tenantEmail,
-          managerName: `${user.firstName} ${user.lastName}`.trim() || user.email,
-          managerEmail: user.email,
-          propertyLabel: [property.name, unit.unitNumber ? `Unit ${unit.unitNumber}` : null, formatUnitAddress(property, unit)].filter(Boolean).join(", "),
-          inviteUrl: "",
-          expiresAt: invite.expiresAt
-        };
-      }
 
       return {
         ...store,
         tenants: existingTenant ? store.tenants.map((item) => (item.id === tenantId ? tenant : item)) : [...store.tenants, tenant],
         leases: [...store.leases, lease],
         payments: [...store.payments, ...payments],
-        tenantInvites: invite ? [...store.tenantInvites, invite] : store.tenantInvites,
         notifications: [...store.notifications, ...notifications],
         units: store.units.map((item) =>
           item.id === unit.id
@@ -1403,21 +1369,13 @@ export async function createMoveInAction(formData: FormData) {
     console.warn("[move-in] Lease payment scheduler did not run after move-in creation", error);
   }
 
-  if (rawInviteToken && inviteEmailInput) {
+  if (parsed.sendInvite) {
     try {
-      const origin = await getAppOrigin();
-      const inviteUrl = `${origin}/invite/${encodeURIComponent(rawInviteToken)}`;
-      createdInviteUrl = inviteUrl;
-      const emailResult = await sendTenantInviteEmail({
-        ...inviteEmailInput,
-        inviteUrl,
-        expiresAt: new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(new Date(inviteEmailInput.expiresAt))
-      });
-      inviteStatus = emailResult.sent ? "sent" : "pending";
-      inviteEmailError = emailResult.error ?? null;
+      await sendLeaseTenantInvite(createdLeaseId, user);
+      inviteStatus = "sent";
     } catch (error) {
       console.warn("[move-in] Tenant invite email was not sent", error);
-      inviteStatus = "pending";
+      inviteStatus = "failed";
       inviteEmailError = error instanceof Error ? error.message : "Tenant invite email failed.";
     }
   }
@@ -1435,9 +1393,6 @@ export async function createMoveInAction(formData: FormData) {
     moveIn: "created",
     invite: inviteStatus
   });
-  if (createdInviteUrl) {
-    successParams.set("inviteUrl", createdInviteUrl);
-  }
   if (inviteEmailError) {
     successParams.set("inviteError", inviteEmailError);
   }

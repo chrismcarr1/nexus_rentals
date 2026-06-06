@@ -91,9 +91,9 @@ describe("Cloudflare email sender", () => {
     expect(url).toBe("https://email-worker.example.com");
     expect(body).toMatchObject({
       to: "resident@example.com",
-      subject: "You're invited to Nexus Rentals for Nexus Lofts, Unit 4"
+      subject: "Complete your Nexus Rentals setup for Nexus Lofts, Unit 4"
     });
-    expect(body.html).toContain("Accept invite");
+    expect(body.html).toContain("Review lease and get started");
     expect(body.text).toContain("https://nexus.example.com/invite/token");
   });
 

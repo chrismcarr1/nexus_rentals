@@ -99,6 +99,7 @@ export type TenantInvite = {
   tokenHash: string;
   status: TenantInviteStatus;
   expiresAt: string;
+  sentAt?: string;
   acceptedAt?: string;
   createdAt: string;
   updatedAt: string;

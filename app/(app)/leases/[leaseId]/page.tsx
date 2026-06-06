@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { InviteLinkCopyPanel } from "@/components/invite-link-copy-panel";
 import { PageHeader } from "@/components/page-header";
 import { SingleUploadInput } from "@/components/upload-inputs";
 import { Badge } from "@/components/ui/badge";
@@ -18,20 +17,6 @@ import { getPortalContext } from "@/services/portal";
 
 function formatDateOrUnset(value?: string | Date | null) {
   return value ? formatDate(value) : "Not set";
-}
-
-function getSafeInviteUrl(value?: string | null) {
-  if (!value) return null;
-
-  try {
-    const url = new URL(value);
-    if ((url.protocol !== "http:" && url.protocol !== "https:") || !url.pathname.startsWith("/invite/")) {
-      return null;
-    }
-    return url.toString();
-  } catch {
-    return null;
-  }
 }
 
 export default async function ManageLeasePage({
@@ -54,7 +39,6 @@ export default async function ManageLeasePage({
   const tenants = portal.scope.tenants.filter((tenant) => lease.tenantIds.includes(tenant.id));
   const returnTo = `/leases/${lease.id}`;
   const safeDocumentPath = isAllowedStoredAssetPath(lease.documentPath, { allowDemo: true }) ? lease.documentPath : undefined;
-  const inviteUrl = getSafeInviteUrl(query.inviteUrl);
 
   return (
     <div className="space-y-4">
@@ -79,14 +63,12 @@ export default async function ManageLeasePage({
         <div className="rounded-2xl border border-emerald-600/15 bg-emerald-600/10 px-4 py-3 text-sm text-emerald-800">
           New move-in created successfully.{" "}
           {query.invite === "sent"
-            ? "The tenant portal invite email was requested."
-            : query.invite === "pending"
-              ? `A tenant portal invite was created, but email delivery is not confirmed${query.inviteError ? `: ${query.inviteError}` : "."}`
+            ? "A fresh tenant setup link was emailed to the address on the lease."
+            : query.invite === "failed"
+              ? `The move-in was created, but the tenant invite email failed${query.inviteError ? `: ${query.inviteError}` : "."}`
               : "Portal invite was skipped for now."}
         </div>
       ) : null}
-
-      {inviteUrl ? <InviteLinkCopyPanel inviteUrl={inviteUrl} emailStatus={query.invite} emailError={query.inviteError} /> : null}
 
       <div className="content-split-tight">
         <Card className="p-6">

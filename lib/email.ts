@@ -373,20 +373,21 @@ export async function sendTenantInviteEmail({ to, managerName, managerEmail, pro
 
   return sendEmail({
     to,
-    subject: `You're invited to Nexus Rentals for ${propertyLabel}`,
+    subject: `Complete your Nexus Rentals setup for ${propertyLabel}`,
     html: `
         <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
-          <h1 style="font-size: 22px;">Join your lease in Nexus Rentals</h1>
-          <p>${safeManagerName} (${safeManagerEmail}) invited you to connect to your lease for ${safePropertyLabel}.</p>
+          <h1 style="font-size: 22px;">Review and connect to your lease</h1>
+          <p>${safeManagerName} (${safeManagerEmail}) invited you to review and connect to your lease for ${safePropertyLabel}.</p>
+          <p>Open the secure link below, then create an account or sign in using the same email address that received this message.</p>
           <p>This invite expires on ${safeExpiresAt}.</p>
           <p>
             <a href="${safeInviteUrl}" style="display: inline-block; border-radius: 12px; background: #1f6b5f; color: #ffffff; padding: 12px 18px; text-decoration: none; font-weight: 700;">
-              Accept invite
+              Review lease and get started
             </a>
           </p>
           <p style="font-size: 12px; color: #5f6b7d;">${safeInviteUrl}</p>
         </div>
       `,
-    text: `${managerName} (${managerEmail}) invited you to connect to your lease for ${propertyLabel}.\n\nAccept the invite before ${expiresAt}:\n\n${inviteUrl}`
+    text: `${managerName} (${managerEmail}) invited you to review and connect to your lease for ${propertyLabel}.\n\nCreate an account or sign in with this email address, then accept the invite before ${expiresAt}:\n\n${inviteUrl}`
   });
 }
