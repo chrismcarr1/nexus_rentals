@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 const EMAIL_ENV_KEYS = [
+  "APP_URL",
   "CLOUDFLARE_EMAIL_FROM",
   "CLOUDFLARE_EMAIL_WORKER_URL",
   "CLOUDFLARE_EMAIL_WORKER_SECRET",
@@ -25,6 +26,7 @@ function clearEmailEnv() {
 describe("Cloudflare email sender", () => {
   beforeEach(() => {
     clearEmailEnv();
+    process.env.APP_URL = "https://nexus.example.com";
     process.env.CLOUDFLARE_EMAIL_FROM = "Nexus Rentals <welcome@noreply.nexusrentals.co>";
     process.env.CLOUDFLARE_EMAIL_WORKER_URL = "https://email-worker.example.com";
     process.env.CLOUDFLARE_EMAIL_WORKER_SECRET = "worker-secret";
@@ -99,12 +101,18 @@ describe("Cloudflare email sender", () => {
 
   it("reports a clear configuration problem when no Cloudflare transport exists", async () => {
     clearEmailEnv();
+    process.env.APP_URL = "https://nexus.example.com";
 
     const { getEmailDiagnostics, sendTenantInviteEmail } = await import("../lib/email");
 
     expect(getEmailDiagnostics()).toMatchObject({
       configured: false,
-      transport: "none"
+      transport: "none",
+      appUrl: {
+        present: true,
+        valid: true,
+        host: "nexus.example.com"
+      }
     });
 
     const result = await sendTenantInviteEmail({
@@ -118,5 +126,37 @@ describe("Cloudflare email sender", () => {
 
     expect(result.sent).toBe(false);
     expect(result.error).toContain("No Cloudflare email transport is configured");
+  });
+
+  it("reports APP_URL as missing without exposing any secret values", async () => {
+    delete process.env.APP_URL;
+
+    const { getEmailDiagnostics } = await import("../lib/email");
+
+    expect(getEmailDiagnostics()).toMatchObject({
+      configured: false,
+      appUrl: {
+        present: false,
+        valid: false,
+        host: null
+      },
+      issues: expect.arrayContaining([expect.stringContaining("APP_URL is missing")])
+    });
+  });
+
+  it("refuses to send a reset link from a different host", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { sendPasswordResetEmail } = await import("../lib/email");
+
+    await expect(
+      sendPasswordResetEmail({
+        to: "tenant@example.com",
+        name: "Taylor",
+        resetUrl: "https://protected-preview.vercel.app/reset-password?token=abc"
+      })
+    ).rejects.toThrow("expected the configured APP_URL host nexus.example.com");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

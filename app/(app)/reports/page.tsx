@@ -69,7 +69,7 @@ export default async function ReportsPage() {
       <section className="ops-split">
         <DetailSection title="Property performance" description="Portfolio-level rollups by property.">
           {byProperty.length ? (
-            <DataTable columns={["Property", "Units", "Occupancy", "Rent roll", "Collected", "Expenses", "Net"]} minWidth="64rem">
+            <DataTable columns={["Property", "Units", "Occupancy", "Rent roll", "Collected", "Expenses", "Net"]} minWidth="56rem">
               {byProperty.map((row) => (
                 <tr key={row.propertyId} className="table-row">
                   <td className="table-cell font-semibold">{row.name}</td>

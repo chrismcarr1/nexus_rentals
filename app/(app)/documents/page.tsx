@@ -95,7 +95,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams?: P
         />
 
         {filtered.length ? (
-          <DataTable className="mt-4" minWidth="68rem" columns={["File", "Attachment", "Kind", "Created", "Path", ""]}>
+          <DataTable className="mt-4" minWidth="60rem" columns={["File", "Attachment", "Kind", "Created", "Path", ""]}>
             {filtered.map((row) => (
               <tr key={row.file.id} className="table-row">
                 <td className="table-cell font-semibold">{row.file.label || humanizeKind(row.file.kind)}</td>

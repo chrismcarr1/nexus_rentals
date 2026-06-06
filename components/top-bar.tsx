@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Bell, Search } from "lucide-react";
 
 import { QuickActionMenu } from "@/components/quick-action-menu";
@@ -17,7 +17,7 @@ export function TopBar({
 }: {
   role: "ADMIN" | "MANAGER" | "TENANT";
   organizationName: string;
-  notifications: Array<{ id: string; title: string; body: string; href?: string; label?: string }>;
+  notifications: Array<{ id: string; title: string; body: string; href?: string; label?: string; isUnread?: boolean }>;
   searchQuery?: string;
   searchResults?: {
     properties: Array<{ id: string; name: string }>;
@@ -26,8 +26,25 @@ export function TopBar({
   };
 }) {
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [locallyReadHrefs, setLocallyReadHrefs] = useState<string[]>([]);
   const alertsMenuRef = useRef<HTMLDivElement>(null);
   useClickOutside(alertsMenuRef, () => setAlertsOpen(false), alertsOpen);
+  const visibleNotifications = useMemo(
+    () => notifications.filter((notification) => !notification.href || !locallyReadHrefs.includes(notification.href)),
+    [locallyReadHrefs, notifications]
+  );
+  const hasUnreadAlerts = visibleNotifications.some((notification) => notification.isUnread);
+
+  useEffect(() => {
+    function markNotificationRead(event: Event) {
+      const href = (event as CustomEvent<{ href?: string }>).detail?.href;
+      if (!href) return;
+      setLocallyReadHrefs((current) => (current.includes(href) ? current : [...current, href]));
+    }
+
+    window.addEventListener("nexus:notification-read", markNotificationRead);
+    return () => window.removeEventListener("nexus:notification-read", markNotificationRead);
+  }, []);
 
   return (
     <header className="app-topbar">
@@ -74,18 +91,27 @@ export function TopBar({
             aria-controls="alerts-menu"
             aria-expanded={alertsOpen}
             className={cn(
-              "flex h-9 w-9 items-center justify-center border border-[var(--line)] bg-white text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]",
+              "relative flex h-9 w-9 items-center justify-center border border-[var(--line)] bg-white text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]",
               alertsOpen && "border-[var(--brand)] bg-[var(--accent-soft)] text-[var(--brand)]"
             )}
           >
             <Bell className="h-4 w-4" />
+            {hasUnreadAlerts ? <span className="topbar-alert-dot" aria-hidden="true" /> : null}
           </button>
           <div id="alerts-menu" className={cn("absolute right-0 top-[calc(100%+8px)] z-40 w-80 max-w-[calc(100vw-2rem)]", alertsOpen ? "block" : "hidden")}>
             <div className="surface-panel p-2">
-              {notifications.length ? (
-                notifications.map((item) =>
+              {visibleNotifications.length ? (
+                visibleNotifications.map((item) =>
                   item.href ? (
-                    <Link key={item.id} href={item.href} className="block rounded-md px-3 py-2 hover:bg-[var(--surface-hover)]" onClick={() => setAlertsOpen(false)}>
+                    <Link
+                      key={item.id}
+                      href={item.href}
+                      className="block rounded-md px-3 py-2 hover:bg-[var(--surface-hover)]"
+                      onClick={() => {
+                        setAlertsOpen(false);
+                        setLocallyReadHrefs((current) => (current.includes(item.href!) ? current : [...current, item.href!]));
+                      }}
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <p className="text-sm font-semibold">{item.title}</p>
                         {item.label ? <span className="rounded bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--brand)]">{item.label}</span> : null}

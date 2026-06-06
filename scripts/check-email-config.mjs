@@ -26,6 +26,79 @@ function getUrlHost(value) {
   }
 }
 
+function inspectAppUrl(value) {
+  if (!value) {
+    return {
+      present: false,
+      valid: false,
+      host: null,
+      issue: "APP_URL is missing. Set it to the public Nexus app origin."
+    };
+  }
+
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return {
+      present: true,
+      valid: false,
+      host: null,
+      issue: "APP_URL must be a valid absolute URL, including https:// in production."
+    };
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  const isLocalHost =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.endsWith(".local");
+
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+    return {
+      present: true,
+      valid: false,
+      host: url.host || null,
+      issue: "APP_URL must be a public HTTP(S) origin without embedded credentials."
+    };
+  }
+
+  if (hostname === "vercel.app" || hostname.endsWith(".vercel.app")) {
+    return {
+      present: true,
+      valid: false,
+      host: url.host,
+      issue: "APP_URL must use the public Nexus domain, not a vercel.app deployment URL."
+    };
+  }
+
+  if (process.env.NODE_ENV === "production" && isLocalHost) {
+    return {
+      present: true,
+      valid: false,
+      host: url.host,
+      issue: "APP_URL cannot use localhost or a local hostname in production."
+    };
+  }
+
+  if (process.env.NODE_ENV === "production" && url.protocol !== "https:") {
+    return {
+      present: true,
+      valid: false,
+      host: url.host,
+      issue: "APP_URL must use https:// in production."
+    };
+  }
+
+  return {
+    present: true,
+    valid: true,
+    host: url.host,
+    issue: null
+  };
+}
+
 function mask(value) {
   if (!value) return "missing";
   if (value.length <= 8) return "present";
@@ -33,6 +106,7 @@ function mask(value) {
 }
 
 function getConfig() {
+  const appUrl = inspectAppUrl(getEnv("APP_URL"));
   const fromSource = getEnv("CLOUDFLARE_EMAIL_FROM")
     ? "CLOUDFLARE_EMAIL_FROM"
     : getEnv("RESET_EMAIL_FROM")
@@ -48,6 +122,7 @@ function getConfig() {
   const transport = workerUrl && workerSecret ? "worker" : accountId && apiToken ? "rest" : "none";
 
   return {
+    appUrl,
     fromSource,
     from: parseEmailAddress(fromValue),
     workerUrl,
@@ -64,6 +139,10 @@ function getConfig() {
 function collectIssues(config) {
   const issues = [];
   const recommendations = [];
+
+  if (!config.appUrl.valid && config.appUrl.issue) {
+    issues.push(config.appUrl.issue);
+  }
 
   if (config.fromSource === "default") {
     issues.push("CLOUDFLARE_EMAIL_FROM is missing. Cloudflare will reject the default local sender.");
@@ -144,6 +223,8 @@ async function main() {
   const shouldProbe = process.argv.includes("--probe");
 
   console.log("Nexus email configuration");
+  console.log(`- APP_URL: ${config.appUrl.present ? "present" : "missing"}`);
+  console.log(`- APP_URL host: ${config.appUrl.host ?? "missing"}`);
   console.log(`- transport: ${config.transport}`);
   console.log(`- sender source: ${config.fromSource}`);
   console.log(`- sender domain: ${config.from.email.includes("@") ? config.from.email.split("@").pop() : "invalid"}`);

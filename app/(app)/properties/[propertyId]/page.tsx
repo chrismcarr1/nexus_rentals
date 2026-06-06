@@ -163,7 +163,7 @@ export default async function PropertyDetailPage({
 
       <DetailSection title="Units" description="Inventory, occupancy, rent, balances, and unit actions.">
         {units.length ? (
-          <DataTable columns={["Unit", "Type", "Rent", "Balance", "Lease", "Occupancy", ""]} minWidth="60rem">
+          <DataTable columns={["Unit", "Type", "Rent", "Balance", "Lease", "Occupancy", ""]} minWidth="52rem">
             {units.map((unit) => {
               const lease = leases.find((item) => item.unitId === unit.id && isCurrentLease(item.status));
               const balance = payments.filter((payment) => payment.unitId === unit.id && payment.status !== "PAID").reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0);
@@ -195,7 +195,7 @@ export default async function PropertyDetailPage({
       <section className="ops-split">
         <DetailSection title="Active leases" description="Current and upcoming lease records tied to this property.">
           {activeLeases.length ? (
-            <DataTable columns={["Lease", "Unit", "Tenant", "Term", "Rent", "Status"]} minWidth="58rem">
+            <DataTable columns={["Lease", "Unit", "Tenant", "Term", "Rent", "Status"]} minWidth="50rem">
               {activeLeases.map((lease) => {
                 const unit = lease.unitId ? units.find((item) => item.id === lease.unitId) : null;
                 const leaseTenants = lease.tenantIds.map((tenantId) => portal.scope.tenants.find((tenant) => tenant.id === tenantId)).filter(Boolean);
@@ -237,7 +237,7 @@ export default async function PropertyDetailPage({
       <section className="ops-split">
         <DetailSection title="Applications" description="Application links and submissions for this property.">
           {applications.length ? (
-            <DataTable columns={["Application", "Applicant", "Submitted", "Status", "Fee"]} minWidth="54rem">
+            <DataTable columns={["Application", "Applicant", "Submitted", "Status", "Fee"]} minWidth="46rem">
               {applications.map((application) => {
                 const submission = applicationSubmissions.find((item) => item.applicationId === application.id);
                 const applicants = submission ? store.applicationApplicants.filter((applicant) => applicant.submissionId === submission.id) : [];
@@ -283,7 +283,7 @@ export default async function PropertyDetailPage({
       <section className="ops-split">
         <DetailSection title="Payments and rent roll" description="Recent ledger entries for units in this property.">
           {payments.length ? (
-            <DataTable columns={["Description", "Unit", "Due", "Status", "Amount"]} minWidth="52rem">
+            <DataTable columns={["Description", "Unit", "Due", "Status", "Amount"]} minWidth="44rem">
               {payments.slice(0, 12).map((payment) => {
                 const unit = units.find((item) => item.id === payment.unitId);
                 return (
@@ -326,7 +326,7 @@ export default async function PropertyDetailPage({
 
       <DetailSection title="Documents" description="Property and unit files attached to this asset.">
         {documents.length ? (
-          <DataTable columns={["File", "Kind", "Attachment", "Created", ""]} minWidth="58rem">
+          <DataTable columns={["File", "Kind", "Attachment", "Created", ""]} minWidth="50rem">
             {documents.slice(0, 12).map((file) => {
               const unit = file.unitId ? units.find((item) => item.id === file.unitId) : null;
               return (

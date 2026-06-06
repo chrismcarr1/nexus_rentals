@@ -17,7 +17,7 @@ import {
 } from "@/lib/actions";
 import { formatAddress, parseAddressText } from "@/lib/address";
 import { requireUser } from "@/lib/auth";
-import { getAppOrigin } from "@/lib/request-origin";
+import { getAppBaseUrl } from "@/lib/request-origin";
 import { getStripeAccountId, getStripeConnectRedirectStatus, getStripeConnectState, syncStripeConnectedAccount } from "@/lib/stripe-connect";
 import { getPortalContext } from "@/services/portal";
 
@@ -52,7 +52,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
     }
   }
 
-  const appUrl = await getAppOrigin();
+  const appUrl = getAppBaseUrl();
   const stripeSetup = {
     secretKey: Boolean(process.env.STRIPE_SECRET_KEY),
     webhookSecret: Boolean(process.env.STRIPE_WEBHOOK_SECRET),

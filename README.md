@@ -94,7 +94,6 @@ DATABASE_URL="postgresql://user:password@host/db?sslmode=require"
 AUTH_SECRET="change-this-to-a-long-random-string"
 SYSTEM_ADMIN_EMAIL="admin@example.com"
 APP_URL="http://localhost:3000"
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=""
 STRIPE_SECRET_KEY=""
 STRIPE_WEBHOOK_SECRET=""
@@ -110,7 +109,7 @@ CLOUDFLARE_EMAIL_API_TOKEN=""
 
 `DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `BLOB_READ_WRITE_TOKEN` is optional for local development, where uploads fall back to `public/uploads`, but it is required in Vercel production for persistent photos and documents.
 
-Tenant invite and password reset emails use Cloudflare Email Service. Set `CLOUDFLARE_EMAIL_FROM` and either `CLOUDFLARE_EMAIL_WORKER_URL` plus `CLOUDFLARE_EMAIL_WORKER_SECRET`, or `CLOUDFLARE_ACCOUNT_ID` plus `CLOUDFLARE_EMAIL_API_TOKEN`. Invite tokens are stored only as SHA-256 hashes in the hosted datastore; the raw token appears only in the tenant email link.
+Tenant invite and password reset emails use Cloudflare Email Service. Set `APP_URL` to the public Nexus production origin, never a Vercel preview URL, and set `CLOUDFLARE_EMAIL_FROM` plus either `CLOUDFLARE_EMAIL_WORKER_URL` and `CLOUDFLARE_EMAIL_WORKER_SECRET`, or `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_EMAIL_API_TOKEN`. Invite tokens are stored only as SHA-256 hashes in the hosted datastore; the raw token appears only in the tenant email link.
 
 For the Worker option, copy `cloudflare/wrangler.email-worker.toml.example` to your Worker Wrangler config, update the sender address, deploy `cloudflare/email-worker.js`, and set the same secret in Cloudflare as `NEXUS_EMAIL_SECRET` and in Nexus as `CLOUDFLARE_EMAIL_WORKER_SECRET`. The Worker accepts either an `EMAIL` or `SEND_EMAIL` binding.
 
@@ -179,10 +178,13 @@ BLOB_READ_WRITE_TOKEN
 Required Vercel environment variables for tenant invite and password reset emails:
 
 ```text
+APP_URL
 CLOUDFLARE_EMAIL_FROM
 CLOUDFLARE_EMAIL_WORKER_URL
 CLOUDFLARE_EMAIL_WORKER_SECRET
 ```
+
+Set `APP_URL` to the canonical public custom domain, such as `https://app.nexusrentals.co`. Do not set it to `VERCEL_URL`, a `*.vercel.app` deployment, or localhost in production.
 
 If you do not use the Worker bridge, set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_EMAIL_API_TOKEN` instead of the Worker URL and secret.
 
@@ -203,7 +205,7 @@ Recommended setup:
 1. Create or attach a hosted Postgres database, such as Vercel Postgres or Neon.
 2. Add the database connection string to Vercel as `DATABASE_URL`.
 3. Set `AUTH_SECRET` to a long random string.
-4. Set `APP_URL` to the deployed Vercel URL.
+4. Set `APP_URL` to the public custom Nexus domain. Do not use a Vercel preview or protected deployment URL.
 5. Attach Vercel Blob and add `BLOB_READ_WRITE_TOKEN` so production uploads persist.
 6. Configure Cloudflare Email Service and add the Cloudflare email environment variables so tenant invites and password resets can be delivered.
 7. Add `OPENAI_API_KEY` so AI photo maintenance drafting can analyze uploaded images.

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { assertCanonicalAppUrl, getAppUrlDiagnostics } from "./request-origin";
+
 type PasswordResetEmailInput = {
   to: string;
   name: string;
@@ -48,6 +50,11 @@ type EmailConfig = {
 export type EmailDiagnostics = {
   configured: boolean;
   transport: EmailTransport;
+  appUrl: {
+    present: boolean;
+    valid: boolean;
+    host: string | null;
+  };
   sender: {
     present: boolean;
     source: string;
@@ -155,12 +162,17 @@ function getEmailConfig(): EmailConfig {
 
 export function getEmailDiagnostics(): EmailDiagnostics {
   const config = getEmailConfig();
+  const appUrl = getAppUrlDiagnostics();
   const workerUrlHost = getUrlHost(config.workerUrl);
   const senderDomain = getEmailDomain(config.from.email);
   const issues: string[] = [];
   const recommendations: string[] = [];
   const hasLegacyResendKey = Boolean(getEnv("RESEND_API_KEY"));
   const hasLegacyResetFrom = Boolean(getEnv("RESET_EMAIL_FROM"));
+
+  if (!appUrl.valid && appUrl.issue) {
+    issues.push(appUrl.issue);
+  }
 
   if (config.usesDefaultFrom) {
     issues.push("CLOUDFLARE_EMAIL_FROM is missing. The default local sender will be rejected by Cloudflare.");
@@ -209,6 +221,11 @@ export function getEmailDiagnostics(): EmailDiagnostics {
   return {
     configured: issues.length === 0,
     transport: config.transport,
+    appUrl: {
+      present: appUrl.present,
+      valid: appUrl.valid,
+      host: appUrl.host
+    },
     sender: {
       present: !config.usesDefaultFrom,
       source: config.fromSource,
@@ -340,8 +357,9 @@ async function sendEmail({ to, subject, html, text }: OutboundEmailInput): Promi
 }
 
 export async function sendPasswordResetEmail({ to, name, resetUrl }: PasswordResetEmailInput) {
+  const canonicalResetUrl = assertCanonicalAppUrl(resetUrl, "password reset URL");
   const safeName = escapeHtml(name);
-  const safeResetUrl = escapeHtml(resetUrl);
+  const safeResetUrl = escapeHtml(canonicalResetUrl);
 
   return sendEmail({
     to,
@@ -360,15 +378,16 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }: PasswordRes
           <p style="font-size: 12px; color: #5f6b7d;">${safeResetUrl}</p>
         </div>
       `,
-    text: `Hi ${name},\n\nReset your Nexus Rentals password using this link. It expires in 1 hour:\n\n${resetUrl}\n\nIf you did not request this, you can ignore this email.`
+    text: `Hi ${name},\n\nReset your Nexus Rentals password using this link. It expires in 1 hour:\n\n${canonicalResetUrl}\n\nIf you did not request this, you can ignore this email.`
   });
 }
 
 export async function sendTenantInviteEmail({ to, managerName, managerEmail, propertyLabel, inviteUrl, expiresAt }: TenantInviteEmailInput) {
+  const canonicalInviteUrl = assertCanonicalAppUrl(inviteUrl, "tenant invite URL");
   const safeManagerName = escapeHtml(managerName);
   const safeManagerEmail = escapeHtml(managerEmail);
   const safePropertyLabel = escapeHtml(propertyLabel);
-  const safeInviteUrl = escapeHtml(inviteUrl);
+  const safeInviteUrl = escapeHtml(canonicalInviteUrl);
   const safeExpiresAt = escapeHtml(expiresAt);
 
   return sendEmail({
@@ -388,6 +407,6 @@ export async function sendTenantInviteEmail({ to, managerName, managerEmail, pro
           <p style="font-size: 12px; color: #5f6b7d;">${safeInviteUrl}</p>
         </div>
       `,
-    text: `${managerName} (${managerEmail}) invited you to review and connect to your lease for ${propertyLabel}.\n\nCreate an account or sign in with this email address, then accept the invite before ${expiresAt}:\n\n${inviteUrl}`
+    text: `${managerName} (${managerEmail}) invited you to review and connect to your lease for ${propertyLabel}.\n\nCreate an account or sign in with this email address, then accept the invite before ${expiresAt}:\n\n${canonicalInviteUrl}`
   });
 }

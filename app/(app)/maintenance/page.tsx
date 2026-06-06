@@ -211,7 +211,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
           />
 
           {filteredMaintenance.length ? (
-            <DataTable className="mt-4" minWidth="74rem" columns={["Work order", "Property / unit", "Category", "Priority", "Status", "Requested", "Vendor", "Estimate", ""]}>
+            <DataTable className="mt-4" minWidth="66rem" columns={["Work order", "Property / unit", "Category", "Priority", "Status", "Requested", "Vendor", "Estimate", ""]}>
               {filteredMaintenance.map((item) => {
                 const property = portal.scope.properties.find((candidate) => candidate.id === item.propertyId);
                 const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;

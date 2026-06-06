@@ -8,7 +8,7 @@ import {
   getLeaseUnit,
   saveSentTenantInvite
 } from "./lease-connections";
-import { getAppOrigin } from "./request-origin";
+import { buildAppUrl } from "./request-origin";
 import { readStore, type User } from "./store";
 import { formatDate } from "./utils";
 
@@ -27,8 +27,7 @@ export async function sendLeaseTenantInvite(leaseId: string, manager: User) {
   const propertyLabel = property
     ? [property.name, unit?.unitNumber ? `Unit ${unit.unitNumber}` : null, formatUnitAddress(property, unit)].filter(Boolean).join(", ")
     : "your lease";
-  const origin = await getAppOrigin();
-  const inviteUrl = `${origin}/invite/${encodeURIComponent(rawToken)}`;
+  const inviteUrl = buildAppUrl(`/invite/${encodeURIComponent(rawToken)}`);
 
   try {
     const emailResult = await sendTenantInviteEmail({

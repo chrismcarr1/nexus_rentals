@@ -26,7 +26,7 @@ export function AppShell({
     role: "ADMIN" | "MANAGER" | "TENANT";
     organization: { name: string };
   };
-  notifications: Array<{ id: string; title: string; body: string; href?: string; label?: string }>;
+  notifications: Array<{ id: string; title: string; body: string; href?: string; label?: string; isUnread?: boolean }>;
   searchQuery?: string;
   searchResults?: {
     properties: Array<{ id: string; name: string }>;

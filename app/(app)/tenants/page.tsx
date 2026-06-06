@@ -133,16 +133,14 @@ export default async function TenantsPage({ searchParams }: { searchParams?: Pro
 
         {filtered.length ? (
           <DataTable
-            className="mt-4"
-            minWidth="76rem"
+            className="tenant-register-table mt-4"
+            minWidth="52rem"
             columns={[
               <Link key="name" href={sortHref(params, "name")} className="sort-link">Name</Link>,
               <Link key="property" href={sortHref(params, "property")} className="sort-link">Property / unit</Link>,
-              "Lease status",
-              <Link key="rent" href={sortHref(params, "rent")} className="sort-link">Rent</Link>,
-              <Link key="balance" href={sortHref(params, "balance")} className="sort-link">Balance</Link>,
+              "Lease",
+              "Financials",
               "Contact",
-              <Link key="moveIn" href={sortHref(params, "moveIn")} className="sort-link">Move-in</Link>,
               ""
             ]}
           >
@@ -159,14 +157,22 @@ export default async function TenantsPage({ searchParams }: { searchParams?: Pro
                     <span className="text-[var(--muted)]">No active placement</span>
                   )}
                 </td>
-                <td className="table-cell"><StatusBadge status={row.currentLease?.status ?? "No lease"} /></td>
-                <td className="table-cell font-semibold">{row.currentLease ? formatCurrency(row.currentLease.monthlyRent) : "Not set"}</td>
-                <td className="table-cell font-semibold">{formatCurrency(row.balance)}</td>
+                <td className="table-cell">
+                  <StatusBadge status={row.currentLease?.status ?? "No lease"} />
+                  <span className="mt-1 block text-xs text-[var(--muted)]">
+                    Move-in {formatDateOrUnset(row.currentLease?.moveInDate ?? row.currentLease?.startDate)}
+                  </span>
+                </td>
+                <td className="table-cell">
+                  <span className="block font-semibold">{row.currentLease ? `${formatCurrency(row.currentLease.monthlyRent)}/mo` : "Rent not set"}</span>
+                  <span className={`mt-0.5 block text-xs font-semibold ${row.balance ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
+                    {formatCurrency(row.balance)} balance
+                  </span>
+                </td>
                 <td className="table-cell text-[var(--muted)]">
-                  <span className="block">{row.tenant.email || "No email"}</span>
+                  <span className="block max-w-52 truncate">{row.tenant.email || "No email"}</span>
                   <span className="mt-0.5 block text-xs">{row.tenant.phone || "No phone"}</span>
                 </td>
-                <td className="table-cell text-[var(--muted)]">{formatDateOrUnset(row.currentLease?.moveInDate ?? row.currentLease?.startDate)}</td>
                 <td className="table-cell text-right">
                   <RowActionsMenu>
                     {row.unit ? <RowActionLink href={`/units/${row.unit.id}`}>View unit</RowActionLink> : null}
