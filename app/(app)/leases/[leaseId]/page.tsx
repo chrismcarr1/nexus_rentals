@@ -6,7 +6,7 @@ import { SingleUploadInput } from "@/components/upload-inputs";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { deleteLeaseAction, updateLeaseAction } from "@/lib/actions";
+import { deleteLeaseAction, releaseLeaseUnitAction, updateLeaseAction } from "@/lib/actions";
 import { formatUnitAddress } from "@/lib/address";
 import { formatRentDueTime, toDateInputValue } from "@/lib/app-time";
 import { requireRoles } from "@/lib/auth";
@@ -39,6 +39,14 @@ export default async function ManageLeasePage({
   const tenants = portal.scope.tenants.filter((tenant) => lease.tenantIds.includes(tenant.id));
   const returnTo = `/leases/${lease.id}`;
   const safeDocumentPath = isAllowedStoredAssetPath(lease.documentPath, { allowDemo: true }) ? lease.documentPath : undefined;
+  const blockingStatuses = new Set(["ACTIVE", "UPCOMING", "active", "invited", "draft"]);
+  const hasAnotherReservation = Boolean(
+    unit && portal.scope.leases.some((item) => item.id !== lease.id && item.unitId === unit.id && blockingStatuses.has(item.status))
+  );
+  const unitAvailable = Boolean(
+    unit && ["VACANT", "TURNOVER"].includes(unit.occupancyStatus) && !hasAnotherReservation
+  );
+  const leaseCanBeReleased = Boolean(unit && blockingStatuses.has(lease.status));
 
   return (
     <div className="space-y-4">
@@ -67,6 +75,12 @@ export default async function ManageLeasePage({
             : query.invite === "failed"
               ? `The move-in was created, but the tenant invite email failed${query.inviteError ? `: ${query.inviteError}` : "."}`
               : "Portal invite was skipped for now."}
+        </div>
+      ) : null}
+
+      {query.released === "1" ? (
+        <div className="rounded-md border border-emerald-600/15 bg-emerald-600/10 px-4 py-3 text-sm text-emerald-800">
+          The lease was closed and the unit availability was recalculated. It can now be used for a new move-in unless another lease reserves it.
         </div>
       ) : null}
 
@@ -150,6 +164,47 @@ export default async function ManageLeasePage({
           </form>
         </Card>
       </div>
+
+      {unit ? (
+        <Card className="p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Unit availability</p>
+          {unitAvailable ? (
+            <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold">Unit {unit.unitNumber} is available</h2>
+                <p className="mt-1 text-sm leading-6 text-[var(--muted)]">The unit is vacant or in turnover and has no active reservation.</p>
+              </div>
+              <Link
+                href={`/move-ins/new?propertyId=${encodeURIComponent(unit.propertyId)}&unitId=${encodeURIComponent(unit.id)}`}
+                className="inline-flex min-h-10 items-center justify-center rounded-md border border-[var(--brand)] bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]"
+              >
+                Start new move-in
+              </Link>
+            </div>
+          ) : leaseCanBeReleased ? (
+            <>
+              <h2 className="mt-3 text-xl font-semibold">End this lease and release Unit {unit.unitNumber}</h2>
+              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                This preserves the lease and tenant history, revokes any pending invite, and recalculates the unit so it can be selected for a future move-in.
+              </p>
+              <form action={releaseLeaseUnitAction} className="mt-5 space-y-4">
+                <input type="hidden" name="leaseId" value={lease.id} />
+                <input type="hidden" name="returnTo" value={returnTo} />
+                <label className="flex items-start gap-3 rounded-md border border-[var(--line)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
+                  <input type="checkbox" name="confirmRelease" value="yes" required className="mt-1" />
+                  <span>I confirm this tenancy has ended and the unit should be released for another move-in.</span>
+                </label>
+                <SubmitButton pendingLabel="Releasing unit...">End lease and release unit</SubmitButton>
+              </form>
+            </>
+          ) : (
+            <>
+              <h2 className="mt-3 text-xl font-semibold">Unit {unit.unitNumber} has another reservation</h2>
+              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Review the unit record before starting another move-in.</p>
+            </>
+          )}
+        </Card>
+      ) : null}
 
       <Card className="p-6">
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--danger)]">Delete lease</p>

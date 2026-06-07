@@ -132,7 +132,9 @@ export const newMoveInSchema = z
     recurringCharges: z.string().optional(),
     lateFeePolicy: z.string().optional(),
     notes: z.string().optional(),
+    documentPath: z.string().optional(),
     sendInvite: z.boolean(),
+    existingLeaseId: z.string().optional(),
     applicationSubmissionId: z.string().optional()
   })
   .superRefine((value, context) => {

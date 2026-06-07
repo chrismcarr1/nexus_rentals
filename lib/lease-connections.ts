@@ -3,8 +3,9 @@ import "server-only";
 import { createHash, randomBytes } from "crypto";
 
 import { normalizeEmail } from "@/lib/admin";
-import { appDateIsAfter, appDateIsBefore, dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, getAppDateKey, normalizeRentDueTime } from "@/lib/app-time";
+import { addDaysToDateKey, appDateIsAfter, appDateIsBefore, appDateKeyFromValue, dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, getAppDateKey, normalizeRentDueTime } from "@/lib/app-time";
 import { formatAddress, formatUnitAddress } from "@/lib/address";
+import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
 import { createId, nowIso, readStore, updateStore, type AppStore, type Lease, type LeaseStatus, type TenantInvite, type UnitOccupancyStatus, type User } from "@/lib/store";
 
@@ -22,6 +23,39 @@ export function isActiveLeaseStatus(status?: string) {
   return status === "ACTIVE" || status === "UPCOMING" || status === "active" || status === "invited";
 }
 
+export function leaseBlocksNewMoveIn(status?: string) {
+  return status === "ACTIVE" || status === "UPCOMING" || status === "active";
+}
+
+export function leaseCanResumeMoveIn(status?: string) {
+  return status === "draft" || status === "invited";
+}
+
+export function getUnitAvailableStartDate(
+  leases: Array<{ id?: string; status: LeaseStatus; endDate?: string | null }>,
+  excludeLeaseId?: string
+) {
+  const blockingLeases = leases.filter(
+    (lease) => lease.id !== excludeLeaseId && leaseBlocksNewMoveIn(lease.status)
+  );
+  if (!blockingLeases.length) return getAppDateKey();
+
+  const endDates = blockingLeases.map((lease) => appDateKeyFromValue(lease.endDate));
+  if (endDates.some((value) => !value)) return null;
+
+  return addDaysToDateKey(endDates.sort().at(-1)!, 1);
+}
+
+export function leaseStartIsAvailable(
+  leases: Array<{ id?: string; status: LeaseStatus; endDate?: string | null }>,
+  startDate: string,
+  excludeLeaseId?: string
+) {
+  const availableStartDate = getUnitAvailableStartDate(leases, excludeLeaseId);
+  const requestedStartDate = appDateKeyFromValue(startDate);
+  return Boolean(availableStartDate && requestedStartDate && requestedStartDate >= availableStartDate);
+}
+
 export function publicLeaseStatus(status: string) {
   if (status === "ACTIVE" || status === "active") return "active";
   if (status === "UPCOMING") return "upcoming";
@@ -35,7 +69,7 @@ export function isPastLeaseStatus(status?: string) {
   return publicStatus === "expired" || publicStatus === "terminated" || publicStatus === "cancelled";
 }
 
-function normalizeLeaseLifecycleStatus(lease: Lease, todayKey = getAppDateKey()): LeaseStatus {
+export function normalizeLeaseLifecycleStatus(lease: Lease, todayKey = getAppDateKey()): LeaseStatus {
   if (lease.status === "TERMINATED" || lease.status === "cancelled") return lease.status;
   if (lease.endDate && appDateIsBefore(lease.endDate, todayKey)) return "EXPIRED";
   if (lease.status === "EXPIRED" || lease.status === "ended") return "EXPIRED";
@@ -45,7 +79,7 @@ function normalizeLeaseLifecycleStatus(lease: Lease, todayKey = getAppDateKey())
   return lease.status;
 }
 
-function leaseDrivenUnitState(leases: Array<{ status: LeaseStatus }>): { leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus } | null {
+export function leaseDrivenUnitState(leases: Array<{ status: LeaseStatus }>): { leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus } | null {
   if (!leases.length) return null;
   if (leases.some((lease) => lease.status === "ACTIVE" || lease.status === "active")) return { leaseStatus: "ACTIVE", occupancyStatus: "OCCUPIED" };
   if (leases.some((lease) => lease.status === "UPCOMING" || lease.status === "invited" || lease.status === "draft")) return { leaseStatus: "UPCOMING", occupancyStatus: "VACANT" };
@@ -282,6 +316,7 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
       .find(Boolean) ??
     findTenantByEmail(store, property?.organizationId ?? null, lease.tenantEmail) ??
     null;
+  const documentPath = isAllowedStoredAssetPath(lease.documentPath, { allowDemo: true }) ? lease.documentPath! : null;
 
   return {
     id: lease.id,
@@ -321,6 +356,8 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
     dueDay: lease.dueDay ?? 1,
     rentDueTime: normalizeRentDueTime(lease.rentDueTime),
     securityDeposit: lease.securityDeposit ?? null,
+    documentPath,
+    hasDocument: Boolean(documentPath),
     createdAt: lease.createdAt,
     updatedAt: lease.updatedAt
   };
@@ -352,7 +389,8 @@ export async function createConnectedLease({
   monthlyRent,
   dueDay,
   rentDueTime,
-  securityDeposit
+  securityDeposit,
+  documentPath
 }: {
   manager: User;
   propertyId: string;
@@ -364,13 +402,22 @@ export async function createConnectedLease({
   dueDay?: number;
   rentDueTime?: string;
   securityDeposit?: number;
+  documentPath?: string;
 }) {
+  await ensureLeaseConnectionIntegrity(manager.organizationId);
   let lease: Lease | null = null;
   await updateStore((store) => {
     const property = store.properties.find((item) => item.id === propertyId && item.managerId === manager.id);
     if (!property) throw new Error("Property not found.");
-    if (unitId && !store.units.some((unit) => unit.id === unitId && unit.propertyId === propertyId)) {
+    const unit = unitId ? store.units.find((item) => item.id === unitId && item.propertyId === propertyId) : null;
+    if (unitId && !unit) {
       throw new Error("Unit not found for this property.");
+    }
+    if (unit && !["VACANT", "TURNOVER"].includes(unit.occupancyStatus)) {
+      throw new Error("Choose a vacant or turnover unit for this lease.");
+    }
+    if (unit && store.leases.some((item) => item.unitId === unit.id && (isActiveLeaseStatus(item.status) || item.status === "draft"))) {
+      throw new Error("This unit already has an active, upcoming, invited, or draft lease.");
     }
 
     const now = nowIso();
@@ -389,6 +436,7 @@ export async function createConnectedLease({
       rentDueTime: normalizeRentDueTime(rentDueTime ?? DEFAULT_RENT_DUE_TIME),
       securityDeposit: securityDeposit ?? 0,
       recurringCharges: "",
+      documentPath,
       status: "draft",
       createdAt: now,
       updatedAt: now
@@ -396,7 +444,14 @@ export async function createConnectedLease({
 
     return {
       ...store,
-      leases: [...store.leases, lease]
+      leases: [...store.leases, lease],
+      units: unit
+        ? store.units.map((item) =>
+            item.id === unit.id
+              ? { ...item, leaseStatus: "UPCOMING" as const, occupancyStatus: "VACANT" as const, updatedAt: now }
+              : item
+          )
+        : store.units
     };
   });
 

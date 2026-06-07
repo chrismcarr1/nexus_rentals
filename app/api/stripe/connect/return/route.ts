@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireRoles } from "@/lib/auth";
+import { recordPlatformEvent } from "@/lib/platform-events";
 import { UserRole } from "@/lib/store";
 import { getStripeAccountId, getStripeConnectRedirectStatus, syncStripeConnectedAccount } from "@/lib/stripe-connect";
 
@@ -18,6 +19,17 @@ export async function GET(request: Request) {
     if (accountId) {
       const updatedUser = await syncStripeConnectedAccount(user);
       status = getStripeConnectRedirectStatus(updatedUser);
+      if (status === "connect-ready") {
+        await recordPlatformEvent({
+          type: "STRIPE_SETUP_COMPLETED",
+          category: "connect_onboarding",
+          status: "success",
+          organizationId: user.organizationId,
+          userId: user.id,
+          relatedId: accountId,
+          message: "Stripe Connect onboarding completed."
+        });
+      }
       console.log("[stripe-connect] Onboarding return status refreshed", {
         userId: user.id,
         accountId,

@@ -19,7 +19,11 @@ export class TenantInviteDeliveryError extends Error {
   }
 }
 
-export async function sendLeaseTenantInvite(leaseId: string, manager: User) {
+export async function sendLeaseTenantInvite(
+  leaseId: string,
+  manager: User,
+  category: "tenant_invite" | "move_in_invite" = "tenant_invite"
+) {
   const { rawToken, invite, lease } = await createTenantInviteDraft(leaseId, manager);
   const store = await readStore();
   const property = getLeaseProperty(store, lease);
@@ -36,7 +40,10 @@ export async function sendLeaseTenantInvite(leaseId: string, manager: User) {
       managerEmail: manager.email,
       propertyLabel: propertyLabel || "your lease",
       inviteUrl,
-      expiresAt: formatDate(invite.expiresAt)
+      expiresAt: formatDate(invite.expiresAt),
+      category,
+      organizationId: manager.organizationId,
+      userId: manager.id
     });
 
     if (!emailResult.sent) {

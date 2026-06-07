@@ -28,10 +28,11 @@ import { db } from "@/lib/db";
 import { sendDiscussionMessage } from "@/lib/discussions";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmittedAssetPath } from "@/lib/file-security";
-import { ensureLeaseConnectionIntegrity, isActiveLeaseStatus } from "@/lib/lease-connections";
+import { ensureLeaseConnectionIntegrity, getUnitAvailableStartDate, isActiveLeaseStatus, leaseBlocksNewMoveIn, leaseCanResumeMoveIn } from "@/lib/lease-connections";
 import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { formatPhoneNumber } from "@/lib/phone";
+import { recordPlatformEvent } from "@/lib/platform-events";
 import { buildAppUrl, getAppBaseUrl } from "@/lib/request-origin";
 import { FileKind, UserRole, createId, nowIso, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
 import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe } from "@/lib/stripe";
@@ -143,10 +144,6 @@ function getMoveInLeaseStatus(startDate: string): LeaseStatus {
   return dateOnlyTime(startDate) <= getAppDateKey() ? "ACTIVE" : "UPCOMING";
 }
 
-function getMoveInOccupancyStatus(moveInDate: string): UnitOccupancyStatus {
-  return dateOnlyTime(moveInDate) <= getAppDateKey() ? "OCCUPIED" : "VACANT";
-}
-
 function isUnitReserved(status: string) {
   return isActiveLeaseStatus(status) || status === "draft";
 }
@@ -227,6 +224,15 @@ export async function connectStripeAccountAction() {
       refresh_url: `${appUrl}/settings?stripe=connect-refresh#payments-stripe`,
       return_url: `${appUrl}/api/stripe/connect/return`,
       type: "account_onboarding"
+    });
+    await recordPlatformEvent({
+      type: "STRIPE_SETUP_STARTED",
+      category: "connect_onboarding",
+      status: "info",
+      organizationId: user.organizationId,
+      userId: user.id,
+      relatedId: accountId,
+      message: "Stripe Connect onboarding link created."
     });
     console.log("[stripe-connect] Created onboarding account link", { userId: user.id, accountId });
     accountLinkUrl = accountLink.url;
@@ -346,7 +352,8 @@ export async function signupAction(formData: FormData) {
       firstName: parsed.firstName,
       lastName: parsed.lastName,
       role: parsed.role,
-      phone: parsed.phone
+      phone: parsed.phone,
+      lastLoginAt: nowIso()
     }
   });
 
@@ -399,6 +406,12 @@ export async function loginAction(formData: FormData) {
   if (!user || user.isActive === false || !(await verifyPassword(parsed.password, user.passwordHash))) {
     redirect("/login?error=invalid-credentials");
   }
+
+  const loggedInAt = nowIso();
+  user = await db.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: loggedInAt }
+  });
 
   await createSession({
     sub: user.id,
@@ -455,11 +468,22 @@ export async function requestResetAction(formData: FormData) {
     }
   });
 
+  await recordPlatformEvent({
+    type: "PASSWORD_RESET_REQUESTED",
+    category: "password_reset",
+    status: "info",
+    organizationId: user.organizationId,
+    userId: user.id,
+    message: "Password reset requested."
+  });
+
   try {
     await sendPasswordResetEmail({
       to: user.email,
       name: user.firstName || "there",
-      resetUrl
+      resetUrl,
+      organizationId: user.organizationId,
+      userId: user.id
     });
   } catch (error) {
     console.error("[auth] Password reset email failed", error);
@@ -1126,6 +1150,11 @@ export async function addApplicationNoteAction(formData: FormData) {
 
 export async function createMoveInAction(formData: FormData) {
   const user = await requireRoles([UserRole.MANAGER]);
+  const documentPath = requireOptionalSubmittedAssetPath(
+    getOptionalString(formData, "documentPath"),
+    user,
+    `/move-ins/new?error=${encodeURIComponent("The lease agreement upload is invalid. Upload it again and retry.")}`
+  );
   const result = newMoveInSchema.safeParse({
     propertyId: getString(formData, "propertyId"),
     unitId: getString(formData, "unitId"),
@@ -1153,7 +1182,9 @@ export async function createMoveInAction(formData: FormData) {
     recurringCharges: getOptionalString(formData, "recurringCharges"),
     lateFeePolicy: getOptionalString(formData, "lateFeePolicy"),
     notes: getOptionalString(formData, "notes"),
+    documentPath,
     sendInvite: getBoolean(formData, "sendInvite"),
+    existingLeaseId: getOptionalString(formData, "existingLeaseId"),
     applicationSubmissionId: getOptionalString(formData, "applicationSubmissionId")
   });
 
@@ -1189,11 +1220,39 @@ export async function createMoveInAction(formData: FormData) {
 
       const unit = store.units.find((item) => item.id === parsed.unitId && item.propertyId === property.id);
       if (!unit) throw new Error("Available unit not found for this property.");
-      if (!["VACANT", "TURNOVER"].includes(unit.occupancyStatus)) {
-        throw new Error("Choose a vacant or turnover unit for a new move-in.");
+      const existingLease = parsed.existingLeaseId
+        ? store.leases.find(
+            (lease) =>
+              lease.id === parsed.existingLeaseId &&
+              lease.unitId === unit.id &&
+              lease.managerUserId === user.id &&
+              leaseCanResumeMoveIn(lease.status)
+          )
+        : null;
+      if (parsed.existingLeaseId && !existingLease) {
+        throw new Error("The lease setup for this vacant unit could not be resumed. Refresh the page and try again.");
       }
-      if (store.leases.some((lease) => lease.unitId === unit.id && isUnitReserved(lease.status))) {
-        throw new Error("This unit already has an active, upcoming, invited, or draft lease.");
+      if (existingLease?.tenantUserId) {
+        throw new Error("This lease is already connected to a tenant account.");
+      }
+      if (!existingLease && store.leases.some((lease) => lease.unitId === unit.id && leaseCanResumeMoveIn(lease.status))) {
+        throw new Error("This unit already has a draft or invited lease. Refresh the page to continue that move-in.");
+      }
+      if (
+        unit.occupancyStatus === "OCCUPIED" &&
+        !store.leases.some((lease) => lease.unitId === unit.id && leaseBlocksNewMoveIn(lease.status))
+      ) {
+        throw new Error("This occupied unit needs a current lease with an end date before another move-in can be scheduled.");
+      }
+      const availableStartDate = getUnitAvailableStartDate(
+        store.leases.filter((lease) => lease.unitId === unit.id),
+        existingLease?.id
+      );
+      if (!availableStartDate) {
+        throw new Error("The current lease needs an end date before another move-in can be scheduled.");
+      }
+      if (appDateKeyFromValue(parsed.startDate) < availableStartDate) {
+        throw new Error(`The new lease must start on or after ${availableStartDate}, after the current lease ends.`);
       }
 
       const now = nowIso();
@@ -1219,13 +1278,15 @@ export async function createMoveInAction(formData: FormData) {
         (candidate) => candidate.organizationId === user.organizationId && candidate.role === UserRole.TENANT && normalizeEmail(candidate.email) === tenantEmail
       );
       const leaseStatus = getMoveInLeaseStatus(parsed.startDate);
-      const occupancyStatus = getMoveInOccupancyStatus(parsed.moveInDate);
-      const leaseId = createId("lease");
+      const leaseId = existingLease?.id ?? createId("lease");
       const moveInNote = `Move-in date: ${parsed.moveInDate}`;
       const notes = [moveInNote, parsed.notes].filter(Boolean).join("\n\n");
       const lease = {
+        ...existingLease,
         id: leaseId,
-        nexusLeaseId: getNextNexusLeaseId(store.leases.map((item) => item.nexusLeaseId ?? ""), store.leases.length + 1),
+        nexusLeaseId:
+          existingLease?.nexusLeaseId ??
+          getNextNexusLeaseId(store.leases.map((item) => item.nexusLeaseId ?? ""), store.leases.length + 1),
         managerUserId: user.id,
         tenantUserId: tenantUser?.id,
         tenantEmail,
@@ -1242,8 +1303,9 @@ export async function createMoveInAction(formData: FormData) {
         recurringCharges: parsed.recurringCharges ?? "",
         lateFeePolicy: parsed.lateFeePolicy,
         notes,
+        documentPath: parsed.documentPath ?? existingLease?.documentPath,
         status: leaseStatus,
-        createdAt: now,
+        createdAt: existingLease?.createdAt ?? now,
         updatedAt: now
       };
       const payments = [];
@@ -1318,11 +1380,21 @@ export async function createMoveInAction(formData: FormData) {
           : [];
 
       createdLeaseId = leaseId;
+      const leases = existingLease
+        ? store.leases.map((item) => {
+            if (item.id === existingLease.id) return lease;
+            if (item.unitId === unit.id && leaseCanResumeMoveIn(item.status)) {
+              return { ...item, status: "cancelled" as const, updatedAt: now };
+            }
+            return item;
+          })
+        : [...store.leases, lease];
+      const nextUnitState = leaseDrivenUnitState(leases.filter((item) => item.unitId === unit.id));
 
       return {
         ...store,
         tenants: existingTenant ? store.tenants.map((item) => (item.id === tenantId ? tenant : item)) : [...store.tenants, tenant],
-        leases: [...store.leases, lease],
+        leases,
         payments: [...store.payments, ...payments],
         notifications: [...store.notifications, ...notifications],
         units: store.units.map((item) =>
@@ -1331,8 +1403,7 @@ export async function createMoveInAction(formData: FormData) {
                 ...item,
                 monthlyRent: parsed.monthlyRent,
                 depositAmount: parsed.securityDeposit,
-                leaseStatus,
-                occupancyStatus,
+                ...nextUnitState,
                 updatedAt: now
               }
             : item
@@ -1354,7 +1425,25 @@ export async function createMoveInAction(formData: FormData) {
                 createdAt: now
               }
             ]
-          : store.applicationNotes
+          : store.applicationNotes,
+        tenantInvites:
+          existingLease
+            ? store.tenantInvites.map((invite) =>
+                invite.status === "pending" &&
+                (
+                  (invite.leaseId === existingLease.id && normalizeEmail(existingLease.tenantEmail ?? "") !== tenantEmail) ||
+                  store.leases.some(
+                    (item) =>
+                      item.id === invite.leaseId &&
+                      item.id !== existingLease.id &&
+                      item.unitId === unit.id &&
+                      leaseCanResumeMoveIn(item.status)
+                  )
+                )
+                  ? { ...invite, status: "revoked" as const, updatedAt: now }
+                  : invite
+              )
+            : store.tenantInvites
       };
     });
   } catch (error) {
@@ -1370,7 +1459,7 @@ export async function createMoveInAction(formData: FormData) {
 
   if (parsed.sendInvite) {
     try {
-      await sendLeaseTenantInvite(createdLeaseId, user);
+      await sendLeaseTenantInvite(createdLeaseId, user, "move_in_invite");
       inviteStatus = "sent";
     } catch (error) {
       console.warn("[move-in] Tenant invite email was not sent", error);
@@ -1584,6 +1673,53 @@ export async function updateLeaseAction(formData: FormData) {
   revalidatePath(returnTo);
   revalidatePath("/dashboard");
   redirect(returnTo);
+}
+
+export async function releaseLeaseUnitAction(formData: FormData) {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
+  const leaseId = getString(formData, "leaseId");
+  const returnTo = getLeaseReturnPath(formData);
+  const confirmed = getString(formData, "confirmRelease") === "yes";
+  const existingLease = portal.scope.leases.find((lease) => lease.id === leaseId);
+
+  if (!existingLease || !existingLease.unitId || !confirmed) {
+    redirect(returnTo);
+  }
+
+  await updateStore((store) => {
+    const updatedAt = nowIso();
+    const endDateKey = existingLease.endDate ? appDateKeyFromValue(existingLease.endDate) : "";
+    const releaseStatus: LeaseStatus = endDateKey && endDateKey < getAppDateKey() ? "EXPIRED" : "TERMINATED";
+    const leases = store.leases.map((lease) =>
+      lease.id === leaseId ? { ...lease, status: releaseStatus, updatedAt } : lease
+    );
+    const nextUnitState = leaseDrivenUnitState(leases.filter((lease) => lease.unitId === existingLease.unitId));
+
+    return {
+      ...store,
+      leases,
+      units: store.units.map((unit) =>
+        unit.id === existingLease.unitId && nextUnitState
+          ? { ...unit, ...nextUnitState, updatedAt }
+          : unit
+      ),
+      tenantInvites: store.tenantInvites.map((invite) =>
+        invite.leaseId === leaseId && invite.status === "pending"
+          ? { ...invite, status: "revoked" as const, updatedAt }
+          : invite
+      )
+    };
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/leases");
+  revalidatePath(returnTo);
+  revalidatePath("/units");
+  revalidatePath(`/units/${existingLease.unitId}`);
+  revalidatePath("/properties");
+  revalidatePath("/move-ins/new");
+  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}released=1`);
 }
 
 export async function deleteLeaseAction(formData: FormData) {

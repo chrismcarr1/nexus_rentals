@@ -13,6 +13,7 @@ import type { FormEvent, ReactNode } from "react";
 import { useMemo, useState } from "react";
 
 import { DataTable } from "@/components/data-table";
+import { FileUploader } from "@/components/file-uploader";
 import { PageHeader } from "@/components/page-header";
 import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
 import { SectionHeader } from "@/components/section-header";
@@ -61,6 +62,8 @@ type LeaseRow = {
   dueDay: number;
   rentDueTime?: string | null;
   securityDeposit: number | null;
+  documentPath?: string | null;
+  hasDocument?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -177,7 +180,8 @@ export function LeaseConnectionManager({
     monthlyRent: "",
     dueDay: "1",
     rentDueTime: DEFAULT_RENT_DUE_TIME,
-    securityDeposit: ""
+    securityDeposit: "",
+    documentPath: ""
   });
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -237,7 +241,8 @@ export function LeaseConnectionManager({
           monthlyRent: form.monthlyRent ? Number(form.monthlyRent) : undefined,
           dueDay: form.dueDay ? Number(form.dueDay) : undefined,
           rentDueTime: form.rentDueTime || DEFAULT_RENT_DUE_TIME,
-          securityDeposit: form.securityDeposit ? Number(form.securityDeposit) : undefined
+          securityDeposit: form.securityDeposit ? Number(form.securityDeposit) : undefined,
+          documentPath: form.documentPath || undefined
         })
       });
       const payload = await readApiPayload(response, "Could not create lease.");
@@ -245,7 +250,17 @@ export function LeaseConnectionManager({
       if (!payload.lease?.id) throw new Error("The lease service returned an invalid response.");
 
       setLeases((current) => [payload.lease, ...current.filter((lease) => lease.id !== payload.lease.id)]);
-      setForm({ tenantEmail: "", unitId: "", startDate: "", endDate: "", monthlyRent: "", dueDay: "1", rentDueTime: DEFAULT_RENT_DUE_TIME, securityDeposit: "" });
+      setForm({
+        tenantEmail: "",
+        unitId: "",
+        startDate: "",
+        endDate: "",
+        monthlyRent: "",
+        dueDay: "1",
+        rentDueTime: DEFAULT_RENT_DUE_TIME,
+        securityDeposit: "",
+        documentPath: ""
+      });
       setMessage("Lease created. Send the tenant invite when you are ready.");
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Could not create lease.");
@@ -456,8 +471,17 @@ export function LeaseConnectionManager({
                 </label>
               </div>
 
+              <FileUploader
+                label="Attach lease agreement"
+                accept=".pdf,.doc,.docx,image/*"
+                multiple={false}
+                onChange={(items) => setForm((current) => ({ ...current, documentPath: items[0]?.path ?? "" }))}
+              />
+
               <div className="border-t border-[var(--line)] pt-4">
-                <p className="text-xs leading-5 text-[var(--muted)]">Create the record first. Invite actions appear on each lease row.</p>
+                <p className="text-xs leading-5 text-[var(--muted)]">
+                  The attached agreement will be visible from the invite and the tenant portal. Invite actions appear after the lease is created.
+                </p>
                 <Button type="submit" disabled={pendingAction === "create"} className="mt-3 w-full">
                   <Plus className="h-4 w-4" />
                   {pendingAction === "create" ? "Creating..." : "Create lease"}
@@ -497,7 +521,8 @@ export function LeaseConnectionManager({
                         <span className="inline-flex max-w-full items-center rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1 font-mono text-[11px] font-semibold text-[var(--muted-strong)]">
                           <span className="truncate">{lease.nexusLeaseId ?? lease.id}</span>
                         </span>
-                        <span className="mt-1.5 block truncate text-xs font-medium text-[var(--muted)]">Lease record</span>
+                      <span className="mt-1.5 block truncate text-xs font-medium text-[var(--muted)]">Lease record</span>
+                      {lease.hasDocument ? <span className="mt-1 block text-xs font-semibold text-[var(--brand)]">Agreement attached</span> : null}
                       </Link>
                     </td>
                     <td className="table-cell">
