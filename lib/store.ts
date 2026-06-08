@@ -20,6 +20,15 @@ export type RentalApplicationStatus = "DRAFT" | "PUBLISHED" | "SUBMITTED" | "UND
 export type ApplicationApplicantType = "PRIMARY" | "CO_APPLICANT";
 export type ApplicationFeeStatus = "NOT_REQUIRED" | "UNPAID" | "PAID" | "WAIVED";
 export type ApplicationDocumentStatus = "REQUESTED" | "RECEIVED" | "WAIVED";
+export type PlatformEventType =
+  | "EMAIL_SENT"
+  | "EMAIL_FAILED"
+  | "EMAIL_BLOCKED"
+  | "PASSWORD_RESET_REQUESTED"
+  | "STRIPE_WEBHOOK_RECEIVED"
+  | "STRIPE_WEBHOOK_FAILED"
+  | "STRIPE_SETUP_STARTED"
+  | "STRIPE_SETUP_COMPLETED";
 
 export const UserRole = {
   ADMIN: "ADMIN",
@@ -60,6 +69,7 @@ export type User = {
   stripeCurrentlyDue?: string[];
   stripeEventuallyDue?: string[];
   stripeUpdatedAt?: string;
+  lastLoginAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -233,6 +243,18 @@ export type ApplicationDocument = {
   updatedAt: string;
 };
 export type ApplicationNote = { id: string; applicationId: string; submissionId?: string; managerUserId: string; body: string; createdAt: string };
+export type PlatformEvent = {
+  id: string;
+  type: PlatformEventType;
+  category: string;
+  status: "success" | "failed" | "blocked" | "ignored" | "info";
+  organizationId?: string;
+  userId?: string;
+  relatedId?: string;
+  message?: string;
+  metadata?: Record<string, string | number | boolean | null>;
+  createdAt: string;
+};
 
 export type AppStore = {
   organizations: Organization[];
@@ -258,6 +280,7 @@ export type AppStore = {
   applicationApplicants: ApplicationApplicant[];
   applicationDocuments: ApplicationDocument[];
   applicationNotes: ApplicationNote[];
+  platformEvents: PlatformEvent[];
 };
 
 const STORE_ID = "default";
@@ -286,7 +309,8 @@ function emptyStore(): AppStore {
     applicationSubmissions: [],
     applicationApplicants: [],
     applicationDocuments: [],
-    applicationNotes: []
+    applicationNotes: [],
+    platformEvents: []
   };
 }
 
@@ -337,6 +361,7 @@ function normalizeStore(store: AppStore): AppStore {
     applicationApplicants: store.applicationApplicants ?? [],
     applicationDocuments: store.applicationDocuments ?? [],
     applicationNotes: store.applicationNotes ?? [],
+    platformEvents: store.platformEvents ?? [],
     leases: (store.leases ?? []).map((lease, index) => {
       const unit = lease.unitId ? store.units?.find((item) => item.id === lease.unitId) : null;
       const property = lease.propertyId

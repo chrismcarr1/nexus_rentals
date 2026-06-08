@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
+import { recordPlatformEvent } from "@/lib/platform-events";
 import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe, getStripeWebhookSecret } from "@/lib/stripe";
 
 export const runtime = "nodejs";
@@ -92,14 +93,40 @@ export async function POST(request: Request) {
   }
 
   try {
+    let result: Record<string, string> = { ignored: event.type };
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
-      const result = await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session, event.created);
-      return Response.json({ received: true, ...result });
+      result = await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session, event.created);
     }
 
-    return Response.json({ received: true, ignored: event.type });
+    await recordPlatformEvent({
+      type: "STRIPE_WEBHOOK_RECEIVED",
+      category: event.type,
+      status: "updated" in result ? "success" : "ignored",
+      relatedId: event.id,
+      message: "Verified Stripe webhook processed.",
+      metadata: {
+        eventId: event.id,
+        eventType: event.type,
+        livemode: event.livemode,
+        outcome: "updated" in result ? result.updated : result.ignored
+      }
+    });
+
+    return Response.json({ received: true, ...result });
   } catch (error) {
     console.error("[stripe] Webhook handling failed", error);
+    await recordPlatformEvent({
+      type: "STRIPE_WEBHOOK_FAILED",
+      category: event.type,
+      status: "failed",
+      relatedId: event.id,
+      message: error instanceof Error ? error.message.slice(0, 500) : "Stripe webhook handling failed.",
+      metadata: {
+        eventId: event.id,
+        eventType: event.type,
+        livemode: event.livemode
+      }
+    });
     return Response.json({ error: "Stripe webhook handling failed." }, { status: 500 });
   }
 }

@@ -67,4 +67,27 @@ describe("middleware API handling", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://app.nexusrentals.co/dashboard");
   });
+
+  it("blocks managers from admin pages", async () => {
+    const response = await middleware(request("/admin/system-health"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://app.nexusrentals.co/dashboard");
+  });
+
+  it("returns forbidden JSON for manager requests to admin APIs", async () => {
+    const response = await middleware(request("/api/admin/export/users"));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "Forbidden" });
+  });
+
+  it("allows the reserved system admin through admin routes", async () => {
+    mocks.isSystemAdminEmail.mockReturnValue(true);
+
+    const response = await middleware(request("/admin/operations"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
 });

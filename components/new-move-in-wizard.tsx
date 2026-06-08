@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Building2, CalendarDays, CheckCircle2, DollarSign, Home, Mail, Plus, ReceiptText, UserRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, Building2, CalendarDays, CheckCircle2, DollarSign, FileText, Home, Mail, Plus, ReceiptText, UserRound } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { FileUploader } from "@/components/file-uploader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -33,6 +34,19 @@ export type MoveInUnitOption = {
   monthlyRent: number;
   depositAmount: number;
   occupancyStatus: string;
+  availableStartDate: string;
+  resumableLease?: {
+    id: string;
+    status: string;
+    tenantEmail: string;
+    startDate: string;
+    endDate: string;
+    monthlyRent: number;
+    securityDeposit: number;
+    dueDay: number;
+    rentDueTime?: string;
+    documentPath?: string;
+  } | null;
 };
 
 export type MoveInPrefill = Partial<{
@@ -76,7 +90,9 @@ type MoveInFormState = {
   recurringCharges: string;
   lateFeePolicy: string;
   notes: string;
+  documentPath: string;
   sendInvite: boolean;
+  existingLeaseId: string;
   applicationSubmissionId: string;
 };
 
@@ -99,6 +115,14 @@ function formatDate(value: string) {
 
 function isEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function latestDateKey(...values: Array<string | null | undefined>) {
+  return values.filter(Boolean).sort().at(-1) ?? "";
+}
+
+function suggestedUnitStartDate(unit: MoveInUnitOption | null | undefined, fallback: string) {
+  return latestDateKey(unit?.availableStartDate, unit?.resumableLease?.startDate, fallback);
 }
 
 function FieldLabel({ label, hint }: { label: string; hint?: string }) {
@@ -145,6 +169,11 @@ export function NewMoveInWizard({
       : propertyWithUnits?.id ?? properties[0]?.id ?? "";
   const firstUnitForProperty = units.find((unit) => unit.propertyId === defaultPropertyId);
   const defaultUnit = units.find((unit) => unit.id === requestedUnitId && unit.propertyId === defaultPropertyId) ?? firstUnitForProperty ?? null;
+  const defaultStartDate = suggestedUnitStartDate(defaultUnit, prefill?.startDate ?? prefill?.moveInDate ?? today);
+  const defaultEndDate =
+    defaultUnit?.resumableLease?.endDate && defaultUnit.resumableLease.endDate > defaultStartDate
+      ? defaultUnit.resumableLease.endDate
+      : addMonthsToDateKey(defaultStartDate, 12);
   const [step, setStep] = useState(0);
   const [clientError, setClientError] = useState(error ?? "");
   const [form, setForm] = useState<MoveInFormState>({
@@ -152,18 +181,32 @@ export function NewMoveInWizard({
     unitId: defaultUnit?.id ?? "",
     tenantFirstName: prefill?.tenantFirstName ?? "",
     tenantLastName: prefill?.tenantLastName ?? "",
-    tenantEmail: prefill?.tenantEmail ?? "",
+    tenantEmail: prefill?.tenantEmail ?? defaultUnit?.resumableLease?.tenantEmail ?? "",
     tenantPhone: formatPhoneNumber(prefill?.tenantPhone ?? ""),
     employer: "",
     emergencyName: "",
     emergencyPhone: "",
-    startDate: prefill?.startDate ?? prefill?.moveInDate ?? today,
-    endDate: addMonthsToDateKey(today, 12),
-    moveInDate: prefill?.moveInDate ?? today,
-    monthlyRent: prefill?.monthlyRent != null ? String(prefill.monthlyRent) : defaultUnit?.monthlyRent ? String(defaultUnit.monthlyRent) : "",
-    securityDeposit: prefill?.securityDeposit != null ? String(prefill.securityDeposit) : defaultUnit?.depositAmount ? String(defaultUnit.depositAmount) : "0",
-    dueDay: "1",
-    rentDueTime: DEFAULT_RENT_DUE_TIME,
+    startDate: defaultStartDate,
+    endDate: defaultEndDate,
+    moveInDate: latestDateKey(prefill?.moveInDate, defaultStartDate),
+    monthlyRent:
+      prefill?.monthlyRent != null
+        ? String(prefill.monthlyRent)
+        : defaultUnit?.resumableLease
+          ? String(defaultUnit.resumableLease.monthlyRent)
+          : defaultUnit?.monthlyRent
+            ? String(defaultUnit.monthlyRent)
+            : "",
+    securityDeposit:
+      prefill?.securityDeposit != null
+        ? String(prefill.securityDeposit)
+        : defaultUnit?.resumableLease
+          ? String(defaultUnit.resumableLease.securityDeposit)
+          : defaultUnit?.depositAmount
+            ? String(defaultUnit.depositAmount)
+            : "0",
+    dueDay: String(defaultUnit?.resumableLease?.dueDay ?? 1),
+    rentDueTime: defaultUnit?.resumableLease?.rentDueTime ?? DEFAULT_RENT_DUE_TIME,
     firstRentDueDate: today,
     securityDepositDueDate: today,
     createFirstRentCharge: true,
@@ -174,7 +217,9 @@ export function NewMoveInWizard({
     recurringCharges: "",
     lateFeePolicy: "",
     notes: "",
-    sendInvite: true,
+    documentPath: defaultUnit?.resumableLease?.documentPath ?? "",
+    sendInvite: defaultUnit?.resumableLease?.status !== "invited",
+    existingLeaseId: defaultUnit?.resumableLease?.id ?? "",
     applicationSubmissionId: prefill?.applicationSubmissionId ?? ""
   });
 
@@ -192,21 +237,58 @@ export function NewMoveInWizard({
 
   function selectProperty(propertyId: string) {
     const nextUnit = units.find((unit) => unit.propertyId === propertyId) ?? null;
+    const nextStartDate = suggestedUnitStartDate(nextUnit, today);
+    const nextEndDate =
+      nextUnit?.resumableLease?.endDate && nextUnit.resumableLease.endDate > nextStartDate
+        ? nextUnit.resumableLease.endDate
+        : addMonthsToDateKey(nextStartDate, 12);
     patch({
       propertyId,
       unitId: nextUnit?.id ?? "",
-      monthlyRent: nextUnit?.monthlyRent ? String(nextUnit.monthlyRent) : "",
-      securityDeposit: nextUnit?.depositAmount ? String(nextUnit.depositAmount) : "0"
+      tenantEmail: nextUnit?.resumableLease?.tenantEmail ?? "",
+      startDate: nextStartDate,
+      endDate: nextEndDate,
+      moveInDate: nextStartDate,
+      monthlyRent: String(nextUnit?.resumableLease?.monthlyRent ?? nextUnit?.monthlyRent ?? ""),
+      securityDeposit: String(nextUnit?.resumableLease?.securityDeposit ?? nextUnit?.depositAmount ?? 0),
+      dueDay: String(nextUnit?.resumableLease?.dueDay ?? 1),
+      rentDueTime: nextUnit?.resumableLease?.rentDueTime ?? DEFAULT_RENT_DUE_TIME,
+      documentPath: nextUnit?.resumableLease?.documentPath ?? "",
+      sendInvite: nextUnit?.resumableLease?.status !== "invited",
+      existingLeaseId: nextUnit?.resumableLease?.id ?? ""
     });
   }
 
   function selectUnit(unitId: string) {
     const unit = units.find((item) => item.id === unitId) ?? null;
+    const nextStartDate = suggestedUnitStartDate(unit, today);
+    const nextEndDate =
+      unit?.resumableLease?.endDate && unit.resumableLease.endDate > nextStartDate
+        ? unit.resumableLease.endDate
+        : addMonthsToDateKey(nextStartDate, 12);
     patch({
       unitId,
-      monthlyRent: unit?.monthlyRent ? String(unit.monthlyRent) : form.monthlyRent,
-      securityDeposit: unit?.depositAmount ? String(unit.depositAmount) : form.securityDeposit
+      tenantEmail: unit?.resumableLease?.tenantEmail ?? "",
+      startDate: nextStartDate,
+      endDate: nextEndDate,
+      moveInDate: nextStartDate,
+      monthlyRent: String(unit?.resumableLease?.monthlyRent ?? unit?.monthlyRent ?? ""),
+      securityDeposit: String(unit?.resumableLease?.securityDeposit ?? unit?.depositAmount ?? 0),
+      dueDay: String(unit?.resumableLease?.dueDay ?? 1),
+      rentDueTime: unit?.resumableLease?.rentDueTime ?? DEFAULT_RENT_DUE_TIME,
+      documentPath: unit?.resumableLease?.documentPath ?? "",
+      sendInvite: unit?.resumableLease?.status !== "invited",
+      existingLeaseId: unit?.resumableLease?.id ?? ""
     });
+  }
+
+  function changeStartDate(startDate: string) {
+    setForm((current) => ({
+      ...current,
+      startDate,
+      moveInDate: !current.moveInDate || current.moveInDate < startDate ? startDate : current.moveInDate,
+      endDate: !current.endDate || current.endDate <= startDate ? addMonthsToDateKey(startDate, 12) : current.endDate
+    }));
   }
 
   function validateStep(index: number) {
@@ -224,6 +306,9 @@ export function NewMoveInWizard({
       const moveIn = appDateKeyFromValue(form.moveInDate);
       if (!form.startDate || !form.endDate || !form.moveInDate) return "Set the lease start, lease end, and move-in dates.";
       if (!start || !end || end < start) return "Lease end date must be after the start date.";
+      if (selectedUnit?.availableStartDate && start < selectedUnit.availableStartDate) {
+        return `This unit is available starting ${formatDate(selectedUnit.availableStartDate)}.`;
+      }
       if (!moveIn || moveIn < start || moveIn > end) return "Move-in date must be within the lease term.";
       if (Number(form.monthlyRent) < 1) return "Set a monthly rent greater than zero.";
       if (Number(form.securityDeposit) < 0) return "Security deposit cannot be negative.";
@@ -276,7 +361,7 @@ export function NewMoveInWizard({
         <Home className="mx-auto h-8 w-8 text-[var(--brand)]" />
         <h2 className="mt-4 text-2xl font-semibold text-[var(--text)]">No available units</h2>
         <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[var(--muted)]">
-          Move-ins can only be started for vacant or turnover units without an active, invited, or draft lease.
+          Units with an open-ended active lease cannot be scheduled until an end date is added.
         </p>
         <Link href="/properties" className="mt-5 inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--line-strong)] bg-[var(--panel)] px-3.5 py-2 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)]">
           Review properties
@@ -326,7 +411,7 @@ export function NewMoveInWizard({
               <div>
                 <p className="section-kicker">Step 1</p>
                 <h2 className="mt-2 text-2xl font-semibold text-[var(--text)]">Select the home</h2>
-                <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Only available units are listed for move-in setup.</p>
+                <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Vacant units and occupied units with a known future availability date are listed.</p>
               </div>
               <div className="space-y-4">
                 <label className="block">
@@ -351,16 +436,29 @@ export function NewMoveInWizard({
                     {propertyUnits.map((unit) => (
                       <option key={unit.id} value={unit.id}>
                         Unit {unit.unitNumber}{unit.nickname ? ` - ${unit.nickname}` : ""}
+                        {unit.resumableLease
+                          ? ` - continue ${unit.resumableLease.status} lease`
+                          : unit.availableStartDate > today
+                            ? ` - available ${formatDate(unit.availableStartDate)}`
+                            : ""}
                       </option>
                     ))}
                   </Select>
                 </label>
                 {selectedUnit ? (
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <ReviewRow label="Current rent" value={formatCurrency(selectedUnit.monthlyRent)} />
-                    <ReviewRow label="Deposit" value={formatCurrency(selectedUnit.depositAmount)} />
-                    <ReviewRow label="Status" value={selectedUnit.occupancyStatus} />
-                  </div>
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-4">
+                      <ReviewRow label="Current rent" value={formatCurrency(selectedUnit.monthlyRent)} />
+                      <ReviewRow label="Deposit" value={formatCurrency(selectedUnit.depositAmount)} />
+                      <ReviewRow label="Status" value={selectedUnit.occupancyStatus} />
+                      <ReviewRow label="Available" value={formatDate(selectedUnit.availableStartDate)} />
+                    </div>
+                    {selectedUnit.occupancyStatus === "OCCUPIED" ? (
+                      <p className="rounded-md border border-amber-600/18 bg-amber-500/12 px-3 py-2 text-xs leading-5 text-amber-800">
+                        This unit is currently occupied. The new lease must start on or after {formatDate(selectedUnit.availableStartDate)}.
+                      </p>
+                    ) : null}
+                  </>
                 ) : (
                   <div className="rounded-md border border-dashed border-[var(--line-strong)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
                     This property has no available unit right now.
@@ -388,6 +486,14 @@ export function NewMoveInWizard({
                     <Input value={form.tenantLastName} onChange={(event) => patch({ tenantLastName: event.target.value })} />
                   </label>
                 </div>
+                {selectedUnit?.resumableLease ? (
+                  <div className="rounded-md border border-[rgba(13,143,123,0.18)] bg-[var(--accent-soft)] p-4 text-sm">
+                    <p className="font-semibold text-[var(--text)]">Continuing existing lease</p>
+                    <p className="mt-1 leading-6 text-[var(--muted)]">
+                      This move-in will complete the existing {selectedUnit.resumableLease.status} lease and preserve its attached agreement.
+                    </p>
+                  </div>
+                ) : null}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block">
                     <FieldLabel label="Email" />
@@ -427,15 +533,20 @@ export function NewMoveInWizard({
                 <div className="grid gap-4 sm:grid-cols-3">
                   <label className="block">
                     <FieldLabel label="Lease start" />
-                    <Input type="date" value={form.startDate} onChange={(event) => patch({ startDate: event.target.value })} />
+                    <Input
+                      type="date"
+                      min={selectedUnit?.availableStartDate}
+                      value={form.startDate}
+                      onChange={(event) => changeStartDate(event.target.value)}
+                    />
                   </label>
                   <label className="block">
                     <FieldLabel label="Lease end" />
-                    <Input type="date" value={form.endDate} onChange={(event) => patch({ endDate: event.target.value })} />
+                    <Input type="date" min={form.startDate} value={form.endDate} onChange={(event) => patch({ endDate: event.target.value })} />
                   </label>
                   <label className="block">
                     <FieldLabel label="Move-in date" />
-                    <Input type="date" value={form.moveInDate} onChange={(event) => patch({ moveInDate: event.target.value })} />
+                    <Input type="date" min={form.startDate} value={form.moveInDate} onChange={(event) => patch({ moveInDate: event.target.value })} />
                   </label>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -456,6 +567,18 @@ export function NewMoveInWizard({
                   <FieldLabel label="Late fee policy" hint="Optional" />
                   <Input value={form.lateFeePolicy} onChange={(event) => patch({ lateFeePolicy: event.target.value })} />
                 </label>
+                <div>
+                  <FieldLabel label="Lease agreement" hint="PDF, DOC, DOCX, or image" />
+                  <FileUploader
+                    label="Attach signed or prepared lease"
+                    accept=".pdf,.doc,.docx,image/*"
+                    multiple={false}
+                    onChange={(items) => patch({ documentPath: items[0]?.path ?? "" })}
+                  />
+                  <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
+                    This agreement will be available from the tenant invite and their lease page.
+                  </p>
+                </div>
               </div>
             </div>
           ) : null}
@@ -543,11 +666,19 @@ export function NewMoveInWizard({
                   <ReviewRow label="Security deposit" value={formatCurrency(form.securityDeposit)} />
                   <ReviewRow label="Rent schedule" value={`Day ${form.dueDay} at ${formatRentDueTime(form.rentDueTime)}`} />
                   <ReviewRow label="Initial charges" value={formatCurrency(totalInitialCharges)} />
+                  <ReviewRow label="Lease agreement" value={form.documentPath ? "Attached" : "Not attached"} />
+                  <ReviewRow label="Lease record" value={form.existingLeaseId ? "Continue existing lease" : "Create new lease"} />
                 </div>
                 <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone={form.sendInvite ? "warning" : "default"}>{form.sendInvite ? "Invite will be created" : "Invite skipped"}</Badge>
                     <Badge tone="success">{form.createFirstRentCharge || form.createSecurityDepositCharge || Number(form.additionalChargeAmount || 0) > 0 ? "Ledger charges enabled" : "No initial charges"}</Badge>
+                    {form.documentPath ? (
+                      <Badge tone="success">
+                        <FileText className="mr-1 h-3.5 w-3.5" />
+                        Agreement attached
+                      </Badge>
+                    ) : null}
                   </div>
                   <label className="mt-4 block">
                     <FieldLabel label="Manager notes" hint="Optional" />

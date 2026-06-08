@@ -3,11 +3,10 @@ import { NewMoveInWizard, type MoveInPrefill, type MoveInPropertyOption, type Mo
 import { getSubmissionBundle, managerOwnsApplication, primaryApplicant } from "@/lib/applications";
 import { formatAddress } from "@/lib/address";
 import { requireRoles } from "@/lib/auth";
+import { getUnitAvailableStartDate, leaseBlocksNewMoveIn, leaseCanResumeMoveIn } from "@/lib/lease-connections";
 import { readStore } from "@/lib/store";
 import { UserRole } from "@/lib/store";
 import { getPortalContext } from "@/services/portal";
-
-const blockingLeaseStatuses = new Set(["ACTIVE", "UPCOMING", "active", "invited", "draft"]);
 
 export default async function NewMoveInPage({
   searchParams
@@ -39,34 +38,57 @@ export default async function NewMoveInPage({
           securityDeposit: submissionBundle.application.securityDeposit
         }
       : undefined;
-  const reservedUnitIds = new Set(
-    portal.scope.leases
-      .filter((lease) => lease.unitId && blockingLeaseStatuses.has(lease.status))
-      .map((lease) => lease.unitId!)
-  );
-  const availableUnits = portal.scope.units.filter(
-    (unit) => !reservedUnitIds.has(unit.id) && (unit.occupancyStatus === "VACANT" || unit.occupancyStatus === "TURNOVER")
-  );
+  const availableUnits = portal.scope.units
+    .map((unit) => {
+      const unitLeases = portal.scope.leases.filter((lease) => lease.unitId === unit.id);
+      const resumableLease = unitLeases
+        .filter((lease) => leaseCanResumeMoveIn(lease.status))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+      const hasScheduledOccupancy = unitLeases.some((lease) => leaseBlocksNewMoveIn(lease.status));
+      const availableStartDate =
+        unit.occupancyStatus === "OCCUPIED" && !hasScheduledOccupancy
+          ? null
+          : getUnitAvailableStartDate(unitLeases, resumableLease?.id);
+      return { unit, resumableLease, availableStartDate };
+    })
+    .filter((item) => Boolean(item.availableStartDate));
   const properties: MoveInPropertyOption[] = portal.scope.properties
     .map((property) => ({
       id: property.id,
       name: property.name,
       formattedAddress: formatAddress(property),
-      availableUnitCount: availableUnits.filter((unit) => unit.propertyId === property.id).length
+      availableUnitCount: availableUnits.filter((item) => item.unit.propertyId === property.id).length
     }));
   const units: MoveInUnitOption[] = availableUnits
-    .filter((unit) => properties.some((property) => property.id === unit.propertyId))
-    .map((unit) => ({
-      id: unit.id,
-      propertyId: unit.propertyId,
-      unitNumber: unit.unitNumber,
-      nickname: unit.nickname,
-      bedrooms: unit.bedrooms,
-      bathrooms: unit.bathrooms,
-      monthlyRent: unit.monthlyRent,
-      depositAmount: unit.depositAmount,
-      occupancyStatus: unit.occupancyStatus
-    }));
+    .filter(({ unit }) => properties.some((property) => property.id === unit.propertyId))
+    .map(({ unit, resumableLease, availableStartDate }) => {
+      return {
+        id: unit.id,
+        propertyId: unit.propertyId,
+        unitNumber: unit.unitNumber,
+        nickname: unit.nickname,
+        bedrooms: unit.bedrooms,
+        bathrooms: unit.bathrooms,
+        monthlyRent: unit.monthlyRent,
+        depositAmount: unit.depositAmount,
+        occupancyStatus: unit.occupancyStatus,
+        availableStartDate: availableStartDate!,
+        resumableLease: resumableLease
+          ? {
+              id: resumableLease.id,
+              status: resumableLease.status,
+              tenantEmail: resumableLease.tenantEmail ?? "",
+              startDate: resumableLease.startDate?.slice(0, 10) ?? "",
+              endDate: resumableLease.endDate?.slice(0, 10) ?? "",
+              monthlyRent: resumableLease.monthlyRent,
+              securityDeposit: resumableLease.securityDeposit,
+              dueDay: resumableLease.dueDay,
+              rentDueTime: resumableLease.rentDueTime,
+              documentPath: resumableLease.documentPath
+            }
+          : null
+      };
+    });
   const error =
     params.error && params.error !== "invalid"
       ? params.error

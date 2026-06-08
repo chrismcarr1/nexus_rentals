@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowRight, CheckCircle2, ClipboardList, FileText, UserRound, XCircle } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { ManagerScreeningDashboard } from "@/components/screening/manager-screening-dashboard";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -10,6 +11,7 @@ import { addApplicationNoteAction, updateApplicationSubmissionStatusAction } fro
 import { applicationStatusLabels, applicationStatusTone, feeStatusLabel, getApplicationAddressLabel, getSubmissionBundle, managerOwnsApplication, primaryApplicant } from "@/lib/applications";
 import { requireRoles } from "@/lib/auth";
 import { readStore, UserRole } from "@/lib/store";
+import { getScreeningSummary } from "@/lib/screening/service";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
 function DetailRow({ label, value }: { label: string; value?: string | number | null }) {
@@ -60,6 +62,7 @@ export default async function ApplicationSubmissionPage({
   if (!bundle || bundle.application.id !== applicationId || !managerOwnsApplication(store, user, bundle.application)) notFound();
 
   const { application, submission, applicants, documents, notes } = bundle;
+  const screeningSummary = await getScreeningSummary(submission.id);
   const applicant = primaryApplicant(applicants);
   const coApplicants = applicants.filter((item) => item.type === "CO_APPLICANT");
   const canConvert = submission.status === "APPROVED";
@@ -111,6 +114,11 @@ export default async function ApplicationSubmissionPage({
               <DetailRow label="Target rent" value={formatCurrency(application.monthlyRent)} />
             </div>
           </Card>
+
+          <ManagerScreeningDashboard
+            applicationId={submission.id}
+            initialSummary={screeningSummary}
+          />
 
           <Card className="p-5 lg:p-6">
             <p className="section-kicker">Application content</p>

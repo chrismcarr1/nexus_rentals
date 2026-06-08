@@ -1,11 +1,14 @@
 import "server-only";
 
+import { recordPlatformEvent } from "./platform-events";
 import { assertCanonicalAppUrl, getAppUrlDiagnostics } from "./request-origin";
 
 type PasswordResetEmailInput = {
   to: string;
   name: string;
   resetUrl: string;
+  organizationId?: string;
+  userId?: string;
 };
 
 type TenantInviteEmailInput = {
@@ -15,6 +18,9 @@ type TenantInviteEmailInput = {
   propertyLabel: string;
   inviteUrl: string;
   expiresAt: string;
+  category?: "tenant_invite" | "move_in_invite";
+  organizationId?: string;
+  userId?: string;
 };
 
 type OutboundEmailInput = {
@@ -22,6 +28,9 @@ type OutboundEmailInput = {
   subject: string;
   html: string;
   text: string;
+  category: "password_reset" | "tenant_invite" | "move_in_invite" | "screening_invite" | "admin_test";
+  organizationId?: string;
+  userId?: string;
 };
 
 type EmailResult = {
@@ -298,72 +307,127 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
-async function sendEmail({ to, subject, html, text }: OutboundEmailInput): Promise<EmailResult> {
+async function sendEmail({ to, subject, html, text, category, organizationId, userId }: OutboundEmailInput): Promise<EmailResult> {
   const config = getEmailConfig();
   const diagnostics = getEmailDiagnostics();
   const { from, workerUrl, workerSecret, accountId, apiToken } = config;
 
-  if (config.transport === "worker" && workerUrl && workerSecret) {
-    const response = await fetch(workerUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${workerSecret}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ from, to, subject, html, text })
+  try {
+    if (config.transport === "worker" && workerUrl && workerSecret) {
+      const response = await fetch(workerUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${workerSecret}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ from, to, subject, html, text })
+      });
+
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`Cloudflare email worker failed: ${response.status} ${detail}`);
+      }
+
+      await recordPlatformEvent({
+        type: "EMAIL_SENT",
+        category,
+        status: "success",
+        organizationId,
+        userId,
+        message: "Cloudflare accepted the email.",
+        metadata: { recipient: to, transport: "worker" }
+      });
+      return { sent: true };
+    }
+
+    if (config.transport === "rest" && accountId && apiToken) {
+      const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/email/sending/send`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          from: from.name ? { address: from.email, name: from.name } : from.email,
+          to,
+          subject,
+          html,
+          text
+        })
+      });
+
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`Cloudflare email API failed: ${response.status} ${detail}`);
+      }
+
+      const payload = (await response.json().catch(() => ({}))) as { success?: boolean; errors?: Array<{ message?: string }> };
+      if (payload.success === false) {
+        throw new Error(`Cloudflare email API failed: ${payload.errors?.map((item) => item.message).filter(Boolean).join("; ") || "Unknown error"}`);
+      }
+
+      await recordPlatformEvent({
+        type: "EMAIL_SENT",
+        category,
+        status: "success",
+        organizationId,
+        userId,
+        message: "Cloudflare accepted the email.",
+        metadata: { recipient: to, transport: "rest" }
+      });
+      return { sent: true };
+    }
+
+    const error = `Cloudflare email is not configured. ${diagnostics.issues.join(" ")}`;
+    await recordPlatformEvent({
+      type: "EMAIL_FAILED",
+      category,
+      status: "failed",
+      organizationId,
+      userId,
+      message: error,
+      metadata: { recipient: to, transport: "none" }
     });
-
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(`Cloudflare email worker failed: ${response.status} ${detail}`);
-    }
-
-    return { sent: true };
-  }
-
-  if (config.transport === "rest" && accountId && apiToken) {
-    const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/email/sending/send`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        from: from.name ? { address: from.email, name: from.name } : from.email,
-        to,
-        subject,
-        html,
-        text
-      })
+    return { sent: false, error };
+  } catch (error) {
+    await recordPlatformEvent({
+      type: "EMAIL_FAILED",
+      category,
+      status: "failed",
+      organizationId,
+      userId,
+      message: error instanceof Error ? error.message.slice(0, 500) : "Email delivery failed.",
+      metadata: { recipient: to, transport: config.transport }
     });
-
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(`Cloudflare email API failed: ${response.status} ${detail}`);
-    }
-
-    const payload = (await response.json().catch(() => ({}))) as { success?: boolean; errors?: Array<{ message?: string }> };
-    if (payload.success === false) {
-      throw new Error(`Cloudflare email API failed: ${payload.errors?.map((item) => item.message).filter(Boolean).join("; ") || "Unknown error"}`);
-    }
-
-    return { sent: true };
+    throw error;
   }
-
-  return {
-    sent: false,
-    error: `Cloudflare email is not configured. ${diagnostics.issues.join(" ")}`
-  };
 }
 
-export async function sendPasswordResetEmail({ to, name, resetUrl }: PasswordResetEmailInput) {
-  const canonicalResetUrl = assertCanonicalAppUrl(resetUrl, "password reset URL");
+export async function sendPasswordResetEmail({ to, name, resetUrl, organizationId, userId }: PasswordResetEmailInput) {
+  let canonicalResetUrl: string;
+  try {
+    canonicalResetUrl = assertCanonicalAppUrl(resetUrl, "password reset URL");
+  } catch (error) {
+    await recordPlatformEvent({
+      type: "EMAIL_BLOCKED",
+      category: "password_reset",
+      status: "blocked",
+      organizationId,
+      userId,
+      message: error instanceof Error ? error.message : "Password reset URL was blocked.",
+      metadata: { recipient: to }
+    });
+    throw error;
+  }
   const safeName = escapeHtml(name);
   const safeResetUrl = escapeHtml(canonicalResetUrl);
 
   return sendEmail({
     to,
     subject: "Reset your Nexus Rentals password",
+    category: "password_reset",
+    organizationId,
+    userId,
     html: `
         <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
           <h1 style="font-size: 22px;">Reset your password</h1>
@@ -382,8 +446,32 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }: PasswordRes
   });
 }
 
-export async function sendTenantInviteEmail({ to, managerName, managerEmail, propertyLabel, inviteUrl, expiresAt }: TenantInviteEmailInput) {
-  const canonicalInviteUrl = assertCanonicalAppUrl(inviteUrl, "tenant invite URL");
+export async function sendTenantInviteEmail({
+  to,
+  managerName,
+  managerEmail,
+  propertyLabel,
+  inviteUrl,
+  expiresAt,
+  category = "tenant_invite",
+  organizationId,
+  userId
+}: TenantInviteEmailInput) {
+  let canonicalInviteUrl: string;
+  try {
+    canonicalInviteUrl = assertCanonicalAppUrl(inviteUrl, "tenant invite URL");
+  } catch (error) {
+    await recordPlatformEvent({
+      type: "EMAIL_BLOCKED",
+      category,
+      status: "blocked",
+      organizationId,
+      userId,
+      message: error instanceof Error ? error.message : "Tenant invite URL was blocked.",
+      metadata: { recipient: to }
+    });
+    throw error;
+  }
   const safeManagerName = escapeHtml(managerName);
   const safeManagerEmail = escapeHtml(managerEmail);
   const safePropertyLabel = escapeHtml(propertyLabel);
@@ -393,6 +481,9 @@ export async function sendTenantInviteEmail({ to, managerName, managerEmail, pro
   return sendEmail({
     to,
     subject: `Complete your Nexus Rentals setup for ${propertyLabel}`,
+    category,
+    organizationId,
+    userId,
     html: `
         <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
           <h1 style="font-size: 22px;">Review and connect to your lease</h1>
@@ -408,5 +499,55 @@ export async function sendTenantInviteEmail({ to, managerName, managerEmail, pro
         </div>
       `,
     text: `${managerName} (${managerEmail}) invited you to review and connect to your lease for ${propertyLabel}.\n\nCreate an account or sign in with this email address, then accept the invite before ${expiresAt}:\n\n${canonicalInviteUrl}`
+  });
+}
+
+export async function sendAdminTestEmail(to: string, organizationId?: string, userId?: string) {
+  return sendEmail({
+    to,
+    subject: "Nexus email diagnostics test",
+    category: "admin_test",
+    organizationId,
+    userId,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
+        <h1 style="font-size: 22px;">Nexus email diagnostics</h1>
+        <p>The Cloudflare email transport accepted this admin test message.</p>
+      </div>
+    `,
+    text: "Nexus email diagnostics test. The Cloudflare email transport accepted this admin test message."
+  });
+}
+
+export async function sendScreeningInviteEmail(input: {
+  to: string;
+  applicantName: string;
+  propertyLabel: string;
+  screeningUrl: string;
+  organizationId?: string;
+  userId?: string;
+}) {
+  const canonicalUrl = assertCanonicalAppUrl(input.screeningUrl, "screening invitation URL");
+  const safeName = escapeHtml(input.applicantName);
+  const safeProperty = escapeHtml(input.propertyLabel);
+  const safeUrl = escapeHtml(canonicalUrl);
+
+  return sendEmail({
+    to: input.to,
+    subject: `Complete your screening for ${input.propertyLabel}`,
+    category: "screening_invite",
+    organizationId: input.organizationId,
+    userId: input.userId,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
+        <h1 style="font-size: 22px;">Complete your tenant screening</h1>
+        <p>Hi ${safeName},</p>
+        <p>The property manager requested screening for ${safeProperty}. Open the secure Nexus portal to review the disclosure and voluntarily connect a bank account through Plaid.</p>
+        <p>Nexus provides screening information to the landlord but does not make the rental decision.</p>
+        <p><a href="${safeUrl}" style="display:inline-block;border-radius:8px;background:#0d8f7b;color:#fff;padding:12px 18px;text-decoration:none;font-weight:700;">Open screening portal</a></p>
+        <p style="font-size:12px;color:#5f6b7d;">${safeUrl}</p>
+      </div>
+    `,
+    text: `Hi ${input.applicantName},\n\nComplete the requested screening for ${input.propertyLabel} in the secure Nexus portal:\n\n${canonicalUrl}\n\nNexus provides decision support only. The landlord makes the final rental decision.`
   });
 }

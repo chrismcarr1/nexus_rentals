@@ -3,6 +3,7 @@ import { z } from "zod";
 import { DEFAULT_RENT_DUE_TIME } from "@/lib/app-time";
 import { createConnectedLease, toSafeLeaseRow } from "@/lib/lease-connections";
 import { getCurrentUser } from "@/lib/auth";
+import { isAllowedSubmittedAssetPath } from "@/lib/file-security";
 import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
 import { readStore, UserRole } from "@/lib/store";
 
@@ -15,7 +16,8 @@ const createLeaseSchema = z.object({
   monthlyRent: z.coerce.number().min(0).optional(),
   dueDay: z.coerce.number().min(1).max(28).optional(),
   rentDueTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().default(DEFAULT_RENT_DUE_TIME),
-  securityDeposit: z.coerce.number().min(0).optional()
+  securityDeposit: z.coerce.number().min(0).optional(),
+  documentPath: z.string().max(2048).optional().or(z.literal(""))
 });
 
 export async function POST(request: Request) {
@@ -31,6 +33,10 @@ export async function POST(request: Request) {
   }
 
   try {
+    const documentPath = result.data.documentPath || undefined;
+    if (documentPath && !isAllowedSubmittedAssetPath(documentPath, user)) {
+      return Response.json({ error: "The uploaded lease agreement is invalid. Upload it again and retry." }, { status: 400 });
+    }
     const lease = await createConnectedLease({
       manager: user,
       propertyId: result.data.propertyId,
@@ -41,7 +47,8 @@ export async function POST(request: Request) {
       monthlyRent: result.data.monthlyRent,
       dueDay: result.data.dueDay,
       rentDueTime: result.data.rentDueTime,
-      securityDeposit: result.data.securityDeposit
+      securityDeposit: result.data.securityDeposit,
+      documentPath
     });
     await ensureScheduledLeasePayments(user.organizationId);
     const store = await readStore();

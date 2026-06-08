@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { FileText } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ type InviteDetails = {
     endDate: string | null;
     monthlyRent: number | null;
     securityDeposit: number | null;
+    documentPath: string | null;
   };
 };
 
@@ -87,6 +89,22 @@ export function InviteAcceptance({
         <p><span className="font-semibold">Rent:</span> {formatCurrency(invite.lease.monthlyRent)} / <span className="font-semibold">Deposit:</span> {formatCurrency(invite.lease.securityDeposit)}</p>
         <p><span className="font-semibold">Expires:</span> {formatDate(invite.expiresAt)}</p>
       </div>
+      {invite.lease.documentPath ? (
+        <a
+          href={invite.lease.documentPath}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-4 flex items-center gap-3 rounded-md border border-[var(--line)] bg-white p-4 text-sm font-semibold text-[var(--text)] transition hover:bg-[var(--surface)]"
+        >
+          <span className="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--accent-soft)] text-[var(--brand)]">
+            <FileText className="h-4 w-4" />
+          </span>
+          <span>
+            <span className="block">Review lease agreement</span>
+            <span className="mt-0.5 block text-xs font-medium text-[var(--brand)]">Open attached document</span>
+          </span>
+        </a>
+      ) : null}
 
       {!userEmail ? (
         <div className="mt-6 flex flex-wrap gap-3">

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("../lib/platform-events", () => ({
+  recordPlatformEvent: vi.fn(async () => null)
+}));
 
 const EMAIL_ENV_KEYS = [
   "APP_URL",

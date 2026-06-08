@@ -69,6 +69,105 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function TenantLeaseDocuments({
+  documents
+}: {
+  documents: Array<{ id: string; label?: string | null; kind: string; path: string }>;
+}) {
+  return (
+    <Card className="p-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="section-kicker">Documents</p>
+          <h2 className="mt-2 text-2xl font-semibold text-[var(--text)]">Lease files</h2>
+        </div>
+        <p className="text-sm text-[var(--muted)]">{documents.length} available</p>
+      </div>
+      {documents.length ? (
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {documents.map((file) => (
+            <a
+              key={file.id}
+              href={file.path}
+              target="_blank"
+              rel="noreferrer"
+              className="flex min-w-0 items-center gap-3 rounded-md border border-[var(--line)] bg-[var(--surface)] p-4 transition hover:bg-[var(--surface-hover)]"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[rgba(13,143,123,0.18)] bg-white text-[var(--brand)]">
+                <FileText className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-[var(--text)]">{file.label || file.kind}</span>
+                <span className="mt-1 block text-xs font-medium text-[var(--brand)]">Open document</span>
+              </span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-5">
+          <EmptyState title="No lease documents uploaded" description="Your manager can attach the lease agreement without changing your account connection." />
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function TenantLeaseHistory({
+  leases,
+  properties,
+  units
+}: {
+  leases: Array<{
+    id: string;
+    propertyId?: string;
+    unitId?: string;
+    status: string;
+    startDate?: string;
+    endDate?: string;
+    documentPath?: string;
+  }>;
+  properties: Array<{ id: string; name: string }>;
+  units: Array<{ id: string; unitNumber: string }>;
+}) {
+  if (!leases.length) return null;
+
+  return (
+    <Card className="p-5">
+      <p className="section-kicker">Lease history</p>
+      <h2 className="mt-2 text-2xl font-semibold text-[var(--text)]">Current and previous agreements</h2>
+      <div className="mt-5 divide-y divide-[var(--line)]">
+        {leases.map((lease) => {
+          const unit = units.find((item) => item.id === lease.unitId);
+          const property = properties.find((item) => item.id === lease.propertyId);
+          const safeDocumentPath = isAllowedStoredAssetPath(lease.documentPath, { allowDemo: true }) ? lease.documentPath : null;
+
+          return (
+            <div key={lease.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-semibold">
+                  {property?.name ?? "Property"}
+                  {unit?.unitNumber ? ` Unit ${unit.unitNumber}` : ""}
+                </p>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {formatDateOrUnset(lease.startDate)} to {formatDateOrUnset(lease.endDate)}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <Badge tone={leaseStatusTone(lease.status)}>{lease.status}</Badge>
+                {safeDocumentPath ? (
+                  <a href={safeDocumentPath} target="_blank" rel="noreferrer" className="text-sm font-semibold text-[var(--brand)]">
+                    View agreement
+                  </a>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 export default async function LeasesPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireUser();
   const portal = await getPortalContext(user);
@@ -78,23 +177,42 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
     const currentManager = portal.currentLease?.managerUserId
       ? portal.managers.find((manager) => manager.id === portal.currentLease?.managerUserId) ?? null
       : null;
-    const leaseDocuments = portal.currentLease?.documentPath && isAllowedStoredAssetPath(portal.currentLease.documentPath, { allowDemo: true })
-      ? [
-          {
-            id: `${portal.currentLease.id}-agreement`,
-            label: "Lease agreement",
-            kind: "LEASE_DOCUMENT",
-            path: portal.currentLease.documentPath
-          }
-        ]
-      : [];
-    const documents = [...leaseDocuments, ...portal.documents].filter((file) => isAllowedStoredAssetPath(file.path, { allowDemo: true }));
+    const tenantLeases = [...portal.scope.leases].sort((a, b) => (b.endDate ?? b.createdAt).localeCompare(a.endDate ?? a.createdAt));
+    const leaseDocuments = tenantLeases.flatMap((lease) => {
+      if (!lease.documentPath || !isAllowedStoredAssetPath(lease.documentPath, { allowDemo: true })) return [];
+      const unit = portal.scope.units.find((item) => item.id === lease.unitId);
+      const property = portal.scope.properties.find((item) => item.id === (lease.propertyId ?? unit?.propertyId));
+      return [{
+        id: `${lease.id}-agreement`,
+        label: `Lease agreement - ${property?.name ?? "Property"}${unit?.unitNumber ? ` Unit ${unit.unitNumber}` : ""}`,
+        kind: "LEASE_DOCUMENT",
+        path: lease.documentPath
+      }];
+    });
+    const documents = Array.from(
+      new Map(
+        [...leaseDocuments, ...portal.documents]
+          .filter((file) => isAllowedStoredAssetPath(file.path, { allowDemo: true }))
+          .map((file) => [file.path, file])
+      ).values()
+    );
     const leaseDaysRemaining = daysUntil(portal.currentLease?.endDate);
 
     return (
       <div className="space-y-4">
         {!portal.currentLease || !portal.currentProperty ? (
-          <EmptyState title="No active lease connected yet" description="Open your manager's invite link and accept it with this tenant account to connect your lease." />
+          <>
+            <EmptyState
+              title={tenantLeases.length ? "No current active lease" : "No lease connected yet"}
+              description={
+                tenantLeases.length
+                  ? "Previous lease agreements remain available below. Your manager can send a new invite for another tenancy."
+                  : "Open your manager's invite link and accept it with this tenant account to connect your lease."
+              }
+            />
+            <TenantLeaseHistory leases={tenantLeases} properties={portal.scope.properties} units={portal.scope.units} />
+            <TenantLeaseDocuments documents={documents} />
+          </>
         ) : (
           <>
             <Card className="overflow-hidden">
@@ -172,40 +290,8 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
               </Card>
             </div>
 
-            <Card className="p-5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="section-kicker">Documents</p>
-                  <h2 className="mt-2 text-2xl font-semibold text-[var(--text)]">Lease files</h2>
-                </div>
-                <p className="text-sm text-[var(--muted)]">{documents.length} available</p>
-              </div>
-              {documents.length ? (
-                <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {documents.map((file) => (
-                    <a
-                      key={file.id}
-                      href={file.path}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex min-w-0 items-center gap-3 rounded-md border border-[var(--line)] bg-[var(--surface)] p-4 transition hover:bg-[var(--surface-hover)]"
-                    >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[rgba(13,143,123,0.18)] bg-white text-[var(--brand)]">
-                        <FileText className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-[var(--text)]">{file.label || file.kind}</span>
-                        <span className="mt-1 block text-xs font-medium text-[var(--brand)]">Open document</span>
-                      </span>
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-5">
-                  <EmptyState title="No lease documents uploaded" description="Documents can be added later by management without changing the resident experience." />
-                </div>
-              )}
-            </Card>
+            <TenantLeaseHistory leases={tenantLeases} properties={portal.scope.properties} units={portal.scope.units} />
+            <TenantLeaseDocuments documents={documents} />
           </>
         )}
       </div>
@@ -213,6 +299,12 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
   }
 
   const initialLeases = await getManagerLeaseRows(user);
+  const blockingStatuses = new Set(["ACTIVE", "UPCOMING", "active", "invited", "draft"]);
+  const availableUnits = portal.scope.units.filter(
+    (unit) =>
+      ["VACANT", "TURNOVER"].includes(unit.occupancyStatus) &&
+      !portal.scope.leases.some((lease) => lease.unitId === unit.id && blockingStatuses.has(lease.status))
+  );
 
   return (
     <div className="space-y-4">
@@ -233,7 +325,7 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
           country: property.country,
           formattedAddress: formatAddress(property)
         }))}
-        units={portal.scope.units.map((unit) => ({
+        units={availableUnits.map((unit) => ({
           id: unit.id,
           propertyId: unit.propertyId,
           unitNumber: unit.unitNumber

@@ -97,6 +97,23 @@ APP_URL="http://localhost:3000"
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=""
 STRIPE_SECRET_KEY=""
 STRIPE_WEBHOOK_SECRET=""
+CHECKR_API_KEY=""
+CHECKR_PACKAGE_SLUG=""
+CHECKR_WEBHOOK_SECRET=""
+CHECKR_MOCK_MODE="true"
+PLAID_CLIENT_ID=""
+PLAID_SECRET=""
+PLAID_PUBLIC_KEY=""
+PLAID_ENV="sandbox"
+PLAID_WEBHOOK_SECRET=""
+PLAID_MOCK_MODE="true"
+NEXT_PUBLIC_PLAID_ENV="sandbox"
+SCREENING_ENCRYPTION_KEY=""
+SCREENING_APPROVED_MAX_RISK="25"
+SCREENING_HIGH_RISK_MIN="61"
+SCREENING_STRONG_INCOME_RATIO="3"
+SCREENING_REVIEW_INCOME_RATIO="2.5"
+SCREENING_MINIMUM_INCOME_RATIO="2"
 OPENAI_API_KEY=""
 OPENAI_MAINTENANCE_MODEL="gpt-5.5"
 BLOB_READ_WRITE_TOKEN=""
@@ -116,6 +133,16 @@ For the Worker option, copy `cloudflare/wrangler.email-worker.toml.example` to y
 Run `npm run email:check` to verify local email environment variables and Worker DNS without printing secrets. Logged-in managers and admins can also inspect `/api/email/diagnostics`; add `?probe=1` to test the Worker health endpoint after deploying the Nexus Worker code.
 
 Stripe rent checkout uses Connect destination charges. Tenant payments are created from the Nexus platform account, routed to the manager's connected Stripe account with `transfer_data.destination`, and include a fixed $1 Nexus platform fee through `application_fee_amount`.
+
+### Tenant screening
+
+Application submissions now have an optional screening workflow backed by relational Postgres tables. Managers can start a Checkr hosted candidate invitation or a full Checkr + Plaid screening from the submission review page. Applicants use a short-lived secure Nexus portal link to consent to Plaid identity and income verification. Nexus stores normalized provider results, encrypted Plaid tokens, webhook events, and a configurable decision-support recommendation; it never automatically approves or rejects an applicant.
+
+Run `npm run db:migrate` after deploying this version. Configure the Checkr webhook as `/api/webhooks/checkr` and the Plaid webhook as `/api/webhooks/plaid` on the canonical `APP_URL`. Plaid production webhooks use the official `Plaid-Verification` signed JWT. `PLAID_WEBHOOK_SECRET` is available only as a compatibility fallback for a trusted proxy or local test harness.
+
+For local demos, keep `CHECKR_MOCK_MODE=true` and `PLAID_MOCK_MODE=true`. Mock Checkr completes with a clear report, and mock Plaid returns matching identity plus sample verified income without making external API calls. Set both flags to `false` before using provider sandbox or production credentials.
+
+The screening recommendation uses only provider disposition, identity match, and income-to-rent inputs. Thresholds are intentionally conservative and the landlord remains responsible for lawful criteria, individualized assessment, FCRA notices, fair-housing compliance, and the final decision.
 
 AI photo maintenance drafting uses OpenAI's Responses API with image inputs. Add `OPENAI_API_KEY` locally and in Vercel; `OPENAI_MAINTENANCE_MODEL` is optional and defaults to `gpt-5.5`.
 
@@ -192,6 +219,21 @@ Required Vercel environment variable for AI photo maintenance drafting:
 
 ```text
 OPENAI_API_KEY
+```
+
+Required Vercel environment variables for live tenant screening:
+
+```text
+CHECKR_API_KEY
+CHECKR_PACKAGE_SLUG
+CHECKR_WEBHOOK_SECRET
+CHECKR_MOCK_MODE=false
+PLAID_CLIENT_ID
+PLAID_SECRET
+PLAID_ENV=production
+PLAID_MOCK_MODE=false
+NEXT_PUBLIC_PLAID_ENV=production
+SCREENING_ENCRYPTION_KEY
 ```
 
 Optional AI model override:
