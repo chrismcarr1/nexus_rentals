@@ -34,6 +34,7 @@ import { hashPassword, verifyPassword } from "@/lib/password";
 import { formatPhoneNumber } from "@/lib/phone";
 import { recordPlatformEvent } from "@/lib/platform-events";
 import { buildAppUrl, getAppBaseUrl } from "@/lib/request-origin";
+import { ensureApplicantPortalAccess } from "@/lib/screening/service";
 import { FileKind, UserRole, createId, nowIso, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
 import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe } from "@/lib/stripe";
 import { createStripeExpressAccount, getStripeAccountId, getStripeConnectRedirectStatus, isStripeConnectReady, syncStripeConnectedAccount } from "@/lib/stripe-connect";
@@ -918,6 +919,7 @@ export async function updateRentalApplicationPublicationAction(formData: FormDat
 export async function submitRentalApplicationAction(formData: FormData) {
   const publicSlug = getString(formData, "publicSlug");
   let redirectSlug = publicSlug;
+  let submittedId = "";
 
   try {
     await updateStore((store) => {
@@ -975,6 +977,7 @@ export async function submitRentalApplicationAction(formData: FormData) {
 
       const now = nowIso();
       const submissionId = createId("appsub");
+      submittedId = submissionId;
       const primaryApplicant = {
         id: createId("applicant"),
         submissionId,
@@ -1065,6 +1068,19 @@ export async function submitRentalApplicationAction(formData: FormData) {
   }
 
   revalidatePath("/applications");
+  if (submittedId) {
+    let screeningAccessPath = "";
+    try {
+      const access = await ensureApplicantPortalAccess(submittedId);
+      screeningAccessPath = access.path;
+    } catch (error) {
+      console.warn("[screening] Application was submitted, but the screening portal could not be provisioned.", {
+        submissionId: submittedId,
+        error: error instanceof Error ? error.message : "Unknown screening portal error"
+      });
+    }
+    if (screeningAccessPath) redirect(screeningAccessPath);
+  }
   redirect(`/apply/${encodeURIComponent(redirectSlug)}?submitted=1`);
 }
 

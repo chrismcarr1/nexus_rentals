@@ -28,7 +28,7 @@ type OutboundEmailInput = {
   subject: string;
   html: string;
   text: string;
-  category: "password_reset" | "tenant_invite" | "move_in_invite" | "admin_test";
+  category: "password_reset" | "tenant_invite" | "move_in_invite" | "screening_invite" | "admin_test";
   organizationId?: string;
   userId?: string;
 };
@@ -516,5 +516,38 @@ export async function sendAdminTestEmail(to: string, organizationId?: string, us
       </div>
     `,
     text: "Nexus email diagnostics test. The Cloudflare email transport accepted this admin test message."
+  });
+}
+
+export async function sendScreeningInviteEmail(input: {
+  to: string;
+  applicantName: string;
+  propertyLabel: string;
+  screeningUrl: string;
+  organizationId?: string;
+  userId?: string;
+}) {
+  const canonicalUrl = assertCanonicalAppUrl(input.screeningUrl, "screening invitation URL");
+  const safeName = escapeHtml(input.applicantName);
+  const safeProperty = escapeHtml(input.propertyLabel);
+  const safeUrl = escapeHtml(canonicalUrl);
+
+  return sendEmail({
+    to: input.to,
+    subject: `Complete your screening for ${input.propertyLabel}`,
+    category: "screening_invite",
+    organizationId: input.organizationId,
+    userId: input.userId,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
+        <h1 style="font-size: 22px;">Complete your tenant screening</h1>
+        <p>Hi ${safeName},</p>
+        <p>The property manager requested screening for ${safeProperty}. Open the secure Nexus portal to review the disclosure and voluntarily connect a bank account through Plaid.</p>
+        <p>Nexus provides screening information to the landlord but does not make the rental decision.</p>
+        <p><a href="${safeUrl}" style="display:inline-block;border-radius:8px;background:#0d8f7b;color:#fff;padding:12px 18px;text-decoration:none;font-weight:700;">Open screening portal</a></p>
+        <p style="font-size:12px;color:#5f6b7d;">${safeUrl}</p>
+      </div>
+    `,
+    text: `Hi ${input.applicantName},\n\nComplete the requested screening for ${input.propertyLabel} in the secure Nexus portal:\n\n${canonicalUrl}\n\nNexus provides decision support only. The landlord makes the final rental decision.`
   });
 }
