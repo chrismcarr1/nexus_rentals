@@ -743,6 +743,13 @@ export async function createUnitAction(formData: FormData) {
     redirect("/properties");
   }
 
+  const duplicate = portal.scope.units.some(
+    (u) => u.propertyId === parsed.propertyId && u.unitNumber.trim().toLowerCase() === parsed.unitNumber.trim().toLowerCase()
+  );
+  if (duplicate) {
+    redirect(`/properties/${parsed.propertyId}?error=duplicate-unit#add-unit`);
+  }
+
   const unit = await db.unit.create({
     data: {
       ...parsed,
@@ -2094,41 +2101,6 @@ export async function updateProfileAction(formData: FormData) {
 
   revalidatePath("/settings");
   redirect("/settings");
-}
-
-export async function payRentAction(formData: FormData) {
-  const user = await requireRoles([UserRole.TENANT]);
-  const paymentId = getString(formData, "paymentId");
-  const portal = await getPortalContext(user);
-
-  const payment = await db.payment.findFirst?.({ where: { id: paymentId } });
-  if (!payment || !portal.scope.payments.some((item: any) => item.id === paymentId)) {
-    redirect("/transactions");
-  }
-
-  await db.payment.update({
-    where: { id: paymentId },
-    data: {
-      status: "PAID",
-      ...(!payment.tenantId && portal.currentTenant?.id ? { tenantId: portal.currentTenant.id } : {}),
-      paidDate: new Date(),
-      balanceDue: 0
-    }
-  });
-
-  await db.notification.create({
-    data: {
-      organizationId: user.organizationId,
-      userId: user.id,
-      type: "RENT_DUE",
-      title: "Rent payment submitted",
-      body: "Your payment was marked as paid in the resident portal."
-    }
-  });
-
-  revalidatePath("/transactions");
-  revalidatePath("/dashboard");
-  redirect("/transactions");
 }
 
 export async function createStripeCheckoutAction(formData: FormData) {

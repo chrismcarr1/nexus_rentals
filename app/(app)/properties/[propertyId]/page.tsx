@@ -383,6 +383,11 @@ export default async function PropertyDetailPage({
 
         <div className="space-y-4">
           <DetailSection id="add-unit" title="Add unit" description="Create a unit under this property.">
+            {query.error === "duplicate-unit" ? (
+              <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                A unit with that number already exists in this property. Use a different unit number.
+              </div>
+            ) : null}
             <form action={createUnitAction} className="space-y-4">
               <input type="hidden" name="propertyId" value={property.id} />
               <div className="form-grid-2">
