@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireSystemAdmin } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { sendAdminTestEmail } from "@/lib/email";
 import { syncStripeConnectedAccount } from "@/lib/stripe-connect";
 import { getUserById } from "@/lib/store";
@@ -27,6 +28,40 @@ export async function sendAdminTestEmailAction() {
 
   revalidatePath("/admin/email");
   redirect("/admin/email?test=sent");
+}
+
+export async function resetManagerStripeConnectAction(formData: FormData) {
+  await requireSystemAdmin();
+  const managerId = String(formData.get("managerId") ?? "");
+  const manager = managerId ? await getUserById(managerId) : null;
+
+  if (!manager || manager.role === "TENANT") {
+    redirect("/admin/stripe?reset=invalid");
+  }
+
+  console.log("[admin] Resetting Stripe Connect for manager", { managerId: manager.id, email: manager.email });
+
+  await db.user.update({
+    where: { id: manager.id },
+    data: {
+      stripeAccountId: undefined,
+      stripeConnectedAccountId: undefined,
+      stripeChargesEnabled: false,
+      stripePayoutsEnabled: false,
+      stripeDetailsSubmitted: false,
+      stripeOnboardingComplete: false,
+      stripeDisabledReason: undefined,
+      stripeCurrentlyDue: [],
+      stripeEventuallyDue: [],
+      stripeUpdatedAt: undefined
+    }
+  });
+
+  console.log("[admin] Stripe Connect reset complete", { managerId: manager.id, email: manager.email });
+
+  revalidatePath("/admin/stripe");
+  revalidatePath("/settings");
+  redirect(`/admin/stripe?reset=success&resetManager=${encodeURIComponent(manager.email)}`);
 }
 
 export async function refreshManagerStripeAction(formData: FormData) {

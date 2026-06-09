@@ -4,7 +4,8 @@ import {
   ExternalLink,
   MailCheck,
   RefreshCw,
-  ShieldAlert
+  ShieldAlert,
+  XCircle
 } from "lucide-react";
 
 import { AdminAnalyticsChart } from "@/components/admin/admin-analytics-chart";
@@ -18,7 +19,7 @@ import { AdminStatGrid } from "@/components/admin/admin-stat-grid";
 import { AdminStatusBadge } from "@/components/admin/admin-status-badge";
 import { CopyRecordIdButton } from "@/components/admin/copy-record-id-button";
 import { EmptyState } from "@/components/empty-state";
-import { sendAdminTestEmailAction, refreshManagerStripeAction } from "@/lib/admin-actions";
+import { sendAdminTestEmailAction, refreshManagerStripeAction, resetManagerStripeConnectAction } from "@/lib/admin-actions";
 import type { AdminAnalytics } from "@/lib/admin-analytics";
 import { formatAppDate, formatAppDateTime } from "@/lib/app-time";
 import type { EmailWorkerProbeResult } from "@/lib/email";
@@ -412,6 +413,8 @@ export function AdminSectionView({
   if (section === "stripe") {
     const refreshStatus = typeof params.refresh === "string" ? params.refresh : null;
     const refreshMessage = typeof params.message === "string" ? params.message : null;
+    const resetStatus = typeof params.reset === "string" ? params.reset : null;
+    const resetManagerEmail = typeof params.resetManager === "string" ? params.resetManager : null;
     return (
       <div className="space-y-5">
         <AdminPageHeader
@@ -422,6 +425,13 @@ export function AdminSectionView({
         {refreshStatus ? (
           <div className={refreshStatus === "success" ? "border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" : "border border-red-200 bg-red-50 p-3 text-sm text-red-800"}>
             {refreshStatus === "success" ? "Manager Stripe status refreshed." : refreshMessage ?? "Stripe status could not be refreshed."}
+          </div>
+        ) : null}
+        {resetStatus ? (
+          <div className={resetStatus === "success" ? "border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800" : "border border-red-200 bg-red-50 p-3 text-sm text-red-800"}>
+            {resetStatus === "success"
+              ? `Stripe Connect cleared for ${resetManagerEmail}. The manager can now reconnect from Settings.`
+              : "Could not reset Stripe Connect. Manager not found or account type is invalid."}
           </div>
         ) : null}
         <AdminStatGrid>
@@ -451,13 +461,22 @@ export function AdminSectionView({
                 <td className="table-cell text-[var(--muted)]">{formatDateTime(row.updatedAt)}</td>
                 <td className="table-cell">
                   {row.accountId ? (
-                    <form action={refreshManagerStripeAction}>
-                      <input type="hidden" name="managerId" value={row.id} />
-                      <button type="submit" className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--brand)]">
-                        <RefreshCw className="h-3.5 w-3.5" />
-                        Refresh
-                      </button>
-                    </form>
+                    <div className="flex flex-col gap-1.5">
+                      <form action={refreshManagerStripeAction}>
+                        <input type="hidden" name="managerId" value={row.id} />
+                        <button type="submit" className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--brand)]">
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          Refresh
+                        </button>
+                      </form>
+                      <form action={resetManagerStripeConnectAction}>
+                        <input type="hidden" name="managerId" value={row.id} />
+                        <button type="submit" className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-600 hover:text-amber-800">
+                          <XCircle className="h-3.5 w-3.5" />
+                          Reset
+                        </button>
+                      </form>
+                    </div>
                   ) : <span className="text-xs text-[var(--muted)]">No account</span>}
                 </td>
               </tr>
