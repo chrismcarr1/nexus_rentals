@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { requireSystemAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sendAdminTestEmail } from "@/lib/email";
-import { syncStripeConnectedAccount } from "@/lib/stripe-connect";
+import { syncManagerConnectedAccount } from "@/lib/stripe-connect";
 import { getUserById } from "@/lib/store";
 
 export async function sendAdminTestEmailAction() {
@@ -53,6 +53,7 @@ export async function resetManagerStripeConnectAction(formData: FormData) {
       stripeDisabledReason: undefined,
       stripeCurrentlyDue: [],
       stripeEventuallyDue: [],
+      stripePastDue: [],
       stripeUpdatedAt: undefined
     }
   });
@@ -74,7 +75,7 @@ export async function refreshManagerStripeAction(formData: FormData) {
   }
 
   try {
-    await syncStripeConnectedAccount(manager);
+    await syncManagerConnectedAccount(manager);
   } catch (error) {
     redirect(
       `/admin/stripe?refresh=failed&message=${encodeURIComponent(

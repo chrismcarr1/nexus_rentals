@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireRoles } from "@/lib/auth";
 import { recordPlatformEvent } from "@/lib/platform-events";
 import { UserRole } from "@/lib/store";
-import { getStripeAccountId, getStripeConnectRedirectStatus, syncStripeConnectedAccount } from "@/lib/stripe-connect";
+import { getStripeAccountId, getStripeConnectRedirectStatus, syncManagerConnectedAccount } from "@/lib/stripe-connect";
 
 export const runtime = "nodejs";
 
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
   try {
     if (accountId) {
-      const updatedUser = await syncStripeConnectedAccount(user);
+      const updatedUser = await syncManagerConnectedAccount(user);
       status = getStripeConnectRedirectStatus(updatedUser);
       if (status === "connect-ready") {
         await recordPlatformEvent({

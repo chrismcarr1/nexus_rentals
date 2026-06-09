@@ -2,27 +2,26 @@ import "server-only";
 
 import Stripe from "stripe";
 
-export const NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS = 100;
-
 let stripeClient: Stripe | null = null;
 
 export function getStripe() {
   const secretKey = process.env.STRIPE_SECRET_KEY;
-
-  if (!secretKey) {
-    throw new Error("Missing STRIPE_SECRET_KEY.");
+  if (!secretKey) throw new Error("Missing STRIPE_SECRET_KEY.");
+  if (!stripeClient) {
+    console.log("[stripe] Initializing Stripe client", { mode: secretKey.startsWith("sk_live") ? "live" : "test" });
+    stripeClient = new Stripe(secretKey);
   }
-
-  stripeClient ??= new Stripe(secretKey);
   return stripeClient;
 }
 
 export function getStripeWebhookSecret() {
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) throw new Error("Missing STRIPE_WEBHOOK_SECRET.");
+  return secret;
+}
 
-  if (!webhookSecret) {
-    throw new Error("Missing STRIPE_WEBHOOK_SECRET.");
-  }
-
-  return webhookSecret;
+// Platform fee charged to the tenant on top of rent. Landlord receives the full rent amount.
+export function getPlatformFeeCents(): number {
+  const val = Number(process.env.NEXUS_PLATFORM_FEE_CENTS ?? "100");
+  return Number.isFinite(val) && val >= 0 ? Math.round(val) : 100;
 }

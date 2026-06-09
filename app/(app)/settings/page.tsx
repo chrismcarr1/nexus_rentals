@@ -18,7 +18,7 @@ import {
 import { formatAddress, parseAddressText } from "@/lib/address";
 import { requireUser } from "@/lib/auth";
 import { getAppBaseUrl } from "@/lib/request-origin";
-import { getStripeAccountId, getStripeConnectRedirectStatus, getStripeConnectState, syncStripeConnectedAccount } from "@/lib/stripe-connect";
+import { getStripeAccountId, getStripeConnectRedirectStatus, getStripeConnectState, syncManagerConnectedAccount } from "@/lib/stripe-connect";
 import { getPortalContext } from "@/services/portal";
 
 function stripeSettingsMessage(status?: string) {
@@ -32,6 +32,7 @@ function stripeSettingsMessage(status?: string) {
   if (status === "connect-refreshed") return "Stripe payout status was refreshed.";
   if (status === "connect-not-enabled") return "This Stripe account has not been enabled for Connect yet. Sign up for Connect in Stripe, then try payout setup again.";
   if (status === "connect-error") return "Stripe payout setup could not be opened or refreshed. Check your Stripe keys and try again.";
+  if (status === "reconnect-required") return "Your previous Stripe account is no longer accessible (possibly a test/live mode mismatch). Click 'Set up Stripe payouts' to reconnect.";
   return null;
 }
 
@@ -44,7 +45,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
 
   if (user.role !== "TENANT" && params.stripe === "connect-return") {
     try {
-      stripeUser = await syncStripeConnectedAccount(user);
+      stripeUser = await syncManagerConnectedAccount(user);
       stripeStatus = getStripeConnectRedirectStatus(stripeUser);
     } catch (error) {
       console.error("[stripe] Failed to refresh Connect status after settings return", error);

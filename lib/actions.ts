@@ -36,8 +36,8 @@ import { recordPlatformEvent } from "@/lib/platform-events";
 import { buildAppUrl, getAppBaseUrl } from "@/lib/request-origin";
 import { ensureApplicantPortalAccess } from "@/lib/screening/service";
 import { FileKind, UserRole, createId, nowIso, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
-import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe } from "@/lib/stripe";
-import { createStripeExpressAccount, getStripeAccountId, getStripeConnectRedirectStatus, isStripeConnectReady, syncStripeConnectedAccount } from "@/lib/stripe-connect";
+import { getPlatformFeeCents, getStripe } from "@/lib/stripe";
+import { clearManagerStripeConnection, createManagerConnectedAccount, createManagerDashboardLoginLink, createManagerOnboardingLink, getStripeAccountId, getStripeConnectRedirectStatus, isStripeConnectReady, syncManagerConnectedAccount } from "@/lib/stripe-connect";
 import { sendLeaseTenantInvite } from "@/lib/tenant-invite-delivery";
 import {
   damageAssessmentSchema,
@@ -202,54 +202,96 @@ function getTenantUserForPayment(
 }
 
 function isStripeConnectSignupError(error: unknown) {
-  return error instanceof Error && error.message.includes("signed up for Connect");
+  if (!(error instanceof Error)) return false;
+  const e = error as any;
+  const msg = e.message?.toLowerCase() ?? "";
+  const code = e.code ?? "";
+  return (
+    msg.includes("signed up for connect") ||
+    msg.includes("connect is not enabled") ||
+    msg.includes("haven't enabled") ||
+    msg.includes("enable connect") ||
+    msg.includes("platform profile") ||
+    msg.includes("platform cannot") ||
+    msg.includes("not enabled for connect") ||
+    code === "account_invalid" ||
+    code === "platform_not_approved"
+  );
+}
+
+function isStripeNoSuchAccountError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const e = error as any;
+  return e.statusCode === 404 || e.code === "resource_missing" || e.message.toLowerCase().includes("no such account");
 }
 
 export async function connectStripeAccountAction() {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
-  const appUrl = getAppBaseUrl();
   let accountId = getStripeAccountId(user);
-  let accountLinkUrl: string | null = null;
+  let redirectUrl: string | null = null;
 
   try {
+    const appUrl = getAppBaseUrl();
+
     if (accountId) {
-      console.log("[stripe-connect] Reusing existing connected account for onboarding link", { userId: user.id, accountId });
-      await syncStripeConnectedAccount(user);
+      try {
+        const updatedUser = await syncManagerConnectedAccount(user);
+        const hasRequirements =
+          (updatedUser?.stripeCurrentlyDue?.length ?? 0) > 0 ||
+          (updatedUser?.stripePastDue?.length ?? 0) > 0;
+
+        if (!hasRequirements && updatedUser?.stripeDetailsSubmitted) {
+          // Onboarding complete, no outstanding requirements → Express Dashboard.
+          redirectUrl = await createManagerDashboardLoginLink(accountId);
+        } else if (updatedUser?.stripeDetailsSubmitted) {
+          // Details submitted but requirements still outstanding → account_update link.
+          redirectUrl = await createManagerOnboardingLink(accountId, appUrl, "account_update");
+        }
+        // else details_submitted = false → fall through to account_onboarding below.
+      } catch (syncError) {
+        if (isStripeNoSuchAccountError(syncError)) {
+          console.log("[stripe-connect] Stale account cleared; creating fresh Express account", { userId: user.id, staleId: accountId });
+          await clearManagerStripeConnection(user.id);
+          const fresh = await createManagerConnectedAccount(user);
+          accountId = fresh.id;
+        } else {
+          throw syncError;
+        }
+      }
     } else {
-      const account = await createStripeExpressAccount(user);
+      const account = await createManagerConnectedAccount(user);
       accountId = account.id;
     }
 
-    const accountLink = await getStripe().accountLinks.create({
-      account: accountId,
-      refresh_url: `${appUrl}/settings?stripe=connect-refresh#payments-stripe`,
-      return_url: `${appUrl}/api/stripe/connect/return`,
-      type: "account_onboarding"
-    });
-    await recordPlatformEvent({
-      type: "STRIPE_SETUP_STARTED",
-      category: "connect_onboarding",
-      status: "info",
-      organizationId: user.organizationId,
-      userId: user.id,
-      relatedId: accountId,
-      message: "Stripe Connect onboarding link created."
-    });
-    console.log("[stripe-connect] Created onboarding account link", { userId: user.id, accountId });
-    accountLinkUrl = accountLink.url;
+    if (!redirectUrl) {
+      redirectUrl = await createManagerOnboardingLink(accountId!, appUrl, "account_onboarding");
+      await recordPlatformEvent({
+        type: "STRIPE_SETUP_STARTED",
+        category: "connect_onboarding",
+        status: "info",
+        organizationId: user.organizationId,
+        userId: user.id,
+        relatedId: accountId,
+        message: "Stripe Connect onboarding link created."
+      });
+    }
   } catch (error) {
-    console.error("[stripe] Failed to start manager Connect onboarding", error);
+    const e = error as any;
+    console.error("[stripe] Failed to start manager Connect onboarding", {
+      userId: user.id,
+      message: e?.message,
+      type: e?.type,
+      code: e?.code,
+      statusCode: e?.statusCode
+    });
     if (isStripeConnectSignupError(error)) {
       redirect("/settings?stripe=connect-not-enabled#payments-stripe");
     }
     redirect("/settings?stripe=connect-error#payments-stripe");
   }
 
-  if (!accountLinkUrl) {
-    redirect("/settings?stripe=connect-error#payments-stripe");
-  }
-
-  redirect(accountLinkUrl);
+  if (!redirectUrl) redirect("/settings?stripe=connect-error#payments-stripe");
+  redirect(redirectUrl);
 }
 
 export async function refreshStripeConnectStatusAction() {
@@ -260,7 +302,7 @@ export async function refreshStripeConnectStatusAction() {
     if (!getStripeAccountId(user)) {
       status = "connect-required";
     } else {
-      const updatedUser = await syncStripeConnectedAccount(user);
+      const updatedUser = await syncManagerConnectedAccount(user);
       status = getStripeConnectRedirectStatus(updatedUser);
     }
   } catch (error) {
@@ -275,28 +317,29 @@ export async function refreshStripeConnectStatusAction() {
 
 export async function openStripeDashboardAction() {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
-  let loginUrl: string | null = null;
   const accountId = getStripeAccountId(user);
+  let loginUrl: string | null = null;
 
   if (!accountId) {
     redirect("/settings?stripe=connect-required#payments-stripe");
   }
 
   try {
-    await syncStripeConnectedAccount(user);
-    const loginLink = await getStripe().accounts.createLoginLink(accountId);
-    loginUrl = loginLink.url;
+    await syncManagerConnectedAccount(user);
+    loginUrl = await createManagerDashboardLoginLink(accountId);
   } catch (error) {
     console.error("[stripe] Failed to open manager Stripe dashboard", error);
+    if (isStripeNoSuchAccountError(error)) {
+      await clearManagerStripeConnection(user.id);
+      redirect("/settings?stripe=reconnect-required#payments-stripe");
+    }
     redirect("/settings?stripe=connect-error#payments-stripe");
   }
 
-  if (!loginUrl) {
-    redirect("/settings?stripe=connect-error#payments-stripe");
-  }
-
+  if (!loginUrl) redirect("/settings?stripe=connect-error#payments-stripe");
   redirect(loginUrl);
 }
+
 
 export async function signupAction(formData: FormData) {
   const mailingAddressResult = validateOptionalAddress(readAddressFormData(formData, MAILING_ADDRESS_FORM_FIELDS, "mailingAddress"));
@@ -2132,7 +2175,7 @@ export async function createStripeCheckoutAction(formData: FormData) {
 
   const manager = getLeaseManager(portal, lease, payment);
   let connectedManager = manager;
-  const applicationFeeAmountCents = NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS;
+  const applicationFeeAmountCents = getPlatformFeeCents();
 
   if (!manager) {
     redirect(`/transactions?stripe=manager-missing&payment=${encodeURIComponent(payment.id)}`);
@@ -2142,7 +2185,7 @@ export async function createStripeCheckoutAction(formData: FormData) {
   }
 
   try {
-    connectedManager = await syncStripeConnectedAccount(manager);
+    connectedManager = await syncManagerConnectedAccount(manager);
   } catch (error) {
     console.error("[stripe] Failed to verify manager Connect account before checkout", error);
     redirect(`/transactions?stripe=manager-setup-required&payment=${encodeURIComponent(payment.id)}`);
@@ -2183,6 +2226,10 @@ export async function createStripeCheckoutAction(formData: FormData) {
     });
   }
 
+  // Tenant is charged rent + platform fee. Landlord receives the full rent amount.
+  // application_fee_amount is collected by Nexus; transfer_data.destination receives (total - fee) = rent.
+  const totalAmountCents = amountCents + applicationFeeAmountCents;
+
   const metadata = {
     source: "nexus_rent_payment",
     organizationId: user.organizationId,
@@ -2195,18 +2242,15 @@ export async function createStripeCheckoutAction(formData: FormData) {
     leaseId: leaseId ?? "",
     unitId: payment.unitId,
     paymentMonth,
-    amountCents: String(amountCents)
+    amountCents: String(totalAmountCents)
   };
 
   let sessionUrl: string | null = null;
-  const paymentIntentData: any = { metadata };
-
-  if (stripeDestinationAccountId) {
-    paymentIntentData.application_fee_amount = applicationFeeAmountCents;
-    paymentIntentData.transfer_data = {
-      destination: stripeDestinationAccountId
-    };
-  }
+  const paymentIntentData: any = {
+    metadata,
+    application_fee_amount: applicationFeeAmountCents,
+    transfer_data: { destination: stripeDestinationAccountId }
+  };
 
   try {
     const session = await getStripe().checkout.sessions.create({
@@ -2218,7 +2262,7 @@ export async function createStripeCheckoutAction(formData: FormData) {
           quantity: 1,
           price_data: {
             currency: "usd",
-            unit_amount: amountCents,
+            unit_amount: totalAmountCents,
             product_data: {
               name: payment.description || `Rent payment ${paymentMonth}`,
               description: `Rent for unit ${payment.unitId} (${paymentMonth})`
