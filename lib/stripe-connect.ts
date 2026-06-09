@@ -19,6 +19,7 @@ type StripeConnectUser = Pick<
   | "stripeDisabledReason"
   | "stripeCurrentlyDue"
   | "stripeEventuallyDue"
+  | "stripePastDue"
 >;
 
 export function getStripeAccountId(user?: Pick<User, "stripeAccountId" | "stripeConnectedAccountId"> | null) {
@@ -55,7 +56,9 @@ export function getStripeConnectState(user?: StripeConnectUser | null) {
     return {
       key: "pending_review" as const,
       label: "Submitted, pending Stripe review",
-      detail: user.stripeDisabledReason ? `Stripe review status: ${user.stripeDisabledReason}` : "Stripe has the submitted details and has not enabled payouts yet.",
+      detail: user.stripeDisabledReason
+        ? `Stripe review status: ${user.stripeDisabledReason}`
+        : "Stripe has the submitted details and has not enabled payouts yet.",
       actionLabel: "Continue Stripe setup",
       ready: false,
       tone: "warning" as const
@@ -79,8 +82,8 @@ export function getStripeConnectRedirectStatus(user?: StripeConnectUser | null) 
   return "connect-required";
 }
 
-function getStripeAccountStatus(account: Stripe.Account) {
-  const requirements = account.requirements;
+function buildAccountStatus(account: Stripe.Account) {
+  const req = account.requirements;
   return {
     stripeAccountId: account.id,
     stripeConnectedAccountId: account.id,
@@ -88,93 +91,114 @@ function getStripeAccountStatus(account: Stripe.Account) {
     stripePayoutsEnabled: Boolean(account.payouts_enabled),
     stripeDetailsSubmitted: Boolean(account.details_submitted),
     stripeOnboardingComplete: Boolean(account.charges_enabled && account.payouts_enabled && account.details_submitted),
-    stripeDisabledReason: requirements?.disabled_reason ?? undefined,
-    stripeCurrentlyDue: requirements?.currently_due ?? [],
-    stripeEventuallyDue: requirements?.eventually_due ?? [],
+    stripeDisabledReason: req?.disabled_reason ?? undefined,
+    stripeCurrentlyDue: req?.currently_due ?? [],
+    stripeEventuallyDue: req?.eventually_due ?? [],
+    stripePastDue: req?.past_due ?? [],
     stripeUpdatedAt: new Date().toISOString()
   };
 }
 
 export async function saveStripeAccountStatus(userId: string, account: Stripe.Account) {
-  const data = getStripeAccountStatus(account);
-  console.log("[stripe-connect] Saving connected account status", {
+  const data = buildAccountStatus(account);
+  console.log("[stripe-connect] Saving account status", {
     userId,
     accountId: account.id,
-    detailsSubmitted: data.stripeDetailsSubmitted,
     chargesEnabled: data.stripeChargesEnabled,
     payoutsEnabled: data.stripePayoutsEnabled,
-    disabledReason: data.stripeDisabledReason,
-    currentlyDue: data.stripeCurrentlyDue,
-    eventuallyDue: data.stripeEventuallyDue
+    detailsSubmitted: data.stripeDetailsSubmitted,
+    disabledReason: data.stripeDisabledReason
   });
+  return db.user.update({ where: { id: userId }, data });
+}
+
+export async function clearManagerStripeConnection(managerId: string) {
   return db.user.update({
-    where: { id: userId },
-    data
+    where: { id: managerId },
+    data: {
+      stripeAccountId: undefined,
+      stripeConnectedAccountId: undefined,
+      stripeChargesEnabled: false,
+      stripePayoutsEnabled: false,
+      stripeDetailsSubmitted: false,
+      stripeOnboardingComplete: false,
+      stripeDisabledReason: undefined,
+      stripeCurrentlyDue: [],
+      stripeEventuallyDue: [],
+      stripePastDue: [],
+      stripeUpdatedAt: undefined
+    }
   });
 }
 
-export async function syncStripeConnectedAccount(user: Pick<User, "id" | "stripeAccountId" | "stripeConnectedAccountId">) {
+export async function syncManagerConnectedAccount(user: Pick<User, "id" | "stripeAccountId" | "stripeConnectedAccountId">) {
   const accountId = getStripeAccountId(user);
   if (!accountId) return null;
 
-  console.log("[stripe-connect] Retrieving connected account", { userId: user.id, accountId });
+  console.log("[stripe-connect] Syncing connected account", { userId: user.id, accountId });
   const account = await getStripe().accounts.retrieve(accountId);
+
   if ((account as unknown as { deleted?: boolean }).deleted === true) {
-    console.log("[stripe-connect] Connected account was deleted in Stripe; clearing local status", { userId: user.id, accountId });
-    await db.user.update({
-      where: { id: user.id },
-      data: {
-        stripeAccountId: undefined,
-        stripeConnectedAccountId: undefined,
-        stripeChargesEnabled: false,
-        stripePayoutsEnabled: false,
-        stripeDetailsSubmitted: false,
-        stripeOnboardingComplete: false,
-        stripeDisabledReason: undefined,
-        stripeCurrentlyDue: [],
-        stripeEventuallyDue: [],
-        stripeUpdatedAt: new Date().toISOString()
-      }
-    });
+    console.log("[stripe-connect] Account deleted in Stripe; clearing local fields", { userId: user.id, accountId });
+    await clearManagerStripeConnection(user.id);
     return null;
   }
 
   const stripeAccount = account as Stripe.Account;
-  console.log("[stripe-connect] Retrieved connected account status", {
+  console.log("[stripe-connect] Account retrieved", {
     userId: user.id,
     accountId: stripeAccount.id,
-    detailsSubmitted: stripeAccount.details_submitted,
     chargesEnabled: stripeAccount.charges_enabled,
     payoutsEnabled: stripeAccount.payouts_enabled,
-    disabledReason: stripeAccount.requirements?.disabled_reason,
-    currentlyDue: stripeAccount.requirements?.currently_due,
-    eventuallyDue: stripeAccount.requirements?.eventually_due
+    detailsSubmitted: stripeAccount.details_submitted,
+    disabledReason: stripeAccount.requirements?.disabled_reason
   });
-  return saveStripeAccountStatus(user.id, account as Stripe.Account);
+  return saveStripeAccountStatus(user.id, stripeAccount);
 }
 
-export async function createStripeExpressAccount(user: StripeManagerUser) {
-  console.log("[stripe-connect] Creating Stripe Express account", { userId: user.id, organizationId: user.organizationId, email: user.email });
+export async function createManagerConnectedAccount(manager: StripeManagerUser) {
+  console.log("[stripe-connect] Creating Express connected account", { userId: manager.id });
   const account = await getStripe().accounts.create({
     type: "express",
     country: "US",
-    email: user.email,
+    email: manager.email,
     capabilities: {
       card_payments: { requested: true },
       transfers: { requested: true }
     },
     business_profile: {
-      name: `${user.firstName} ${user.lastName}`.trim() || "Nexus Rentals manager"
+      name: `${manager.firstName} ${manager.lastName}`.trim() || "Nexus Rentals manager"
     },
     metadata: {
       source: "nexus_manager_payouts",
-      userId: user.id,
-      organizationId: user.organizationId
+      userId: manager.id,
+      organizationId: manager.organizationId
     }
   });
 
-  console.log("[stripe-connect] Created Stripe Express account", { userId: user.id, accountId: account.id });
-  await saveStripeAccountStatus(user.id, account);
-  console.log("[stripe-connect] Saved new Stripe account id to user", { userId: user.id, accountId: account.id });
+  console.log("[stripe-connect] Express account created", { userId: manager.id, accountId: account.id });
+  await saveStripeAccountStatus(manager.id, account);
   return account;
+}
+
+// account_onboarding: for accounts where details_submitted is false.
+// account_update: for accounts where details_submitted is true but requirements are still outstanding.
+export async function createManagerOnboardingLink(
+  accountId: string,
+  appUrl: string,
+  type: "account_onboarding" | "account_update" = "account_onboarding"
+) {
+  const link = await getStripe().accountLinks.create({
+    account: accountId,
+    refresh_url: `${appUrl}/settings?stripe=connect-refresh#payments-stripe`,
+    return_url: `${appUrl}/api/stripe/connect/return`,
+    type
+  });
+  return link.url;
+}
+
+// Use only for accounts that have submitted onboarding details and have Express Dashboard access.
+export async function createManagerDashboardLoginLink(accountId: string) {
+  const link = await getStripe().accounts.createLoginLink(accountId);
+  return link.url;
 }

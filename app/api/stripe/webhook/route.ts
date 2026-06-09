@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
 import { recordPlatformEvent } from "@/lib/platform-events";
-import { NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS, getStripe, getStripeWebhookSecret } from "@/lib/stripe";
+import { getPlatformFeeCents, getStripe, getStripeWebhookSecret } from "@/lib/stripe";
 
 export const runtime = "nodejs";
 
@@ -48,7 +48,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCr
     : NaN;
   const applicationFeeAmountCents = Number.isFinite(metadataApplicationFeeAmountCents)
     ? metadataApplicationFeeAmountCents
-    : NEXUS_STRIPE_APPLICATION_FEE_AMOUNT_CENTS;
+    : getPlatformFeeCents();
 
   const paidAt = new Date(eventCreated * 1000);
 

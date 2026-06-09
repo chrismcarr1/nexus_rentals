@@ -68,6 +68,7 @@ export type User = {
   stripeDisabledReason?: string;
   stripeCurrentlyDue?: string[];
   stripeEventuallyDue?: string[];
+  stripePastDue?: string[];
   stripeUpdatedAt?: string;
   lastLoginAt?: string;
   createdAt: string;
