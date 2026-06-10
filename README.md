@@ -126,7 +126,14 @@ CLOUDFLARE_EMAIL_API_TOKEN=""
 
 `DATABASE_URL` can come from Vercel Postgres, Neon, Supabase Postgres, or another hosted Postgres provider. `BLOB_READ_WRITE_TOKEN` is optional for local development, where uploads fall back to `public/uploads`, but it is required in Vercel production for persistent photos and documents.
 
-Tenant invite and password reset emails use Cloudflare Email Service. Set `APP_URL` to the public Nexus production origin, never a Vercel preview URL, and set `CLOUDFLARE_EMAIL_FROM` plus either `CLOUDFLARE_EMAIL_WORKER_URL` and `CLOUDFLARE_EMAIL_WORKER_SECRET`, or `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_EMAIL_API_TOKEN`. Invite tokens are stored only as SHA-256 hashes in the hosted datastore; the raw token appears only in the tenant email link.
+### Local development database
+
+- **With hosted Postgres (default):** set a real `DATABASE_URL` in `.env.local` and run `npm run dev`. The app reads and writes the hosted document store exactly as production does.
+- **Without hosted Postgres (offline fallback):** in development only (`next dev`), if `DATABASE_URL` is missing, invalid, or the connection times out, the app logs `Hosted Postgres unavailable; using local development store.` and immediately serves `data/app-db.json` instead. The unavailable state is cached for 30 seconds so pages and auth stay fast instead of re-waiting on the connection timeout (which is also shortened to 5 seconds in development). To use the fallback intentionally, leave `DATABASE_URL` unset or commented out in `.env.local`.
+- **Reconnecting:** restore a valid `DATABASE_URL` in `.env.local` and restart `npm run dev` (or just wait for the 30-second retry window if the database was only temporarily unreachable). Changes written to `data/app-db.json` while offline are not synced to hosted Postgres.
+- **Production is unaffected:** outside development, a missing or unreachable `DATABASE_URL` still fails loudly and never falls back to the local file. Note that the relational tenant-screening tables (`lib/screening/repository.ts`) always require Postgres; only the main app document store has a local fallback.
+
+Tenant invite, password reset, and rental application lifecycle emails (applicant submission confirmation, manager new-application notification, screening invitations, and approve/reject decisions) use Cloudflare Email Service. Set `APP_URL` to the public Nexus production origin, never a Vercel preview URL, and set `CLOUDFLARE_EMAIL_FROM` plus either `CLOUDFLARE_EMAIL_WORKER_URL` and `CLOUDFLARE_EMAIL_WORKER_SECRET`, or `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_EMAIL_API_TOKEN`. Invite tokens are stored only as SHA-256 hashes in the hosted datastore; the raw token appears only in the tenant email link.
 
 For the Worker option, copy `cloudflare/wrangler.email-worker.toml.example` to your Worker Wrangler config, update the sender address, deploy `cloudflare/email-worker.js`, and set the same secret in Cloudflare as `NEXUS_EMAIL_SECRET` and in Nexus as `CLOUDFLARE_EMAIL_WORKER_SECRET`. The Worker accepts either an `EMAIL` or `SEND_EMAIL` binding.
 

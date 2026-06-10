@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ClipboardList, Plus } from "lucide-react";
+import { AlertTriangle, ClipboardList, Plus, Send } from "lucide-react";
 
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
@@ -18,8 +18,17 @@ import {
   publicApplicationPath
 } from "@/lib/applications";
 import { requireRoles } from "@/lib/auth";
-import { readStore, UserRole } from "@/lib/store";
+import { getEmailDiagnostics } from "@/lib/email";
+import { readStore, UserRole, type ApplicationInvite } from "@/lib/store";
+import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
+
+function inviteStatusView(invite: ApplicationInvite): { label: string; tone: "default" | "success" | "warning" | "danger" } {
+  if (invite.status === "SUBMITTED") return { label: "Submitted", tone: "success" };
+  if (invite.status === "REVOKED") return { label: "Revoked", tone: "danger" };
+  if (invite.status === "EXPIRED" || new Date(invite.expiresAt).getTime() < Date.now()) return { label: "Expired", tone: "danger" };
+  return { label: "Invite sent", tone: "warning" };
+}
 
 function sortHref(params: Record<string, string>, sort: string) {
   const next = new URLSearchParams();
@@ -38,9 +47,13 @@ export default async function ApplicationsPage({ searchParams }: { searchParams?
   const feeFilter = params.fee ?? "all";
   const sort = params.sort ?? "submitted";
   const store = await readStore();
+  const emailDiagnostics = getEmailDiagnostics();
   const applications = store.rentalApplications
     .filter((application) => managerOwnsApplication(store, user, application))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const invites = store.applicationInvites
+    .filter((invite) => invite.managerUserId === user.id && invite.organizationId === user.organizationId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const rows = applications.flatMap((application) => {
     const submissions = store.applicationSubmissions
       .filter((submission) => submission.applicationId === application.id)
@@ -88,12 +101,31 @@ export default async function ApplicationsPage({ searchParams }: { searchParams?
         title="Applications"
         description="A table-first applicant pipeline for published links, new submissions, screening status, fee status, and move-in conversion."
         actions={
-          <Link href="/applications/new" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]">
-            <Plus className="h-4 w-4" />
-            New Application
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/applications/new" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--line-strong)] bg-[var(--panel)] px-3.5 py-2 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)]">
+              <Plus className="h-4 w-4" />
+              New application link
+            </Link>
+            <Link href="/applications/invite" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]">
+              <Send className="h-4 w-4" />
+              Send application
+            </Link>
+          </div>
         }
       />
+
+      {params.invited ? (
+        <div className="page-alert page-alert-success">
+          Application invite sent to {params.invited} through Cloudflare email.
+        </div>
+      ) : null}
+
+      {!emailDiagnostics.configured ? (
+        <div className="flex items-start gap-3 rounded-md border border-amber-600/18 bg-amber-500/12 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Cloudflare email is not fully configured. Application invites and applicant notifications cannot be delivered until it is set up.</span>
+        </div>
+      ) : null}
 
       <section className="ops-grid">
         <StatCard label="Application links" value={String(applications.length)} detail={`${filtered.length} rows shown`} tone="brand" />
@@ -101,6 +133,66 @@ export default async function ApplicationsPage({ searchParams }: { searchParams?
         <StatCard label="Under review" value={String(reviewCount)} detail="Screening in progress" tone={reviewCount ? "warning" : "default"} />
         <StatCard label="Approved" value={String(approvedCount)} detail="Ready for move-in" tone="success" />
       </section>
+
+      <DetailSection title="Sent invites" description="Application invites delivered by email, with submission and screening progress.">
+        {invites.length ? (
+          <DataTable
+            className="mt-1"
+            minWidth="58rem"
+            columns={["Applicant", "Property / unit", "Requested", "Status", "Sent", ""]}
+          >
+            {invites.map((invite) => {
+              const property = store.properties.find((item) => item.id === invite.propertyId);
+              const unit = invite.unitId ? store.units.find((item) => item.id === invite.unitId) : null;
+              const view = inviteStatusView(invite);
+              const reviewHref = invite.submissionId ? `/applications/${invite.applicationId}/submissions/${invite.submissionId}` : null;
+
+              return (
+                <tr key={invite.id} className="table-row">
+                  <td className="table-cell">
+                    <span className="font-semibold text-[var(--text)]">{invite.applicantFirstName} {invite.applicantLastName}</span>
+                    <span className="mt-0.5 block text-xs text-[var(--muted)]">{invite.applicantEmail}</span>
+                  </td>
+                  <td className="table-cell text-[var(--muted)]">
+                    {property ? property.name : "Property unavailable"}
+                    {unit ? ` - Unit ${unit.unitNumber}` : ""}
+                  </td>
+                  <td className="table-cell">
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge>Application</Badge>
+                      {invite.requestBackgroundCheck ? <Badge tone="warning">Background</Badge> : null}
+                      {invite.requestIncomeVerification ? <Badge tone="warning">Bank / income</Badge> : null}
+                    </div>
+                  </td>
+                  <td className="table-cell"><Badge tone={view.tone}>{view.label}</Badge></td>
+                  <td className="table-cell text-[var(--muted)]">{invite.sentAt ? formatDate(invite.sentAt) : formatDate(invite.createdAt)}</td>
+                  <td className="table-cell text-right">
+                    {reviewHref ? (
+                      <Link href={reviewHref} className="table-link font-semibold">Review</Link>
+                    ) : (
+                      <span className="text-xs text-[var(--muted)]">Awaiting applicant</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </DataTable>
+        ) : (
+          <div className="mt-1">
+            <EmptyState
+              icon={Send}
+              title="No application invites yet"
+              description="Send a secure application link to an applicant's email. Nexus tracks the application, background check, and bank verification from one place."
+              action={
+                <Link href="/applications/invite" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]">
+                  <Send className="h-4 w-4" />
+                  Send application
+                </Link>
+              }
+            />
+          </div>
+        )}
+      </DetailSection>
 
       <DetailSection title="Application register" description="Search, filter, and act on applicant submissions without opening every application card.">
         <FilterBar

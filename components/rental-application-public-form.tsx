@@ -13,6 +13,19 @@ import { submitRentalApplicationAction } from "@/lib/actions";
 import { formatAppDate } from "@/lib/app-time";
 import { formatPhoneNumber } from "@/lib/phone";
 
+export type PublicApplicationInvitePayload = {
+  token: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  managerName: string;
+  organizationName: string;
+  note?: string;
+  requestBackgroundCheck: boolean;
+  requestIncomeVerification: boolean;
+};
+
 export type PublicApplicationPayload = {
   publicSlug: string;
   title: string;
@@ -48,6 +61,8 @@ type ApplicantFormState = {
   coApplicantPhone: string;
   documentNotes: string;
   authorizationAccepted: boolean;
+  backgroundCheckConsent: boolean;
+  incomeVerificationConsent: boolean;
   answers: Record<string, string>;
 };
 
@@ -90,10 +105,12 @@ function ReviewRow({ label, value }: { label: string; value: string }) {
 
 export function RentalApplicationPublicForm({
   application,
+  invite,
   error,
   submitted
 }: {
   application: PublicApplicationPayload;
+  invite?: PublicApplicationInvitePayload;
   error?: string;
   submitted?: boolean;
 }) {
@@ -101,10 +118,10 @@ export function RentalApplicationPublicForm({
   const [step, setStep] = useState(0);
   const [clientError, setClientError] = useState(error ?? "");
   const [form, setForm] = useState<ApplicantFormState>({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
+    firstName: invite?.firstName ?? "",
+    lastName: invite?.lastName ?? "",
+    email: invite?.email ?? "",
+    phone: invite?.phone ?? "",
     dateOfBirth: "",
     currentAddress: "",
     employment: "",
@@ -119,6 +136,8 @@ export function RentalApplicationPublicForm({
     coApplicantPhone: "",
     documentNotes: "",
     authorizationAccepted: false,
+    backgroundCheckConsent: false,
+    incomeVerificationConsent: false,
     answers: {}
   });
 
@@ -148,8 +167,10 @@ export function RentalApplicationPublicForm({
       const unanswered = application.questions.find((question) => question.required && !form.answers[question.id]?.trim());
       if (unanswered) return "Answer all required screening questions.";
     }
-    if (index === 3 && !form.authorizationAccepted) {
-      return "Authorization is required before submitting.";
+    if (index === 3) {
+      if (!form.authorizationAccepted) return "Authorization is required before submitting.";
+      if (invite?.requestBackgroundCheck && !form.backgroundCheckConsent) return "Background check consent is required before submitting.";
+      if (invite?.requestIncomeVerification && !form.incomeVerificationConsent) return "Bank and income verification consent is required before submitting.";
     }
     return "";
   }
@@ -175,8 +196,17 @@ export function RentalApplicationPublicForm({
         <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-700" />
         <h1 className="mt-4 text-3xl font-semibold text-[var(--text)]">Application submitted</h1>
         <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-[var(--muted)]">
-          Your application was sent to the property manager for review.
+          Your application was sent to the property manager for review. A confirmation email is on its way.
         </p>
+        {invite?.requestBackgroundCheck || invite?.requestIncomeVerification ? (
+          <div className="mx-auto mt-5 max-w-xl rounded-md border border-[var(--line)] bg-[var(--surface)] p-4 text-left text-sm leading-6 text-[var(--muted)]">
+            <p className="font-semibold text-[var(--text)]">Next steps</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              {invite?.requestBackgroundCheck ? <li>Complete the Checkr background check from your secure screening portal link (also emailed to you).</li> : null}
+              {invite?.requestIncomeVerification ? <li>Connect your bank through Plaid from the same screening portal to verify income.</li> : null}
+            </ul>
+          </div>
+        ) : null}
       </Card>
     );
   }
@@ -295,8 +325,27 @@ export function RentalApplicationPublicForm({
               <input type="checkbox" checked={form.authorizationAccepted} onChange={(event) => patch({ authorizationAccepted: event.target.checked })} className="mt-1" />
               <span className="font-semibold text-[var(--text)]">I confirm this application is accurate and authorize the manager to review it.</span>
             </label>
+            {invite?.requestBackgroundCheck ? (
+              <label className="flex items-start gap-3 rounded-md border border-[rgba(13,143,123,0.18)] bg-[var(--accent-soft)] p-4 text-sm">
+                <input type="checkbox" checked={form.backgroundCheckConsent} onChange={(event) => patch({ backgroundCheckConsent: event.target.checked })} className="mt-1" />
+                <span className="font-semibold text-[var(--text)]">
+                  I consent to a background check through Checkr for this rental application.
+                  <span className="mt-1 block text-xs font-medium text-[var(--muted)]">Checkr will collect the legally required disclosures and authorization in its own secure flow.</span>
+                </span>
+              </label>
+            ) : null}
+            {invite?.requestIncomeVerification ? (
+              <label className="flex items-start gap-3 rounded-md border border-[rgba(13,143,123,0.18)] bg-[var(--accent-soft)] p-4 text-sm">
+                <input type="checkbox" checked={form.incomeVerificationConsent} onChange={(event) => patch({ incomeVerificationConsent: event.target.checked })} className="mt-1" />
+                <span className="font-semibold text-[var(--text)]">
+                  I consent to bank and income verification through Plaid for this rental application.
+                  <span className="mt-1 block text-xs font-medium text-[var(--muted)]">You choose which account to connect. The manager never sees your bank credentials.</span>
+                </span>
+              </label>
+            ) : null}
             <form action={submitRentalApplicationAction} className="space-y-3">
               <input type="hidden" name="publicSlug" value={application.publicSlug} />
+              {invite ? <input type="hidden" name="inviteToken" value={invite.token} /> : null}
               {Object.entries(form).map(([key, value]) => {
                 if (key === "answers" || typeof value === "object") return null;
                 return <input key={key} type="hidden" name={key} value={typeof value === "boolean" ? String(value) : value} />;

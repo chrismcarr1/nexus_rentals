@@ -28,9 +28,19 @@ type OutboundEmailInput = {
   subject: string;
   html: string;
   text: string;
-  category: "password_reset" | "tenant_invite" | "move_in_invite" | "screening_invite" | "admin_test";
+  category:
+    | "password_reset"
+    | "tenant_invite"
+    | "move_in_invite"
+    | "screening_invite"
+    | "admin_test"
+    | "application_submitted"
+    | "application_received"
+    | "application_decision"
+    | "application_invite";
   organizationId?: string;
   userId?: string;
+  relatedId?: string;
 };
 
 type EmailResult = {
@@ -307,7 +317,7 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
-async function sendEmail({ to, subject, html, text, category, organizationId, userId }: OutboundEmailInput): Promise<EmailResult> {
+async function sendEmail({ to, subject, html, text, category, organizationId, userId, relatedId }: OutboundEmailInput): Promise<EmailResult> {
   const config = getEmailConfig();
   const diagnostics = getEmailDiagnostics();
   const { from, workerUrl, workerSecret, accountId, apiToken } = config;
@@ -334,6 +344,7 @@ async function sendEmail({ to, subject, html, text, category, organizationId, us
         status: "success",
         organizationId,
         userId,
+        relatedId,
         message: "Cloudflare accepted the email.",
         metadata: { recipient: to, transport: "worker" }
       });
@@ -372,6 +383,7 @@ async function sendEmail({ to, subject, html, text, category, organizationId, us
         status: "success",
         organizationId,
         userId,
+        relatedId,
         message: "Cloudflare accepted the email.",
         metadata: { recipient: to, transport: "rest" }
       });
@@ -385,6 +397,7 @@ async function sendEmail({ to, subject, html, text, category, organizationId, us
       status: "failed",
       organizationId,
       userId,
+      relatedId,
       message: error,
       metadata: { recipient: to, transport: "none" }
     });
@@ -396,6 +409,7 @@ async function sendEmail({ to, subject, html, text, category, organizationId, us
       status: "failed",
       organizationId,
       userId,
+      relatedId,
       message: error instanceof Error ? error.message.slice(0, 500) : "Email delivery failed.",
       metadata: { recipient: to, transport: config.transport }
     });
@@ -519,6 +533,207 @@ export async function sendAdminTestEmail(to: string, organizationId?: string, us
   });
 }
 
+export async function sendApplicationInviteEmail(input: {
+  to: string;
+  applicantName: string;
+  managerName: string;
+  organizationName: string;
+  propertyLabel: string;
+  inviteUrl: string;
+  requestBackgroundCheck: boolean;
+  requestIncomeVerification: boolean;
+  note?: string;
+  expiresAt: string;
+  organizationId?: string;
+  userId?: string;
+  relatedId?: string;
+}) {
+  let canonicalInviteUrl: string;
+  try {
+    canonicalInviteUrl = assertCanonicalAppUrl(input.inviteUrl, "application invite URL");
+  } catch (error) {
+    await recordPlatformEvent({
+      type: "EMAIL_BLOCKED",
+      category: "application_invite",
+      status: "blocked",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      relatedId: input.relatedId,
+      message: error instanceof Error ? error.message : "Application invite URL was blocked.",
+      metadata: { recipient: input.to }
+    });
+    throw error;
+  }
+  const checklist = [
+    "Complete the rental application",
+    ...(input.requestBackgroundCheck ? ["Authorize a background check through Checkr"] : []),
+    ...(input.requestIncomeVerification ? ["Verify bank and income information through Plaid"] : [])
+  ];
+  const safeName = escapeHtml(input.applicantName);
+  const safeManagerName = escapeHtml(input.managerName);
+  const safeOrganizationName = escapeHtml(input.organizationName);
+  const safeProperty = escapeHtml(input.propertyLabel);
+  const safeInviteUrl = escapeHtml(canonicalInviteUrl);
+  const safeExpiresAt = escapeHtml(input.expiresAt);
+  const safeNote = input.note ? escapeHtml(input.note) : "";
+
+  return sendEmail({
+    to: input.to,
+    subject: `You're invited to apply for ${input.propertyLabel}`,
+    category: "application_invite",
+    organizationId: input.organizationId,
+    userId: input.userId,
+    relatedId: input.relatedId,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
+        <h1 style="font-size: 22px;">Apply for ${safeProperty}</h1>
+        <p>Hi ${safeName},</p>
+        <p>${safeManagerName} at ${safeOrganizationName} invited you to apply for ${safeProperty}.</p>
+        ${safeNote ? `<p style="border-left: 3px solid #1f6b5f; padding-left: 12px; color: #334155;">${safeNote}</p>` : ""}
+        <p>You will be asked to:</p>
+        <ul>
+          ${checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+        <p>This invitation expires on ${safeExpiresAt}.</p>
+        <p>
+          <a href="${safeInviteUrl}" style="display: inline-block; border-radius: 12px; background: #1f6b5f; color: #ffffff; padding: 12px 18px; text-decoration: none; font-weight: 700;">
+            Start application
+          </a>
+        </p>
+        <p style="font-size: 12px; color: #5f6b7d;">${safeInviteUrl}</p>
+      </div>
+    `,
+    text: `Hi ${input.applicantName},\n\n${input.managerName} at ${input.organizationName} invited you to apply for ${input.propertyLabel}.\n${input.note ? `\n"${input.note}"\n` : ""}\nYou will be asked to:\n${checklist.map((item) => `- ${item}`).join("\n")}\n\nThis invitation expires on ${input.expiresAt}. Start your application here:\n\n${canonicalInviteUrl}`
+  });
+}
+
+export async function sendApplicationSubmittedEmail(input: {
+  to: string;
+  applicantName: string;
+  applicationTitle: string;
+  propertyLabel: string;
+  organizationId?: string;
+  userId?: string;
+  relatedId?: string;
+}) {
+  const safeName = escapeHtml(input.applicantName);
+  const safeTitle = escapeHtml(input.applicationTitle);
+  const safeProperty = escapeHtml(input.propertyLabel);
+
+  return sendEmail({
+    to: input.to,
+    subject: `We received your application for ${input.propertyLabel}`,
+    category: "application_submitted",
+    organizationId: input.organizationId,
+    userId: input.userId,
+    relatedId: input.relatedId,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
+        <h1 style="font-size: 22px;">Application received</h1>
+        <p>Hi ${safeName},</p>
+        <p>Thanks for applying. We received your rental application "${safeTitle}" for ${safeProperty}.</p>
+        <p>The property manager will review it and contact you with next steps. If screening is required, you will receive a separate email with a secure link.</p>
+      </div>
+    `,
+    text: `Hi ${input.applicantName},\n\nThanks for applying. We received your rental application "${input.applicationTitle}" for ${input.propertyLabel}.\n\nThe property manager will review it and contact you with next steps. If screening is required, you will receive a separate email with a secure link.`
+  });
+}
+
+export async function sendApplicationReceivedEmail(input: {
+  to: string;
+  managerName: string;
+  applicantName: string;
+  applicationTitle: string;
+  propertyLabel: string;
+  reviewUrl: string;
+  organizationId?: string;
+  userId?: string;
+  relatedId?: string;
+}) {
+  let canonicalReviewUrl: string;
+  try {
+    canonicalReviewUrl = assertCanonicalAppUrl(input.reviewUrl, "application review URL");
+  } catch (error) {
+    await recordPlatformEvent({
+      type: "EMAIL_BLOCKED",
+      category: "application_received",
+      status: "blocked",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      message: error instanceof Error ? error.message : "Application review URL was blocked.",
+      metadata: { recipient: input.to }
+    });
+    throw error;
+  }
+  const safeManagerName = escapeHtml(input.managerName);
+  const safeApplicantName = escapeHtml(input.applicantName);
+  const safeTitle = escapeHtml(input.applicationTitle);
+  const safeProperty = escapeHtml(input.propertyLabel);
+  const safeReviewUrl = escapeHtml(canonicalReviewUrl);
+
+  return sendEmail({
+    to: input.to,
+    subject: `New application from ${input.applicantName} for ${input.propertyLabel}`,
+    category: "application_received",
+    organizationId: input.organizationId,
+    userId: input.userId,
+    relatedId: input.relatedId,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
+        <h1 style="font-size: 22px;">New rental application</h1>
+        <p>Hi ${safeManagerName},</p>
+        <p>${safeApplicantName} submitted "${safeTitle}" for ${safeProperty}.</p>
+        <p>
+          <a href="${safeReviewUrl}" style="display: inline-block; border-radius: 12px; background: #1f6b5f; color: #ffffff; padding: 12px 18px; text-decoration: none; font-weight: 700;">
+            Review application
+          </a>
+        </p>
+        <p style="font-size: 12px; color: #5f6b7d;">${safeReviewUrl}</p>
+      </div>
+    `,
+    text: `Hi ${input.managerName},\n\n${input.applicantName} submitted "${input.applicationTitle}" for ${input.propertyLabel}.\n\nReview it here:\n\n${canonicalReviewUrl}`
+  });
+}
+
+export async function sendApplicationDecisionEmail(input: {
+  to: string;
+  applicantName: string;
+  applicationTitle: string;
+  propertyLabel: string;
+  decision: "APPROVED" | "REJECTED";
+  organizationId?: string;
+  userId?: string;
+  relatedId?: string;
+}) {
+  const approved = input.decision === "APPROVED";
+  const safeName = escapeHtml(input.applicantName);
+  const safeTitle = escapeHtml(input.applicationTitle);
+  const safeProperty = escapeHtml(input.propertyLabel);
+  const decisionLine = approved
+    ? "Your application has been approved. The property manager will contact you with next steps for your lease and move-in."
+    : "After careful review, the property manager was not able to approve your application at this time.";
+
+  return sendEmail({
+    to: input.to,
+    subject: approved
+      ? `Your application for ${input.propertyLabel} was approved`
+      : `Update on your application for ${input.propertyLabel}`,
+    category: "application_decision",
+    organizationId: input.organizationId,
+    userId: input.userId,
+    relatedId: input.relatedId,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
+        <h1 style="font-size: 22px;">${approved ? "Application approved" : "Application update"}</h1>
+        <p>Hi ${safeName},</p>
+        <p>This is an update on your rental application "${safeTitle}" for ${safeProperty}.</p>
+        <p>${escapeHtml(decisionLine)}</p>
+      </div>
+    `,
+    text: `Hi ${input.applicantName},\n\nThis is an update on your rental application "${input.applicationTitle}" for ${input.propertyLabel}.\n\n${decisionLine}`
+  });
+}
+
 export async function sendScreeningInviteEmail(input: {
   to: string;
   applicantName: string;
@@ -526,6 +741,7 @@ export async function sendScreeningInviteEmail(input: {
   screeningUrl: string;
   organizationId?: string;
   userId?: string;
+  relatedId?: string;
 }) {
   const canonicalUrl = assertCanonicalAppUrl(input.screeningUrl, "screening invitation URL");
   const safeName = escapeHtml(input.applicantName);
@@ -538,6 +754,7 @@ export async function sendScreeningInviteEmail(input: {
     category: "screening_invite",
     organizationId: input.organizationId,
     userId: input.userId,
+    relatedId: input.relatedId,
     html: `
       <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6;">
         <h1 style="font-size: 22px;">Complete your tenant screening</h1>

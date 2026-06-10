@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowRight, CheckCircle2, ClipboardList, FileText, UserRound, XCircle } from "lucide-react";
+import { ArrowRight, CheckCircle2, ClipboardList, FileText, Mail, Send, UserRound, XCircle } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { ManagerScreeningDashboard } from "@/components/screening/manager-screening-dashboard";
@@ -11,8 +11,17 @@ import { addApplicationNoteAction, updateApplicationSubmissionStatusAction } fro
 import { applicationStatusLabels, applicationStatusTone, feeStatusLabel, getApplicationAddressLabel, getSubmissionBundle, managerOwnsApplication, primaryApplicant } from "@/lib/applications";
 import { requireRoles } from "@/lib/auth";
 import { readStore, UserRole } from "@/lib/store";
+import { getScreeningDiagnostics } from "@/lib/screening/config";
 import { getScreeningSummary } from "@/lib/screening/service";
 import { formatCurrency, formatDate } from "@/lib/utils";
+
+const emailCategoryLabels: Record<string, string> = {
+  application_invite: "Application invite",
+  application_submitted: "Submission confirmation to applicant",
+  application_received: "New application alert to manager",
+  application_decision: "Decision notice to applicant",
+  screening_invite: "Screening invitation to applicant"
+};
 
 function DetailRow({ label, value }: { label: string; value?: string | number | null }) {
   return (
@@ -63,6 +72,18 @@ export default async function ApplicationSubmissionPage({
 
   const { application, submission, applicants, documents, notes } = bundle;
   const screeningSummary = await getScreeningSummary(submission.id);
+  const screeningDiagnostics = getScreeningDiagnostics();
+  const checkrConfigured = screeningDiagnostics.checkr.mock || (screeningDiagnostics.checkr.apiKeyPresent && screeningDiagnostics.checkr.packagePresent);
+  const plaidConfigured = screeningDiagnostics.plaid.mock || (screeningDiagnostics.plaid.clientIdPresent && screeningDiagnostics.plaid.secretPresent);
+  const invite = submission.inviteId ? store.applicationInvites.find((item) => item.id === submission.inviteId) ?? null : null;
+  const emailEvents = store.platformEvents
+    .filter((event) => event.relatedId === submission.id || (invite ? event.relatedId === invite.id : false))
+    .filter((event) => event.type === "EMAIL_SENT" || event.type === "EMAIL_FAILED" || event.type === "EMAIL_BLOCKED")
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const statusHistory = store.applicationStatusHistory
+    .filter((entry) => entry.submissionId === submission.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const userNameById = new Map(store.users.map((item) => [item.id, `${item.firstName} ${item.lastName}`]));
   const applicant = primaryApplicant(applicants);
   const coApplicants = applicants.filter((item) => item.type === "CO_APPLICANT");
   const canConvert = submission.status === "APPROVED";
@@ -118,6 +139,8 @@ export default async function ApplicationSubmissionPage({
           <ManagerScreeningDashboard
             applicationId={submission.id}
             initialSummary={screeningSummary}
+            checkrConfigured={checkrConfigured}
+            plaidConfigured={plaidConfigured}
           />
 
           <Card className="p-5 lg:p-6">
@@ -179,6 +202,92 @@ export default async function ApplicationSubmissionPage({
               <StatusForm applicationId={application.id} submissionId={submission.id} status="UNDER_REVIEW"><ClipboardList className="h-4 w-4" /> Mark under review</StatusForm>
               <StatusForm applicationId={application.id} submissionId={submission.id} status="APPROVED" variant="primary"><CheckCircle2 className="h-4 w-4" /> Approve</StatusForm>
               <StatusForm applicationId={application.id} submissionId={submission.id} status="REJECTED" variant="danger"><XCircle className="h-4 w-4" /> Reject</StatusForm>
+            </div>
+          </Card>
+
+          {invite || submission.backgroundCheckConsent !== undefined || submission.incomeVerificationConsent !== undefined ? (
+            <Card className="p-5">
+              <p className="section-kicker">Invite &amp; consents</p>
+              <div className="mt-4 space-y-3 text-sm">
+                {invite ? (
+                  <div className="rounded-md border border-[var(--line)] bg-white p-3">
+                    <p className="flex items-center gap-2 font-semibold text-[var(--text)]"><Send className="h-4 w-4 text-[var(--brand)]" /> Invite sent</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      {invite.sentAt ? formatDate(invite.sentAt) : formatDate(invite.createdAt)} to {invite.applicantEmail}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <Badge>Application</Badge>
+                      {invite.requestBackgroundCheck ? <Badge tone="warning">Background check</Badge> : null}
+                      {invite.requestIncomeVerification ? <Badge tone="warning">Bank / income</Badge> : null}
+                    </div>
+                    {invite.desiredMoveInDate ? <p className="mt-2 text-xs text-[var(--muted)]">Desired move-in: {formatDate(invite.desiredMoveInDate)}</p> : null}
+                    {invite.note ? <p className="mt-2 text-xs leading-5 text-[var(--muted)]">&ldquo;{invite.note}&rdquo;</p> : null}
+                  </div>
+                ) : null}
+                {invite?.requestBackgroundCheck ? (
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--line)] bg-white p-3">
+                    <span className="text-[var(--muted)]">Background check consent</span>
+                    <Badge tone={submission.backgroundCheckConsent ? "success" : "danger"}>
+                      {submission.backgroundCheckConsent
+                        ? `Given ${submission.backgroundCheckConsentAt ? formatDate(submission.backgroundCheckConsentAt) : ""}`.trim()
+                        : "Not given"}
+                    </Badge>
+                  </div>
+                ) : null}
+                {invite?.requestIncomeVerification ? (
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--line)] bg-white p-3">
+                    <span className="text-[var(--muted)]">Income verification consent</span>
+                    <Badge tone={submission.incomeVerificationConsent ? "success" : "danger"}>
+                      {submission.incomeVerificationConsent
+                        ? `Given ${submission.incomeVerificationConsentAt ? formatDate(submission.incomeVerificationConsentAt) : ""}`.trim()
+                        : "Not given"}
+                    </Badge>
+                  </div>
+                ) : null}
+              </div>
+            </Card>
+          ) : null}
+
+          <Card className="p-5">
+            <p className="section-kicker">Status history</p>
+            <div className="mt-4 space-y-3">
+              {statusHistory.length ? statusHistory.map((entry) => (
+                <div key={entry.id} className="rounded-md border border-[var(--line)] bg-white p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {entry.fromStatus ? (
+                      <>
+                        <Badge tone={applicationStatusTone(entry.fromStatus)}>{applicationStatusLabels[entry.fromStatus]}</Badge>
+                        <ArrowRight className="h-3.5 w-3.5 text-[var(--muted)]" />
+                      </>
+                    ) : null}
+                    <Badge tone={applicationStatusTone(entry.toStatus)}>{applicationStatusLabels[entry.toStatus]}</Badge>
+                  </div>
+                  {entry.note ? <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{entry.note}</p> : null}
+                  <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+                    {formatDate(entry.createdAt)}
+                    {entry.changedByUserId ? ` - ${userNameById.get(entry.changedByUserId) ?? "Team member"}` : " - Applicant"}
+                  </p>
+                </div>
+              )) : <p className="text-sm text-[var(--muted)]">No status changes recorded yet.</p>}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <p className="section-kicker">Email activity</p>
+            <div className="mt-4 space-y-3">
+              {emailEvents.length ? emailEvents.map((event) => (
+                <div key={event.id} className="rounded-md border border-[var(--line)] bg-white p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="flex items-center gap-2 text-sm font-semibold text-[var(--text)]">
+                      <Mail className="h-4 w-4 text-[var(--brand)]" />
+                      {emailCategoryLabels[event.category] ?? event.category}
+                    </p>
+                    <Badge tone={event.status === "success" ? "success" : "danger"}>{event.status === "success" ? "Sent" : event.status === "blocked" ? "Blocked" : "Failed"}</Badge>
+                  </div>
+                  {event.status !== "success" && event.message ? <p className="mt-2 text-xs leading-5 text-red-700">{event.message}</p> : null}
+                  <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">{formatDate(event.createdAt)}</p>
+                </div>
+              )) : <p className="text-sm text-[var(--muted)]">No emails recorded for this application yet.</p>}
             </div>
           </Card>
 

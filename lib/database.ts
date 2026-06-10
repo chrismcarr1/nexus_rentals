@@ -30,11 +30,16 @@ export function getDatabaseUrl() {
   return normalized;
 }
 
+export function isLocalDevelopment() {
+  return process.env.NODE_ENV !== "production";
+}
+
 export function getSql() {
   sqlClient ??= postgres(getDatabaseUrl(), {
     max: 1,
     idle_timeout: 20,
-    connect_timeout: 10,
+    // Fail fast locally so an unreachable hosted database does not hang every page render.
+    connect_timeout: isLocalDevelopment() ? 5 : 10,
     prepare: false,
     ssl: "require"
   });

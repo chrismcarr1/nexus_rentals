@@ -187,8 +187,24 @@ export const rentalApplicationSchema = z
     }
   });
 
+export const applicationInviteSchema = z.object({
+  firstName: z.string().min(2),
+  lastName: z.string().min(2),
+  email: z.string().email(),
+  phone: optionalPhone,
+  propertyId: z.string().min(1),
+  unitId: z.string().optional(),
+  desiredMoveInDate: z.string().optional(),
+  requestBackgroundCheck: z.boolean(),
+  requestIncomeVerification: z.boolean(),
+  note: z.string().max(1000).optional()
+});
+
 export const applicationSubmissionSchema = z.object({
   publicSlug: z.string().min(12),
+  inviteToken: z.string().optional(),
+  backgroundCheckConsent: z.boolean().optional(),
+  incomeVerificationConsent: z.boolean().optional(),
   firstName: z.string().min(2),
   lastName: z.string().min(2),
   email: z.string().email(),

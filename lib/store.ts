@@ -1,8 +1,11 @@
 import "server-only";
 
+import { promises as fs } from "node:fs";
+import path from "node:path";
+
 import { DEFAULT_COUNTRY, type StoredAddress } from "@/lib/address";
 import { normalizeRentDueTime } from "@/lib/app-time";
-import { ensureAppStoreTable, getSql } from "@/lib/database";
+import { ensureAppStoreTable, getSql, isLocalDevelopment } from "@/lib/database";
 
 export type UserRole = "ADMIN" | "MANAGER" | "TENANT";
 export type PropertyStatus = "ACTIVE" | "ARCHIVED";
@@ -216,6 +219,11 @@ export type ApplicationSubmission = {
   vehicles?: string;
   documentNotes?: string;
   authorizationAccepted: boolean;
+  inviteId?: string;
+  backgroundCheckConsent?: boolean;
+  backgroundCheckConsentAt?: string;
+  incomeVerificationConsent?: boolean;
+  incomeVerificationConsentAt?: string;
   answers: Array<{ questionId: string; prompt: string; answer: string }>;
   createdAt: string;
   updatedAt: string;
@@ -244,6 +252,41 @@ export type ApplicationDocument = {
   updatedAt: string;
 };
 export type ApplicationNote = { id: string; applicationId: string; submissionId?: string; managerUserId: string; body: string; createdAt: string };
+export type ApplicationInviteStatus = "SENT" | "SUBMITTED" | "EXPIRED" | "REVOKED";
+export type ApplicationInvite = {
+  id: string;
+  organizationId: string;
+  managerUserId: string;
+  applicationId: string;
+  propertyId: string;
+  unitId?: string;
+  applicantFirstName: string;
+  applicantLastName: string;
+  applicantEmail: string;
+  applicantPhone?: string;
+  desiredMoveInDate?: string;
+  requestBackgroundCheck: boolean;
+  requestIncomeVerification: boolean;
+  note?: string;
+  tokenHash: string;
+  status: ApplicationInviteStatus;
+  expiresAt: string;
+  sentAt?: string;
+  submittedAt?: string;
+  submissionId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type ApplicationStatusHistoryEntry = {
+  id: string;
+  applicationId: string;
+  submissionId: string;
+  fromStatus?: RentalApplicationStatus;
+  toStatus: RentalApplicationStatus;
+  changedByUserId?: string;
+  note?: string;
+  createdAt: string;
+};
 export type PlatformEvent = {
   id: string;
   type: PlatformEventType;
@@ -281,6 +324,8 @@ export type AppStore = {
   applicationApplicants: ApplicationApplicant[];
   applicationDocuments: ApplicationDocument[];
   applicationNotes: ApplicationNote[];
+  applicationInvites: ApplicationInvite[];
+  applicationStatusHistory: ApplicationStatusHistoryEntry[];
   platformEvents: PlatformEvent[];
 };
 
@@ -311,6 +356,8 @@ function emptyStore(): AppStore {
     applicationApplicants: [],
     applicationDocuments: [],
     applicationNotes: [],
+    applicationInvites: [],
+    applicationStatusHistory: [],
     platformEvents: []
   };
 }
@@ -323,12 +370,52 @@ export function nowIso() {
   return new Date().toISOString();
 }
 
+// Local-development fallback. When hosted Postgres is missing, misconfigured, or
+// unreachable during `next dev`, the app uses the local JSON document in data/app-db.json
+// instead of hanging on connection timeouts. Never used in production.
+const LOCAL_STORE_PATH = path.join(process.cwd(), "data", "app-db.json");
+const POSTGRES_RETRY_TTL_MS = 30_000;
+let postgresUnavailableUntil = 0;
+
+function shouldUseLocalFallback() {
+  return isLocalDevelopment() && Date.now() < postgresUnavailableUntil;
+}
+
+function enterLocalFallback(error: unknown) {
+  postgresUnavailableUntil = Date.now() + POSTGRES_RETRY_TTL_MS;
+  console.warn(
+    `[store] Hosted Postgres unavailable; using local development store. Reading/writing ${LOCAL_STORE_PATH}. Retrying hosted Postgres in ${POSTGRES_RETRY_TTL_MS / 1000}s.`,
+    { error: error instanceof Error ? error.message : String(error) }
+  );
+}
+
+async function readLocalStore(): Promise<AppStore> {
+  try {
+    const raw = await fs.readFile(LOCAL_STORE_PATH, "utf8");
+    return normalizeStore(JSON.parse(raw) as AppStore);
+  } catch {
+    return normalizeStore(emptyStore());
+  }
+}
+
+async function writeLocalStore(store: AppStore) {
+  await fs.mkdir(path.dirname(LOCAL_STORE_PATH), { recursive: true });
+  await fs.writeFile(LOCAL_STORE_PATH, JSON.stringify(store, null, 2), "utf8");
+}
+
 export async function readStore(): Promise<AppStore> {
+  if (shouldUseLocalFallback()) {
+    return readLocalStore();
+  }
   try {
     await ensureAppStoreTable();
     const rows = await getSql()`select data from app_store where id = ${STORE_ID} limit 1`;
     return normalizeStore((rows[0]?.data as AppStore | undefined) ?? emptyStore());
   } catch (error) {
+    if (isLocalDevelopment()) {
+      enterLocalFallback(error);
+      return readLocalStore();
+    }
     console.error("[store] Failed to read hosted Postgres datastore", error);
     throw error;
   }
@@ -362,6 +449,8 @@ function normalizeStore(store: AppStore): AppStore {
     applicationApplicants: store.applicationApplicants ?? [],
     applicationDocuments: store.applicationDocuments ?? [],
     applicationNotes: store.applicationNotes ?? [],
+    applicationInvites: store.applicationInvites ?? [],
+    applicationStatusHistory: store.applicationStatusHistory ?? [],
     platformEvents: store.platformEvents ?? [],
     leases: (store.leases ?? []).map((lease, index) => {
       const unit = lease.unitId ? store.units?.find((item) => item.id === lease.unitId) : null;
@@ -403,6 +492,10 @@ function normalizeStore(store: AppStore): AppStore {
 }
 
 export async function writeStore(store: AppStore) {
+  if (shouldUseLocalFallback()) {
+    await writeLocalStore(store);
+    return;
+  }
   try {
     await ensureAppStoreTable();
     await getSql()`
@@ -411,6 +504,11 @@ export async function writeStore(store: AppStore) {
       on conflict (id) do update set data = excluded.data, updated_at = now()
     `;
   } catch (error) {
+    if (isLocalDevelopment()) {
+      enterLocalFallback(error);
+      await writeLocalStore(store);
+      return;
+    }
     console.error("[store] Failed to write hosted Postgres datastore", error);
     throw error;
   }
@@ -539,6 +637,10 @@ export async function getOrganizationSnapshot(organizationId: string) {
     ),
     applicationNotes: store.applicationNotes.filter((note) =>
       store.rentalApplications.some((application) => application.organizationId === organizationId && application.id === note.applicationId)
+    ),
+    applicationInvites: store.applicationInvites.filter((invite) => invite.organizationId === organizationId),
+    applicationStatusHistory: store.applicationStatusHistory.filter((entry) =>
+      store.rentalApplications.some((application) => application.organizationId === organizationId && application.id === entry.applicationId)
     )
   };
 }
