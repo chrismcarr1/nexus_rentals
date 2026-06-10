@@ -1,18 +1,24 @@
 import Link from "next/link";
 import {
+  ArrowRight,
   Banknote,
   BookOpenCheck,
+  Building2,
   CalendarClock,
+  CheckCircle2,
   ChevronDown,
   CreditCard,
   Download,
   FileSpreadsheet,
   LockKeyhole,
+  Pencil,
   Plus,
   ReceiptText,
   Send,
   ShieldCheck,
-  Upload
+  TrendingUp,
+  Upload,
+  X
 } from "lucide-react";
 
 import { DataTable } from "@/components/data-table";
@@ -20,6 +26,7 @@ import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "@/components/filter-bar";
 import { PageHeader } from "@/components/page-header";
+import { PaymentCalendar } from "@/components/payment-calendar";
 import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
 import { SearchInput } from "@/components/search-input";
 import { StatCard } from "@/components/stat-card";
@@ -27,8 +34,23 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { createPaymentAction, createStripeCheckoutAction, deletePaymentAction, updatePaymentAction } from "@/lib/actions";
-import { addDaysToDateKey, appDateIsAfter, appDateIsBefore, appDateKeyFromValue, differenceInAppCalendarDays, getAppDateKey, getAppYear, monthKeyFromValue } from "@/lib/app-time";
+import {
+  createBundledStripeCheckoutAction,
+  createPaymentAction,
+  createStripeCheckoutAction,
+  deletePaymentAction,
+  updatePaymentAction
+} from "@/lib/actions";
+import {
+  addDaysToDateKey,
+  appDateIsAfter,
+  appDateIsBefore,
+  appDateKeyFromValue,
+  differenceInAppCalendarDays,
+  getAppDateKey,
+  getAppYear,
+  monthKeyFromValue
+} from "@/lib/app-time";
 import { requireUser } from "@/lib/auth";
 import { getStripeConnectState } from "@/lib/stripe-connect";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -52,6 +74,13 @@ function stripeStatusMessage(status?: string) {
   if (status === "payment-unlinked") return "Rent charge saved, but no active lease was found for that unit yet.";
   if (status) return "Stripe checkout could not continue for this payment.";
   return null;
+}
+
+function stripeAlertTone(status?: string): "success" | "warning" | "error" | null {
+  if (!status) return null;
+  if (status === "success" || status === "payment-linked" || status === "payment-unlinked") return "success";
+  if (status === "cancelled") return "warning";
+  return "error";
 }
 
 function paymentsHref(params: Record<string, string>, updates: Record<string, string | undefined>) {
@@ -146,8 +175,9 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const params = (await searchParams) ?? {};
   const portal = await getPortalContext(user);
   const stripeMessage = stripeStatusMessage(params.stripe);
-  const nextPaymentAmount = portal.nextPayment ? portal.nextPayment.balanceDue || portal.nextPayment.amount : 0;
+  const alertTone = stripeAlertTone(params.stripe);
 
+  /* ── TENANT VIEW ──────────────────────────────────────────── */
   if (user.role === "TENANT") {
     const currentTenantId = portal.currentTenant?.id;
     const tenantLeaseIds = new Set(
@@ -163,127 +193,149 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
       })
       .sort((a, b) => (b.paidDate ?? b.dueDate).localeCompare(a.paidDate ?? a.dueDate));
 
+    const outstandingPayments = tenantPaymentHistory.filter((p) => p.status !== "PAID");
+    const totalOutstanding = outstandingPayments.reduce((sum, p) => sum + (p.balanceDue || p.amount), 0);
+    const canBundlePay = outstandingPayments.length > 1;
+
     return (
-      <div className="space-y-4">
+      <div className="space-y-5">
         <PageHeader
-          eyebrow="Payments"
-          title="Balance clarity and a simple rent payment flow."
-          description="See current amounts due, prior payment activity, and take the next rent action without digging through operational screens."
-          actions={
-            portal.nextPayment ? (
-              <form action={createStripeCheckoutAction}>
-                <input type="hidden" name="paymentId" value={portal.nextPayment.id} />
-                <SubmitButton pendingLabel="Opening Stripe...">
-                  <CreditCard className="h-4 w-4" />
-                  Pay rent with Stripe
-                </SubmitButton>
-              </form>
-            ) : (
-              <Button variant="secondary" disabled>
-                <ShieldCheck className="h-4 w-4" />
-                No payment due
-              </Button>
-            )
-          }
+          eyebrow="Rent & Fees"
+          title="My Payments"
+          description="View your current balance, pay securely through Stripe, and review your complete payment history."
         />
-        {stripeMessage ? (
-          <Card className="p-4">
-            <p className="text-sm font-semibold text-[var(--text)]">{stripeMessage}</p>
-          </Card>
+
+        {stripeMessage && alertTone ? (
+          <div className={`page-alert page-alert-${alertTone}`}>{stripeMessage}</div>
         ) : null}
-        <Card className="p-5">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-start gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[var(--accent-soft)] text-[var(--brand)]">
-                <LockKeyhole className="h-5 w-5" />
-              </span>
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">Stripe Checkout</p>
-                <h2 className="mt-1 text-xl font-semibold text-[var(--text)]">
-                  {portal.nextPayment ? `Ready to pay ${formatCurrency(nextPaymentAmount)}` : "Online rent checkout is ready"}
-                </h2>
-                <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
-                  Card details stay with Stripe. Nexus Rentals only receives the paid status, session id, payment intent, amount, and timestamp.
-                </p>
+
+        {/* Balance hero — dark gradient top / light form bottom */}
+        {outstandingPayments.length > 0 ? (
+          <Card className="pay-hero">
+            <div className="pay-hero-balance">
+              <div className="pay-hero-top">
+                <div className="min-w-0">
+                  <p className="pay-hero-eyebrow">Balance due</p>
+                  <p className="pay-hero-amount">{formatCurrency(totalOutstanding)}</p>
+                  <p className="pay-hero-meta">
+                    {outstandingPayments.length > 1
+                      ? `${outstandingPayments.length} outstanding charges`
+                      : `Due ${formatDate(outstandingPayments[0].dueDate)}`}
+                  </p>
+                </div>
+                <div className="pay-hero-icon">
+                  <CreditCard className="h-5 w-5" />
+                </div>
               </div>
             </div>
-            {portal.nextPayment ? (
-              <form action={createStripeCheckoutAction} className="shrink-0">
-                <input type="hidden" name="paymentId" value={portal.nextPayment.id} />
-                <SubmitButton pendingLabel="Opening Stripe...">
-                  <CreditCard className="h-4 w-4" />
-                  Pay rent
-                </SubmitButton>
-              </form>
-            ) : (
-              <Button variant="secondary" disabled className="shrink-0">Paid up</Button>
-            )}
-          </div>
-        </Card>
-        <div className="content-split-tight">
-          <Card className="p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Account summary</p>
-            <div className="mt-5 space-y-4">
-              <div className="panel-muted p-4">
-                <p className="text-sm text-[var(--muted)]">Balance due</p>
-                <p className="mt-2 text-3xl font-semibold">{formatCurrency(portal.metrics.outstanding)}</p>
-              </div>
-              <div className="panel-muted p-4">
-                <p className="text-sm text-[var(--muted)]">Next due date</p>
-                <p className="mt-2 text-xl font-semibold">{portal.nextPayment ? formatDate(portal.nextPayment.dueDate) : "No outstanding balance"}</p>
-              </div>
-              {portal.nextPayment ? (
-                <form action={createStripeCheckoutAction}>
-                  <input type="hidden" name="paymentId" value={portal.nextPayment.id} />
-                  <SubmitButton className="w-full" pendingLabel="Opening Stripe...">Pay rent with Stripe</SubmitButton>
+
+            <div className="pay-hero-form">
+              {canBundlePay ? (
+                <form action={createBundledStripeCheckoutAction} className="pay-bundle-form">
+                  <p className="pay-bundle-label">Select charges to pay</p>
+                  <div className="bundled-payment-select">
+                    {outstandingPayments.map((payment) => (
+                      <label key={payment.id} className="bundled-payment-item">
+                        <input type="checkbox" name="paymentId" value={payment.id} defaultChecked />
+                        <div className="bundled-payment-label">
+                          <span className="bundled-payment-name">{payment.description}</span>
+                          <span className="bundled-payment-meta">Due {formatDate(payment.dueDate)}</span>
+                        </div>
+                        <span className="bundled-payment-amount">{formatCurrency(balanceFor(payment))}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <SubmitButton className="w-full justify-center" pendingLabel="Opening Stripe…">
+                    <CreditCard className="h-4 w-4" />
+                    Pay selected with Stripe
+                  </SubmitButton>
                 </form>
               ) : (
-                <Button className="w-full" variant="secondary" disabled>No payment due</Button>
+                <form action={createStripeCheckoutAction}>
+                  <input type="hidden" name="paymentId" value={outstandingPayments[0].id} />
+                  <SubmitButton className="w-full justify-center" pendingLabel="Opening Stripe…">
+                    <CreditCard className="h-4 w-4" />
+                    Pay {formatCurrency(balanceFor(outstandingPayments[0]))} with Stripe
+                  </SubmitButton>
+                </form>
               )}
-              <p className="text-xs leading-5 text-[var(--muted)]">
-                Payments are processed through Stripe Checkout. Nexus Rentals never sees or stores card details.
+              <p className="pay-hero-security">
+                <LockKeyhole className="h-3.5 w-3.5" />
+                Secured by Stripe — card details never reach Nexus Rentals
               </p>
             </div>
           </Card>
-          <Card className="p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Payment history</p>
+        ) : (
+          <div className="pay-hero-clear-card">
+            <div className="pay-hero-icon-clear">
+              <ShieldCheck className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="text-base font-semibold text-[var(--text)]">All caught up</p>
+              <p className="mt-0.5 text-sm text-[var(--muted)]">No outstanding charges on your account.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Payment history */}
+        <Card className="overflow-hidden">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--brand)]">History</p>
+              <h2 className="mt-1 text-base font-semibold text-[var(--text)]">Payment history</h2>
+            </div>
+            <Badge tone="default">{tenantPaymentHistory.length} records</Badge>
+          </div>
+          <div className="p-5">
             {tenantPaymentHistory.length ? (
-              <DataTable columns={["Description", "Due", "Status", "Channel", "Amount", "Reference", "Action"]} className="mt-5">
+              <DataTable
+                className="tenant-history-table"
+                columns={["Description", "Due date", "Status", "Amount", "Reference", ""]}
+                minWidth="0"
+              >
                 {tenantPaymentHistory.map((payment) => (
                   <tr key={payment.id} className="table-row">
                     <td className="table-cell font-semibold">{payment.description}</td>
                     <td className="table-cell text-[var(--muted)]">{formatDate(payment.dueDate)}</td>
-                    <td className="table-cell"><Badge tone={badgeToneFromPayment(payment.status)}>{payment.status}</Badge></td>
-                    <td className="table-cell text-[var(--muted)]">{methodFor(payment)}</td>
-                    <td className="table-cell font-semibold">{formatCurrency(payment.status === "PAID" ? paidAmountFor(payment) : balanceFor(payment))}</td>
-                    <td className="table-cell font-mono text-xs text-[var(--muted)]">{referenceFor(payment)}</td>
                     <td className="table-cell">
+                      <Badge tone={badgeToneFromPayment(payment.status)}>{payment.status}</Badge>
+                    </td>
+                    <td className="table-cell font-semibold tabular-nums">
+                      {formatCurrency(payment.status === "PAID" ? paidAmountFor(payment) : balanceFor(payment))}
+                    </td>
+                    <td className="table-cell font-mono text-xs text-[var(--muted)]">{referenceFor(payment)}</td>
+                    <td className="table-cell text-right">
                       {payment.status !== "PAID" ? (
                         <form action={createStripeCheckoutAction}>
                           <input type="hidden" name="paymentId" value={payment.id} />
-                          <SubmitButton pendingLabel="Opening..." className="button-compact px-3">
-                            <CreditCard className="h-4 w-4" />
+                          <SubmitButton pendingLabel="Opening…" className="button-compact gap-1.5 px-3">
+                            <CreditCard className="h-3.5 w-3.5" />
                             Pay
                           </SubmitButton>
                         </form>
                       ) : (
-                        <Badge tone="success">Paid</Badge>
+                        <span className="text-xs font-semibold text-emerald-700">Paid</span>
                       )}
                     </td>
                   </tr>
                 ))}
               </DataTable>
             ) : (
-              <div className="mt-5">
-                <EmptyState title="No payment history yet" description="Tenant-linked payments and charges will appear here once your manager creates them." />
-              </div>
+              <EmptyState
+                icon={ReceiptText}
+                title="No payment history yet"
+                description="Charges and payments linked to your lease will appear here once your manager creates them."
+              />
             )}
-          </Card>
-        </div>
+          </div>
+        </Card>
+
+        <PaymentCalendar events={portal.calendar} defaultCollapsed={false} />
       </div>
     );
   }
 
+  /* ── MANAGER / ADMIN VIEW ─────────────────────────────────── */
   const activeTab: PaymentsTab = params.tab === "payments" || params.tab === "accounting" ? params.tab : "collections";
   const today = getAppDateKey();
   const next30 = addDaysToDateKey(today, 30);
@@ -392,10 +444,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
       if (categoryFilter !== "all" && row.category !== categoryFilter) return false;
       return true;
     })
-    .map((row) => ({
-      ...row,
-      taxClassification: taxClassification(row.category)
-    }))
+    .map((row) => ({ ...row, taxClassification: taxClassification(row.category) }))
     .sort((a, b) => (b.paidAt ?? "").localeCompare(a.paidAt ?? ""));
 
   const outstandingBalance = rows.filter((row) => row.payment.status !== "PAID").reduce((sum, row) => sum + row.amountDue, 0);
@@ -411,7 +460,6 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
     .filter((row) => monthKeyFromValue(row.payment.dueDate) === currentMonthKey)
     .reduce((sum, row) => sum + row.payment.amount, 0);
   const collectionRate = monthDue ? Math.round((monthPaid / monthDue) * 100) : 100;
-
   const collectedThisYear = rows
     .filter((row) => row.payment.status === "PAID" && row.paidAt && appDateKeyFromValue(row.paidAt).startsWith(`${currentYear}-`))
     .reduce((sum, row) => sum + row.amountPaid, 0);
@@ -424,12 +472,9 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
     const average = completed.reduce((sum, row) => sum + differenceInAppCalendarDays(row.paidAt!, row.payment.dueDate), 0) / completed.length;
     return `${Math.max(0, Math.round(average))} days`;
   })();
-
   const rentIncomeYtd = accountingRows.filter((row) => row.category === "Rent").reduce((sum, row) => sum + row.amountPaid, 0);
   const depositsHeld = accountingRows.filter((row) => row.category === "Deposit").reduce((sum, row) => sum + row.amountPaid, 0);
-  const lateFeesCollected = accountingRows
-    .filter((row) => row.category === "Late Fee")
-    .reduce((sum, row) => sum + row.amountPaid, 0);
+  const lateFeesCollected = accountingRows.filter((row) => row.category === "Late Fee").reduce((sum, row) => sum + row.amountPaid, 0);
   const otherIncome = accountingRows
     .filter((row) => row.category !== "Rent" && row.category !== "Deposit" && row.category !== "Late Fee")
     .reduce((sum, row) => sum + row.amountPaid, 0);
@@ -441,172 +486,253 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const selectedEditPayment = rows.find((row) => row.payment.id === params.editPayment);
   const selectedDeletePayment = rows.find((row) => row.payment.id === params.deletePayment);
   const paymentMutationReturnHref = paymentsHref(params, { editPayment: undefined, deletePayment: undefined });
+  const hasOpenDrawer = !!(selectedCollection || selectedPayment || selectedLedger || selectedEditPayment || selectedDeletePayment);
+  const closeAllDrawers = paymentsHref(params, { charge: undefined, payment: undefined, ledger: undefined, editPayment: undefined, deletePayment: undefined });
 
   return (
-    <div className="payments-workflow space-y-4">
+    <div className="payments-workflow space-y-5">
       <PageHeader
-        eyebrow="Payments"
-        title="Collections, payments, and accounting."
-        description="A financial operations center for who owes money, who paid, and what income is ready for bookkeeping."
+        eyebrow="Financial operations"
+        title="Payments"
+        description="Track collections, record payments, and export bookkeeping data across all leases."
         actions={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Link href="/settings#payments-stripe" className="inline-flex min-h-10 items-center gap-2 rounded-md border border-[var(--line-strong)] bg-[var(--panel)] px-3 py-2 text-sm font-semibold transition hover:border-[var(--brand)] hover:bg-[var(--surface-hover)]">
-              <Badge tone={managerPaymentsReady ? "success" : managerConnectState.tone}>{managerPaymentsReady ? "Stripe connected" : managerConnectState.label}</Badge>
-            </Link>
-            <details className="new-action-menu relative">
-              <summary className="new-action-trigger">
-                <Plus className="h-4 w-4" />
-                New
-                <ChevronDown className="h-4 w-4" />
-              </summary>
-              <div className="new-action-panel">
-                <Link href={`${paymentsHref(params, { create: "record", tab: "payments" })}#new-payment`} className="new-action-item">Record Payment</Link>
-                <Link href={`${paymentsHref(params, { create: "charge", tab: undefined })}#new-payment`} className="new-action-item">Create Charge</Link>
-                <Link href={`${paymentsHref(params, { create: "request", tab: undefined })}#new-payment`} className="new-action-item">Send Payment Request</Link>
-                <Link href={`${paymentsHref(params, { create: "import", tab: "payments" })}#import-transactions`} className="new-action-item">Import Transactions</Link>
-              </div>
-            </details>
-          </div>
+          <details className="new-action-menu relative">
+            <summary className="new-action-trigger">
+              <Plus className="h-4 w-4" />
+              New
+              <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+            </summary>
+            <div className="new-action-panel">
+              <Link href={`${paymentsHref(params, { create: "record", tab: "payments" })}#new-payment`} className="new-action-item">
+                Record Payment
+              </Link>
+              <Link href={`${paymentsHref(params, { create: "charge", tab: undefined })}#new-payment`} className="new-action-item">
+                Create Charge
+              </Link>
+              <Link href={`${paymentsHref(params, { create: "request", tab: undefined })}#new-payment`} className="new-action-item">
+                Send Payment Request
+              </Link>
+              <Link href={`${paymentsHref(params, { create: "import", tab: "payments" })}#import-transactions`} className="new-action-item">
+                Import Transactions
+              </Link>
+            </div>
+          </details>
         }
       />
 
-      {stripeMessage ? (
-        <Card className="p-4">
-          <p className="text-sm font-semibold text-[var(--text)]">{stripeMessage}</p>
-        </Card>
+      {stripeMessage && alertTone ? (
+        <div className={`page-alert page-alert-${alertTone}`}>{stripeMessage}</div>
       ) : null}
 
-      <nav className="payments-tabs surface-panel p-1" aria-label="Payments sections">
-        <Link href={tabHref(params, "collections")} className={`payments-tab ${activeTab === "collections" ? "payments-tab-active" : ""}`}>
-          <Banknote className="h-4 w-4" />
-          Collections
-          <span>{rows.filter((row) => row.payment.status !== "PAID").length}</span>
-        </Link>
-        <Link href={tabHref(params, "payments")} className={`payments-tab ${activeTab === "payments" ? "payments-tab-active" : ""}`}>
-          <ReceiptText className="h-4 w-4" />
-          Payments
-          <span>{rows.filter((row) => row.payment.status === "PAID").length}</span>
-        </Link>
-        <Link href={tabHref(params, "accounting")} className={`payments-tab ${activeTab === "accounting" ? "payments-tab-active" : ""}`}>
-          <BookOpenCheck className="h-4 w-4" />
-          Accounting
-          <span>{selectedYear}</span>
-        </Link>
-      </nav>
+      {/* ── Financial pulse bar — always visible, tabs-independent KPIs ── */}
+      <div className="payments-pulse">
+        <div className={`pulse-metric ${outstandingBalance > 0 ? "pulse-warning" : "pulse-success"}`}>
+          <p className="pulse-label">Outstanding</p>
+          <p className="pulse-value">{formatCurrency(outstandingBalance)}</p>
+          <p className="pulse-detail">{rows.filter((row) => row.payment.status !== "PAID").length} open charges</p>
+        </div>
+        <div className={`pulse-metric ${overdueBalance > 0 ? "pulse-danger" : "pulse-success"}`}>
+          <p className="pulse-label">Overdue</p>
+          <p className="pulse-value">{formatCurrency(overdueBalance)}</p>
+          <p className="pulse-detail">{overdueRows.length} need follow-up</p>
+        </div>
+        <div className="pulse-metric pulse-success">
+          <p className="pulse-label">Collected YTD</p>
+          <p className="pulse-value">{formatCurrency(collectedThisYear)}</p>
+          <p className="pulse-detail">{currentYear} received</p>
+        </div>
+        <div className={`pulse-metric ${collectionRate >= 95 ? "pulse-success" : collectionRate >= 75 ? "pulse-warning" : "pulse-danger"}`}>
+          <p className="pulse-label">Collection rate</p>
+          <p className="pulse-value">{collectionRate}%</p>
+          <p className="pulse-detail">{formatCurrency(monthPaid)} this month</p>
+        </div>
+      </div>
 
-      {activeTab === "collections" ? (
-        <>
-          <section className="ops-grid">
-            <StatCard label="Outstanding Balance" value={formatCurrency(outstandingBalance)} detail={`${rows.filter((row) => row.payment.status !== "PAID").length} open charges`} tone={outstandingBalance ? "warning" : "success"} />
-            <StatCard label="Overdue Charges" value={formatCurrency(overdueBalance)} detail={`${overdueRows.length} needs follow-up`} tone={overdueBalance ? "danger" : "success"} />
-            <StatCard label="Upcoming Charges" value={formatCurrency(upcomingBalance)} detail="Due in next 30 days" tone="brand" />
-            <StatCard label="Collection Rate This Month" value={`${collectionRate}%`} detail={`${formatCurrency(monthPaid)} collected`} tone={collectionRate >= 95 ? "success" : collectionRate >= 75 ? "warning" : "danger"} />
-          </section>
-
-          <DetailSection
-            title="Outstanding charges"
-            description="Start here: every unpaid balance, sorted and filterable for daily collection work."
-            actions={<Badge tone={collectionsRows.length ? "warning" : "success"}>{collectionsRows.length} open</Badge>}
+      {/* ── Tab nav with integrated Stripe status ── */}
+      <div className="payments-tab-bar">
+        <nav className="payments-tabs" aria-label="Payments sections">
+          <Link
+            href={tabHref(params, "collections")}
+            className={`payments-tab ${activeTab === "collections" ? "payments-tab-active" : ""}`}
           >
-              <FilterBar
-                action="/transactions"
-                query={params.q}
-                queryPlaceholder="Search tenant, property, unit, or charge"
-                hidden={{ sort: params.sort }}
-                filters={[
-                  {
-                    name: "propertyId",
-                    label: "Property",
-                    value: propertyFilter,
-                    options: [
-                      { label: "All properties", value: "all" },
-                      ...portal.scope.properties.map((property) => ({ label: property.name, value: property.id }))
-                    ]
-                  },
-                  {
-                    name: "status",
-                    label: "Status",
-                    value: statusFilter,
-                    options: [
-                      { label: "All statuses", value: "all" },
-                      { label: "Due Soon", value: "Due Soon" },
-                      { label: "Pending", value: "Pending" },
-                      { label: "Partial", value: "Partial" },
-                      { label: "Late", value: "Late" },
-                      { label: "Severely Late", value: "Severely Late" }
-                    ]
-                  }
-                ]}
+            <Banknote className="h-4 w-4" />
+            Collections
+            <span>{rows.filter((row) => row.payment.status !== "PAID").length}</span>
+          </Link>
+          <Link
+            href={tabHref(params, "payments")}
+            className={`payments-tab ${activeTab === "payments" ? "payments-tab-active" : ""}`}
+          >
+            <ReceiptText className="h-4 w-4" />
+            Payments
+            <span>{rows.filter((row) => row.payment.status === "PAID").length}</span>
+          </Link>
+          <Link
+            href={tabHref(params, "accounting")}
+            className={`payments-tab ${activeTab === "accounting" ? "payments-tab-active" : ""}`}
+          >
+            <BookOpenCheck className="h-4 w-4" />
+            Accounting
+            <span>{selectedYear}</span>
+          </Link>
+        </nav>
+        <div className="payments-tab-actions">
+          <Link
+            href="/settings#payments-stripe"
+            className={`stripe-status-pill ${managerPaymentsReady ? "stripe-ready" : "stripe-pending"}`}
+          >
+            {managerPaymentsReady ? <ShieldCheck className="h-3.5 w-3.5" /> : <LockKeyhole className="h-3.5 w-3.5" />}
+            {managerPaymentsReady ? "Stripe live" : managerConnectState.label}
+          </Link>
+        </div>
+      </div>
+
+      {/* ── COLLECTIONS TAB ── */}
+      {activeTab === "collections" ? (
+        <DetailSection
+          title="Outstanding charges"
+          description="Every unpaid balance sorted for daily collection work. Click a row to open the collection drawer."
+          actions={
+            <div className="flex items-center gap-2">
+              {upcomingBalance > 0 ? (
+                <span className="text-xs text-[var(--muted)]">
+                  <span className="font-semibold text-[var(--text)]">{formatCurrency(upcomingBalance)}</span> due in 30 days
+                </span>
+              ) : null}
+              <Badge tone={collectionsRows.length ? "warning" : "success"}>{collectionsRows.length} open</Badge>
+            </div>
+          }
+        >
+          <FilterBar
+            action="/transactions"
+            query={params.q}
+            queryPlaceholder="Search tenant, property, unit, or charge"
+            hidden={{ sort: params.sort }}
+            filters={[
+              {
+                name: "propertyId",
+                label: "Property",
+                value: propertyFilter,
+                options: [
+                  { label: "All properties", value: "all" },
+                  ...portal.scope.properties.map((property) => ({ label: property.name, value: property.id }))
+                ]
+              },
+              {
+                name: "status",
+                label: "Status",
+                value: statusFilter,
+                options: [
+                  { label: "All statuses", value: "all" },
+                  { label: "Due Soon", value: "Due Soon" },
+                  { label: "Pending", value: "Pending" },
+                  { label: "Partial", value: "Partial" },
+                  { label: "Late", value: "Late" },
+                  { label: "Severely Late", value: "Severely Late" }
+                ]
+              }
+            ]}
+          />
+          {collectionsRows.length ? (
+            <DataTable
+              className="collections-table mt-4"
+              minWidth="0"
+              columns={[
+                <Link key="tenant" href={paymentsHref(params, { sort: "tenant" })} className="sort-link">Tenant</Link>,
+                <Link key="property" href={paymentsHref(params, { sort: "property" })} className="sort-link">Location</Link>,
+                <Link key="amount" href={paymentsHref(params, { sort: "amount" })} className="sort-link">Amount due</Link>,
+                "Due date",
+                <Link key="daysLate" href={paymentsHref(params, { sort: "daysLate" })} className="sort-link">Days late</Link>,
+                "Status",
+                "Quick action",
+                ""
+              ]}
+            >
+              {collectionsRows.map((row) => {
+                const status = collectionStatus(row.payment);
+                const isLate = row.daysLate > 0 || row.payment.status === "LATE";
+                return (
+                  <tr key={row.payment.id} className={`table-row ${isLate ? "row-late" : ""}`}>
+                    <td className="table-cell" style={{ position: "relative" }}>
+                      <Link href={paymentsHref(params, { charge: row.payment.id })} className="table-link font-semibold">
+                        {row.tenantLabel}
+                        <span className="mt-0.5 block truncate text-xs font-normal text-[var(--muted)]">
+                          {row.primaryTenant?.email ?? row.lease?.tenantEmail ?? row.payment.description}
+                        </span>
+                      </Link>
+                    </td>
+                    <td className="table-cell">
+                      <span className="font-medium text-[var(--text)]">{row.property?.name ?? "Unassigned"}</span>
+                      {row.unit ? (
+                        <span className="mt-0.5 block text-xs text-[var(--muted)]">Unit {row.unit.unitNumber}</span>
+                      ) : null}
+                    </td>
+                    <td className="table-cell">
+                      <span className="font-semibold tabular-nums">{formatCurrency(row.amountDue)}</span>
+                      {row.payment.lateFeeAmount ? (
+                        <span className="mt-0.5 block text-xs text-[var(--muted)]">+{formatCurrency(row.payment.lateFeeAmount)} late fee</span>
+                      ) : null}
+                    </td>
+                    <td className="table-cell text-[var(--muted)]">{formatDate(row.payment.dueDate)}</td>
+                    <td className="table-cell">
+                      {row.daysLate ? (
+                        <span className="font-semibold text-red-600">{row.daysLate}</span>
+                      ) : (
+                        <span className="text-[var(--muted)]">—</span>
+                      )}
+                    </td>
+                    <td className="table-cell"><Badge tone={status.tone}>{status.label}</Badge></td>
+                    <td className="table-cell">
+                      <Link
+                        href={`${paymentsHref(params, { create: "record", unitId: row.unit?.id, leaseId: row.lease?.id, tenantId: row.primaryTenant?.id })}#new-payment`}
+                        className="record-btn"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Record
+                      </Link>
+                    </td>
+                    <td className="table-cell text-right">
+                      <RowActionsMenu>
+                        <RowActionLink href={`${paymentsHref(params, { create: "record", unitId: row.unit?.id, leaseId: row.lease?.id, tenantId: row.primaryTenant?.id })}#new-payment`}>Record Payment</RowActionLink>
+                        <RowActionLink href={paymentsHref(params, { editPayment: row.payment.id, deletePayment: undefined, charge: undefined, payment: undefined, ledger: undefined })}>Edit Amount</RowActionLink>
+                        <RowActionLink href={`/messages?q=${encodeURIComponent(row.tenantLabel)}`}>Send Reminder</RowActionLink>
+                        {row.lease ? <RowActionLink href={`/leases/${row.lease.id}`}>View Lease</RowActionLink> : null}
+                        <RowActionLink href={`/tenants?q=${encodeURIComponent(row.tenantLabel)}`}>View Tenant</RowActionLink>
+                        <RowActionLink href={`${paymentsHref(params, { create: "charge", unitId: row.unit?.id, leaseId: row.lease?.id, tenantId: row.primaryTenant?.id })}#new-payment`}>Add Late Fee</RowActionLink>
+                        <RowActionLink href={paymentsHref(params, { deletePayment: row.payment.id, editPayment: undefined, charge: undefined, payment: undefined, ledger: undefined })} destructive>Delete</RowActionLink>
+                      </RowActionsMenu>
+                    </td>
+                  </tr>
+                );
+              })}
+            </DataTable>
+          ) : (
+            <div className="mt-4">
+              <EmptyState
+                icon={CheckCircle2}
+                title="No outstanding charges"
+                description="Every scoped charge is paid or filtered out. Create a charge when a new balance needs collecting."
               />
-              {collectionsRows.length ? (
-                <DataTable
-                  className="collections-table mt-4"
-                  minWidth="72rem"
-                  columns={[
-                    <Link key="tenant" href={paymentsHref(params, { sort: "tenant" })} className="sort-link">Tenant</Link>,
-                    <Link key="property" href={paymentsHref(params, { sort: "property" })} className="sort-link">Property</Link>,
-                    "Unit",
-                    "Charge Type",
-                    <Link key="amount" href={paymentsHref(params, { sort: "amount" })} className="sort-link">Amount Due</Link>,
-                    "Late Fees",
-                    "Due Date",
-                    <Link key="daysLate" href={paymentsHref(params, { sort: "daysLate" })} className="sort-link">Days Late</Link>,
-                    "Status",
-                    "Actions"
-                  ]}
-                >
-                  {collectionsRows.map((row) => {
-                    const status = collectionStatus(row.payment);
-                    return (
-                      <tr key={row.payment.id} className="table-row">
-                        <td className="table-cell">
-                          <Link href={paymentsHref(params, { charge: row.payment.id })} className="table-link font-semibold">
-                            {row.tenantLabel}
-                            <span className="mt-0.5 block truncate text-xs font-normal text-[var(--muted)]">{row.primaryTenant?.email ?? row.lease?.tenantEmail ?? "No email"}</span>
-                          </Link>
-                        </td>
-                        <td className="table-cell text-[var(--muted)]">{row.property?.name ?? "Unassigned"}</td>
-                        <td className="table-cell font-medium">{row.unit ? `Unit ${row.unit.unitNumber}` : "No unit"}</td>
-                        <td className="table-cell text-[var(--muted)]">{row.category}</td>
-                        <td className="table-cell font-semibold">{formatCurrency(row.amountDue)}</td>
-                        <td className="table-cell text-[var(--muted)]">{formatCurrency(row.payment.lateFeeAmount)}</td>
-                        <td className="table-cell text-[var(--muted)]">{formatDate(row.payment.dueDate)}</td>
-                        <td className="table-cell font-semibold">{row.daysLate ? row.daysLate : "-"}</td>
-                        <td className="table-cell"><Badge tone={status.tone}>{status.label}</Badge></td>
-                        <td className="table-cell text-right">
-                          <RowActionsMenu>
-                            <RowActionLink href={`${paymentsHref(params, { create: "record", unitId: row.unit?.id, leaseId: row.lease?.id, tenantId: row.primaryTenant?.id })}#new-payment`}>Record Payment</RowActionLink>
-                            <RowActionLink href={paymentsHref(params, { editPayment: row.payment.id, deletePayment: undefined, charge: undefined, payment: undefined, ledger: undefined })}>Edit Amount</RowActionLink>
-                            <RowActionLink href={`/messages?q=${encodeURIComponent(row.tenantLabel)}`}>Send Reminder</RowActionLink>
-                            {row.lease ? <RowActionLink href={`/leases/${row.lease.id}`}>View Lease</RowActionLink> : null}
-                            <RowActionLink href={`/tenants?q=${encodeURIComponent(row.tenantLabel)}`}>View Tenant</RowActionLink>
-                            <RowActionLink href={`${paymentsHref(params, { create: "charge", unitId: row.unit?.id, leaseId: row.lease?.id, tenantId: row.primaryTenant?.id })}#new-payment`}>Add Late Fee</RowActionLink>
-                            <RowActionLink href={paymentsHref(params, { deletePayment: row.payment.id, editPayment: undefined, charge: undefined, payment: undefined, ledger: undefined })} destructive>Delete Payment</RowActionLink>
-                          </RowActionsMenu>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </DataTable>
-              ) : (
-                <div className="mt-4">
-                  <EmptyState title="No outstanding charges" description="Every scoped charge is paid or filtered out. Create a charge when there is a new balance to collect." />
-                </div>
-              )}
-          </DetailSection>
-        </>
+            </div>
+          )}
+        </DetailSection>
       ) : null}
 
+      {/* ── PAYMENTS TAB ── */}
       {activeTab === "payments" ? (
         <>
-          <section className="ops-grid">
-            <StatCard label="Collected This Month" value={formatCurrency(monthPaid)} detail={`${paidRows.length} filtered records`} tone="success" />
-            <StatCard label="Collected This Year" value={formatCurrency(collectedThisYear)} detail={`${currentYear} received payments`} tone="brand" />
-            <StatCard label="Pending Stripe Transfers" value={String(pendingStripeTransferRows.length)} detail={formatCurrency(pendingStripeTransferRows.reduce((sum, row) => sum + row.amountPaid, 0))} tone={pendingStripeTransferRows.length ? "warning" : "success"} />
-            <StatCard label="Average Collection Time" value={averageCollectionTime} detail="Paid date minus due date" />
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <StatCard label="Collected this month" value={formatCurrency(monthPaid)} detail={`${paidRows.length} filtered records`} tone="success" />
+            <StatCard label="Collected YTD" value={formatCurrency(collectedThisYear)} detail={`${currentYear} received`} tone="brand" />
+            <StatCard
+              label="Avg collection time"
+              value={averageCollectionTime}
+              detail={pendingStripeTransferRows.length ? `${pendingStripeTransferRows.length} pending Stripe transfers` : "Paid date minus due date"}
+              tone={pendingStripeTransferRows.length ? "warning" : "default"}
+            />
           </section>
 
-          <DetailSection title="Payment activity" description="Completed money movement only. No open balances or collection work here.">
+          <DetailSection title="Payment activity" description="Completed money movement — every collected charge with date, method, and reference.">
             <form action="/transactions" className="finance-filter-bar">
               <input type="hidden" name="tab" value="payments" />
               <SearchInput defaultValue={params.q} placeholder="Search tenant, property, reference, or category" className="finance-filter-search" />
@@ -614,13 +740,17 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
               <input name="dateTo" type="date" defaultValue={dateTo} className="field select-compact text-sm" aria-label="Date to" />
               <select name="propertyId" defaultValue={propertyFilter} className="field select-compact text-sm" aria-label="Property">
                 <option value="all">All properties</option>
-                {portal.scope.properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+                {portal.scope.properties.map((property) => (
+                  <option key={property.id} value={property.id}>{property.name}</option>
+                ))}
               </select>
               <select name="tenantId" defaultValue={tenantFilter} className="field select-compact text-sm" aria-label="Tenant">
                 <option value="all">All tenants</option>
-                {portal.scope.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.firstName} {tenant.lastName}</option>)}
+                {portal.scope.tenants.map((tenant) => (
+                  <option key={tenant.id} value={tenant.id}>{tenant.firstName} {tenant.lastName}</option>
+                ))}
               </select>
-              <select name="method" defaultValue={methodFilter} className="field select-compact text-sm" aria-label="Payment method">
+              <select name="method" defaultValue={methodFilter} className="field select-compact text-sm" aria-label="Method">
                 <option value="all">All methods</option>
                 <option value="stripe">Stripe</option>
                 <option value="manual">Manual</option>
@@ -635,38 +765,43 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
             {paidRows.length ? (
               <DataTable
                 className="money-table mt-4"
-                minWidth="78rem"
+                minWidth="0"
                 columns={[
-                  "Date",
+                  "Date paid",
                   <Link key="tenant" href={paymentsHref(params, { sort: "tenant" })} className="sort-link">Tenant</Link>,
-                  <Link key="property" href={paymentsHref(params, { sort: "property" })} className="sort-link">Property</Link>,
-                  "Unit",
-                  "Payment Method",
+                  <Link key="property" href={paymentsHref(params, { sort: "property" })} className="sort-link">Location</Link>,
+                  "Method",
                   <Link key="amount" href={paymentsHref(params, { sort: "amount" })} className="sort-link">Amount</Link>,
                   <Link key="category" href={paymentsHref(params, { sort: "category" })} className="sort-link">Category</Link>,
-                  "Status",
-                  "Reference Number",
-                  "Actions"
+                  "Reference",
+                  ""
                 ]}
               >
                 {paidRows.map((row) => (
                   <tr key={row.payment.id} className="table-row">
                     <td className="table-cell">
-                      <Link href={paymentsHref(params, { payment: row.payment.id })} className="table-link font-semibold">{formatDateOrUnset(row.paidAt)}</Link>
+                      <Link href={paymentsHref(params, { payment: row.payment.id })} className="table-link font-semibold">
+                        {formatDateOrUnset(row.paidAt)}
+                      </Link>
                     </td>
                     <td className="table-cell text-[var(--muted)]">{row.tenantLabel}</td>
-                    <td className="table-cell text-[var(--muted)]">{row.property?.name ?? "Unassigned"}</td>
-                    <td className="table-cell font-medium">{row.unit ? `Unit ${row.unit.unitNumber}` : "No unit"}</td>
-                    <td className="table-cell text-[var(--muted)]">{row.method}</td>
-                    <td className="table-cell font-semibold">{formatCurrency(row.amountPaid)}</td>
+                    <td className="table-cell">
+                      <span className="font-medium text-[var(--text)]">{row.property?.name ?? "Unassigned"}</span>
+                      {row.unit ? (
+                        <span className="mt-0.5 block text-xs text-[var(--muted)]">Unit {row.unit.unitNumber}</span>
+                      ) : null}
+                    </td>
+                    <td className="table-cell">
+                      <Badge tone={row.method === "Stripe" ? "brand" : "default"}>{row.method}</Badge>
+                    </td>
+                    <td className="table-cell font-semibold tabular-nums">{formatCurrency(row.amountPaid)}</td>
                     <td className="table-cell text-[var(--muted)]">{row.category}</td>
-                    <td className="table-cell"><Badge tone="success">Paid</Badge></td>
                     <td className="table-cell font-mono text-xs text-[var(--muted)]">{referenceFor(row.payment)}</td>
                     <td className="table-cell text-right">
                       <RowActionsMenu>
                         <RowActionLink href={paymentsHref(params, { editPayment: row.payment.id, deletePayment: undefined, charge: undefined, payment: undefined, ledger: undefined })}>Edit Amount</RowActionLink>
                         <RowActionLink href={paymentsHref(params, { payment: row.payment.id, charge: undefined, ledger: undefined })}>View Details</RowActionLink>
-                        <RowActionLink href={paymentsHref(params, { deletePayment: row.payment.id, editPayment: undefined, charge: undefined, payment: undefined, ledger: undefined })} destructive>Delete Payment</RowActionLink>
+                        <RowActionLink href={paymentsHref(params, { deletePayment: row.payment.id, editPayment: undefined, charge: undefined, payment: undefined, ledger: undefined })} destructive>Delete</RowActionLink>
                       </RowActionsMenu>
                     </td>
                   </tr>
@@ -674,7 +809,11 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
               </DataTable>
             ) : (
               <div className="mt-4">
-                <EmptyState title="No payment activity matches" description="Completed money movement will appear here after a Stripe checkout or manual payment record is marked paid." />
+                <EmptyState
+                  icon={Banknote}
+                  title="No payment activity matches"
+                  description="Completed money movement will appear here after a Stripe checkout or manual payment is marked paid."
+                />
               </div>
             )}
           </DetailSection>
@@ -682,6 +821,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
           {createMode === "import" ? (
             <DetailSection id="import-transactions" title="Import transactions" description="Bring external payment activity into Nexus for reconciliation.">
               <EmptyState
+                icon={Upload}
                 title="Transaction import is ready for a connector"
                 description="Use the export tools today. This placeholder keeps the workflow visible without mixing import setup into the collections queue."
                 action={<Button variant="secondary" disabled><Upload className="h-4 w-4" /> Import CSV</Button>}
@@ -691,13 +831,14 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
         </>
       ) : null}
 
+      {/* ── ACCOUNTING TAB ── */}
       {activeTab === "accounting" ? (
         <>
-          <section className="ops-grid">
-            <StatCard label="Rent Income YTD" value={formatCurrency(rentIncomeYtd)} detail={`${selectedYear} rental income`} tone="success" />
-            <StatCard label="Deposits Held" value={formatCurrency(depositsHeld)} detail="Security deposit liability" tone="brand" />
-            <StatCard label="Late Fees Collected" value={formatCurrency(lateFeesCollected)} detail="Fee income" tone="warning" />
-            <StatCard label="Other Income" value={formatCurrency(otherIncome)} detail="Fees and reimbursements" />
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Rent income YTD" value={formatCurrency(rentIncomeYtd)} detail={`${selectedYear} rental income`} tone="success" />
+            <StatCard label="Deposits held" value={formatCurrency(depositsHeld)} detail="Security deposit liability" tone="brand" />
+            <StatCard label="Late fees" value={formatCurrency(lateFeesCollected)} detail="Fee income collected" tone={lateFeesCollected > 0 ? "warning" : "default"} />
+            <StatCard label="Other income" value={formatCurrency(otherIncome)} detail="Fees and reimbursements" />
           </section>
 
           <div className="payments-main-grid">
@@ -705,9 +846,17 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
               title="Accounting ledger"
               description="Tax and bookkeeping view of paid income by category, property, and classification."
               actions={
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
                   {[currentYear, currentYear - 1, currentYear - 2].map((year) => (
-                    <Link key={year} href={paymentsHref(params, { tab: "accounting", year: String(year), ledger: undefined })} className={`rounded-md border px-2.5 py-2 text-xs font-semibold ${selectedYear === year ? "border-[var(--brand)] bg-[var(--accent-soft)] text-[var(--brand)]" : "border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)]"}`}>
+                    <Link
+                      key={year}
+                      href={paymentsHref(params, { tab: "accounting", year: String(year), ledger: undefined })}
+                      className={`rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ${
+                        selectedYear === year
+                          ? "border-[var(--brand)] bg-[var(--accent-soft)] text-[var(--brand)]"
+                          : "border-[var(--line)] text-[var(--muted)] hover:border-[var(--line-strong)] hover:bg-[var(--surface-hover)]"
+                      }`}
+                    >
                       {year}
                     </Link>
                   ))}
@@ -720,7 +869,9 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                 <SearchInput defaultValue={params.q} placeholder="Search description, property, or category" className="finance-filter-search" />
                 <select name="propertyId" defaultValue={propertyFilter} className="field select-compact text-sm" aria-label="Property">
                   <option value="all">All properties</option>
-                  {portal.scope.properties.map((property) => <option key={property.id} value={property.id}>{property.name}</option>)}
+                  {portal.scope.properties.map((property) => (
+                    <option key={property.id} value={property.id}>{property.name}</option>
+                  ))}
                 </select>
                 <select name="category" defaultValue={categoryFilter} className="field select-compact text-sm" aria-label="Category">
                   <option value="all">All categories</option>
@@ -730,27 +881,32 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                 </select>
                 <Button type="submit" variant="secondary" className="button-compact px-3">Apply</Button>
               </form>
+
               {accountingRows.length ? (
                 <DataTable
                   className="accounting-table mt-4"
-                  minWidth="64rem"
-                  columns={["Date", "Category", "Description", "Property", "Amount", "Tax Classification", "Actions"]}
+                  minWidth="0"
+                  columns={["Date", "Category", "Description", "Property", "Amount", "Tax classification", ""]}
                 >
                   {accountingRows.map((row) => (
                     <tr key={row.payment.id} className="table-row">
                       <td className="table-cell">
-                        <Link href={paymentsHref(params, { ledger: row.payment.id })} className="table-link font-semibold">{formatDateOrUnset(row.paidAt)}</Link>
+                        <Link href={paymentsHref(params, { ledger: row.payment.id })} className="table-link font-semibold">
+                          {formatDateOrUnset(row.paidAt)}
+                        </Link>
                       </td>
-                      <td className="table-cell"><Badge tone={row.category === "Deposit" ? "warning" : "default"}>{row.category}</Badge></td>
+                      <td className="table-cell">
+                        <Badge tone={row.category === "Deposit" ? "warning" : "default"}>{row.category}</Badge>
+                      </td>
                       <td className="table-cell text-[var(--muted)]">{row.payment.description}</td>
                       <td className="table-cell text-[var(--muted)]">{row.property?.name ?? "Unassigned"}</td>
-                      <td className="table-cell font-semibold">{formatCurrency(row.amountPaid)}</td>
+                      <td className="table-cell font-semibold tabular-nums">{formatCurrency(row.amountPaid)}</td>
                       <td className="table-cell text-[var(--muted)]">{row.taxClassification}</td>
                       <td className="table-cell text-right">
                         <RowActionsMenu>
                           <RowActionLink href={paymentsHref(params, { editPayment: row.payment.id, deletePayment: undefined, charge: undefined, payment: undefined, ledger: undefined })}>Edit Amount</RowActionLink>
-                          <RowActionLink href={paymentsHref(params, { ledger: row.payment.id, charge: undefined, payment: undefined })}>View Ledger</RowActionLink>
-                          <RowActionLink href={paymentsHref(params, { deletePayment: row.payment.id, editPayment: undefined, charge: undefined, payment: undefined, ledger: undefined })} destructive>Delete Payment</RowActionLink>
+                          <RowActionLink href={paymentsHref(params, { ledger: row.payment.id, charge: undefined, payment: undefined })}>View Record</RowActionLink>
+                          <RowActionLink href={paymentsHref(params, { deletePayment: row.payment.id, editPayment: undefined, charge: undefined, payment: undefined, ledger: undefined })} destructive>Delete</RowActionLink>
                         </RowActionsMenu>
                       </td>
                     </tr>
@@ -758,24 +914,52 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                 </DataTable>
               ) : (
                 <div className="mt-4">
-                  <EmptyState title="No accounting records match" description="Paid income for the selected year and filters will appear here." />
+                  <EmptyState
+                    icon={BookOpenCheck}
+                    title="No accounting records match"
+                    description="Paid income for the selected year and filters will appear here."
+                  />
                 </div>
               )}
             </DetailSection>
 
-            <DetailSection title="Exports" description="Download clean financial files for bookkeeping and tax preparation.">
+            <DetailSection title="Export" description="Download clean financial files for bookkeeping and tax preparation.">
               <div className="grid gap-2">
-                <Link href={`/api/export/financials?format=csv&year=${selectedYear}`} className="export-action">
-                  <Download className="h-4 w-4" />
-                  Export CSV
+                <Link href={`/api/export/financials?format=csv&year=${selectedYear}`} className="export-card">
+                  <div className="export-card-icon">
+                    <Download className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="export-card-title">Export CSV</p>
+                    <p className="export-card-desc">Plain text — works with any spreadsheet or accounting tool</p>
+                  </div>
                 </Link>
-                <Link href={`/api/export/financials?format=xlsx&year=${selectedYear}`} className="export-action">
-                  <FileSpreadsheet className="h-4 w-4" />
-                  Export Excel
+                <Link href={`/api/export/financials?format=xlsx&year=${selectedYear}`} className="export-card">
+                  <div className="export-card-icon">
+                    <FileSpreadsheet className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="export-card-title">Export Excel</p>
+                    <p className="export-card-desc">Formatted workbook with category grouping and totals</p>
+                  </div>
                 </Link>
-                <Link href={`/api/export/financials?format=csv&report=tax&year=${selectedYear}`} className="export-action">
-                  <CalendarClock className="h-4 w-4" />
-                  Export Tax Report
+                <Link href={`/api/export/financials?format=csv&report=tax&year=${selectedYear}`} className="export-card">
+                  <div className="export-card-icon">
+                    <CalendarClock className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="export-card-title">Tax report</p>
+                    <p className="export-card-desc">Schedule E classifications for {selectedYear} tax filing</p>
+                  </div>
+                </Link>
+                <Link href={`/api/export/financials?format=csv&report=rent-roll&year=${selectedYear}`} className="export-card">
+                  <div className="export-card-icon">
+                    <TrendingUp className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="export-card-title">Rent roll</p>
+                    <p className="export-card-desc">Unit-by-unit income summary for lenders and auditors</p>
+                  </div>
                 </Link>
               </div>
             </DetailSection>
@@ -783,66 +967,109 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
         </>
       ) : null}
 
+      {/* ── CREATE FORM ── */}
       {createMode && createMode !== "import" ? (
         <DetailSection
           id="new-payment"
           title={createMode === "record" ? "Record payment" : createMode === "request" ? "Send payment request" : "Create charge"}
-          description="Create one clean ledger item. Paid records flow to Payments and Accounting; open charges flow to Collections."
+          description="One clean ledger item. Paid records flow to Payments and Accounting; open charges flow to Collections."
         >
           {portal.scope.units.length && portal.scope.tenants.length ? (
-            <form action={createPaymentAction} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <form action={createPaymentAction} className="grid gap-5 lg:grid-cols-2">
               <div className="space-y-4">
-                <select name="unitId" defaultValue={selectedUnitId} className="field" required>
-                  <option value="" disabled>Select unit</option>
-                  {portal.scope.units.map((unit) => {
-                    const property = portal.scope.properties.find((item) => item.id === unit.propertyId);
-                    return <option key={unit.id} value={unit.id}>{property?.name} - Unit {unit.unitNumber}</option>;
-                  })}
-                </select>
-                <select name="leaseId" defaultValue={selectedLeaseId} className="field">
-                  <option value="">Auto-link active lease for unit</option>
-                  {portal.scope.leases.map((lease) => {
-                    const unit = portal.scope.units.find((item) => item.id === lease.unitId);
-                    const tenant = portal.scope.tenants.find((item) => lease.tenantIds.includes(item.id));
-                    return (
-                      <option key={lease.id} value={lease.id}>
-                        {lease.nexusLeaseId ?? lease.id} - Unit {unit?.unitNumber ?? "unassigned"} {tenant ? `- ${tenant.firstName} ${tenant.lastName}` : ""}
-                      </option>
-                    );
-                  })}
-                </select>
-                <select name="tenantId" defaultValue={selectedTenantId} className="field" required>
-                  <option value="" disabled>Select tenant</option>
-                  {portal.scope.tenants.map((tenant) => (
-                    <option key={tenant.id} value={tenant.id}>
-                      {tenant.lastName}, {tenant.firstName}{tenant.email ? ` - ${tenant.email}` : ""}
-                    </option>
-                  ))}
-                </select>
-                <input name="description" placeholder={createMode === "charge" ? "Charge description" : "Payment description"} className="field" required />
-                <select name="categoryTag" defaultValue={createMode === "charge" ? "Rent" : "Rent"} className="field">
-                  {["Rent", "Deposit", "Late Fee", "Pet Fee", "Parking", "Utility Reimbursement", "Application Fee", "Other"].map((category) => (
-                    <option key={category} value={category}>{category}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-4">
-                <div className="form-grid-2">
-                  <input name="amount" type="number" step="0.01" placeholder="Amount" className="field" required />
-                  <input name="dueDate" type="date" className="field" required />
-                </div>
-                <div className="form-grid-2">
-                  <input name="paidDate" type="date" className="field" />
-                  <select name="status" className="field" defaultValue={createMode === "record" ? "PAID" : "PENDING"}>
-                    <option value="PENDING">Pending</option>
-                    <option value="PAID">Paid</option>
-                    <option value="PARTIAL">Partial</option>
-                    <option value="LATE">Late</option>
+                <div>
+                  <label className="field-label">Unit</label>
+                  <select name="unitId" defaultValue={selectedUnitId} className="field" required>
+                    <option value="" disabled>Select unit</option>
+                    {portal.scope.units.map((unit) => {
+                      const property = portal.scope.properties.find((item) => item.id === unit.propertyId);
+                      return (
+                        <option key={unit.id} value={unit.id}>
+                          {property?.name} — Unit {unit.unitNumber}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
-                <div className="form-grid-2">
-                  <input name="lateFeeAmount" type="number" step="0.01" placeholder="Late fee" className="field" />
-                  <input name="balanceDue" type="number" step="0.01" placeholder="Balance due" className="field" />
+                <div>
+                  <label className="field-label">Lease (optional)</label>
+                  <select name="leaseId" defaultValue={selectedLeaseId} className="field">
+                    <option value="">Auto-link active lease for unit</option>
+                    {portal.scope.leases.map((lease) => {
+                      const unit = portal.scope.units.find((item) => item.id === lease.unitId);
+                      const tenant = portal.scope.tenants.find((item) => lease.tenantIds.includes(item.id));
+                      return (
+                        <option key={lease.id} value={lease.id}>
+                          {lease.nexusLeaseId ?? lease.id} — Unit {unit?.unitNumber ?? "unassigned"}{tenant ? ` — ${tenant.firstName} ${tenant.lastName}` : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+                <div>
+                  <label className="field-label">Tenant</label>
+                  <select name="tenantId" defaultValue={selectedTenantId} className="field" required>
+                    <option value="" disabled>Select tenant</option>
+                    {portal.scope.tenants.map((tenant) => (
+                      <option key={tenant.id} value={tenant.id}>
+                        {tenant.lastName}, {tenant.firstName}{tenant.email ? ` — ${tenant.email}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="field-label">Description</label>
+                  <input
+                    name="description"
+                    placeholder={createMode === "charge" ? "e.g. August rent, Late fee" : "Payment description"}
+                    className="field"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="field-label">Category</label>
+                  <select name="categoryTag" defaultValue="Rent" className="field">
+                    {["Rent", "Deposit", "Late Fee", "Pet Fee", "Parking", "Utility Reimbursement", "Application Fee", "Other"].map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="field-label">Amount</label>
+                    <input name="amount" type="number" step="0.01" min="0" placeholder="0.00" className="field" required />
+                  </div>
+                  <div>
+                    <label className="field-label">Due date</label>
+                    <input name="dueDate" type="date" className="field" required />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="field-label">Paid date</label>
+                    <input name="paidDate" type="date" className="field" />
+                  </div>
+                  <div>
+                    <label className="field-label">Status</label>
+                    <select name="status" className="field" defaultValue={createMode === "record" ? "PAID" : "PENDING"}>
+                      <option value="PENDING">Pending</option>
+                      <option value="PAID">Paid</option>
+                      <option value="PARTIAL">Partial</option>
+                      <option value="LATE">Late</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="field-label">Late fee</label>
+                    <input name="lateFeeAmount" type="number" step="0.01" min="0" placeholder="0.00" className="field" />
+                  </div>
+                  <div>
+                    <label className="field-label">Balance due override</label>
+                    <input name="balanceDue" type="number" step="0.01" min="0" placeholder="Leave blank to auto-calculate" className="field" />
+                  </div>
                 </div>
                 <SubmitButton>
                   <Send className="h-4 w-4" />
@@ -852,21 +1079,30 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
             </form>
           ) : (
             <EmptyState
-              title={portal.scope.units.length ? "Create a tenant before adding financial activity" : "Create a unit before adding financial activity"}
+              icon={Building2}
+              title={portal.scope.units.length ? "Create a tenant first" : "Create a unit first"}
               description="Nexus links every charge and payment to a tenant, unit, property, and lease context when available."
             />
           )}
         </DetailSection>
       ) : null}
 
+      {/* ── DRAWER BACKDROP ── */}
+      {hasOpenDrawer ? (
+        <Link href={closeAllDrawers} className="drawer-backdrop" aria-hidden="true" tabIndex={-1} />
+      ) : null}
+
+      {/* ── EDIT DRAWER ── */}
       {selectedEditPayment ? (
-        <aside className="workflow-drawer" aria-label="Edit payment drawer">
+        <aside className="workflow-drawer" aria-label="Edit payment">
           <div className="workflow-drawer-header">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">Edit Payment</p>
-              <h2 className="mt-1 truncate text-lg font-semibold">{selectedEditPayment.tenantLabel}</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--brand)]">Edit payment</p>
+              <h2 className="mt-1 truncate text-base font-semibold">{selectedEditPayment.tenantLabel}</h2>
             </div>
-            <Link href={paymentMutationReturnHref} className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)]">Close</Link>
+            <Link href={paymentMutationReturnHref} className="drawer-close-btn" aria-label="Close">
+              <X className="h-4 w-4" />
+            </Link>
           </div>
           <div className="workflow-drawer-body">
             <div className="drawer-grid">
@@ -878,32 +1114,39 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
             <form action={updatePaymentAction} className="space-y-4">
               <input type="hidden" name="paymentId" value={selectedEditPayment.payment.id} />
               <input type="hidden" name="returnTo" value={paymentMutationReturnHref} />
-              <label className="block space-y-2 text-sm font-semibold text-[var(--text)]">
-                <span>Amount</span>
+              <div>
+                <label className="field-label">Amount</label>
                 <input
                   name="amount"
                   type="number"
                   step="0.01"
                   min="0"
-                  defaultValue={String(selectedEditPayment.payment.status === "PAID" ? selectedEditPayment.amountPaid : selectedEditPayment.payment.amount)}
+                  defaultValue={String(
+                    selectedEditPayment.payment.status === "PAID"
+                      ? selectedEditPayment.amountPaid
+                      : selectedEditPayment.payment.amount
+                  )}
                   className="field"
                   required
                 />
-              </label>
-              <SubmitButton pendingLabel="Updating payment...">Update Payment</SubmitButton>
+              </div>
+              <SubmitButton pendingLabel="Updating…">Update payment</SubmitButton>
             </form>
           </div>
         </aside>
       ) : null}
 
+      {/* ── DELETE DRAWER ── */}
       {selectedDeletePayment ? (
-        <aside className="workflow-drawer" aria-label="Delete payment drawer">
+        <aside className="workflow-drawer" aria-label="Delete payment">
           <div className="workflow-drawer-header">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">Delete Payment</p>
-              <h2 className="mt-1 truncate text-lg font-semibold">{selectedDeletePayment.tenantLabel}</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-red-700">Delete payment</p>
+              <h2 className="mt-1 truncate text-base font-semibold">{selectedDeletePayment.tenantLabel}</h2>
             </div>
-            <Link href={paymentMutationReturnHref} className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)]">Close</Link>
+            <Link href={paymentMutationReturnHref} className="drawer-close-btn" aria-label="Close">
+              <X className="h-4 w-4" />
+            </Link>
           </div>
           <div className="workflow-drawer-body">
             <div className="drawer-total">
@@ -913,24 +1156,27 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
             <form action={deletePaymentAction} className="space-y-4">
               <input type="hidden" name="paymentId" value={selectedDeletePayment.payment.id} />
               <input type="hidden" name="returnTo" value={paymentMutationReturnHref} />
-              <label className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
-                <input type="checkbox" name="confirmDelete" value="yes" required className="mt-1 h-4 w-4 rounded border-red-300" />
-                <span>Delete this payment record permanently.</span>
+              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+                <input type="checkbox" name="confirmDelete" value="yes" required className="mt-0.5 h-4 w-4 rounded border-red-300 accent-red-600" />
+                <span>I confirm: delete this payment record permanently.</span>
               </label>
-              <SubmitButton variant="danger" pendingLabel="Deleting payment...">Delete Payment</SubmitButton>
+              <SubmitButton variant="danger" pendingLabel="Deleting…">Delete payment</SubmitButton>
             </form>
           </div>
         </aside>
       ) : null}
 
+      {/* ── COLLECTIONS DETAIL DRAWER ── */}
       {selectedCollection ? (
-        <aside className="workflow-drawer" aria-label="Collections detail drawer">
+        <aside className="workflow-drawer" aria-label="Collections detail">
           <div className="workflow-drawer-header">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">Collections Detail</p>
-              <h2 className="mt-1 truncate text-lg font-semibold">{selectedCollection.tenantLabel}</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--brand)]">Collection detail</p>
+              <h2 className="mt-1 truncate text-base font-semibold">{selectedCollection.tenantLabel}</h2>
             </div>
-            <Link href={paymentsHref(params, { charge: undefined })} className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)]">Close</Link>
+            <Link href={paymentsHref(params, { charge: undefined })} className="drawer-close-btn" aria-label="Close">
+              <X className="h-4 w-4" />
+            </Link>
           </div>
           <div className="workflow-drawer-body">
             <div className="drawer-total">
@@ -941,25 +1187,38 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
               <div><span>Lease</span><strong>{selectedCollection.lease?.nexusLeaseId ?? selectedCollection.lease?.id ?? "No lease"}</strong></div>
               <div><span>Unit</span><strong>{selectedCollection.unit?.unitNumber ?? "No unit"}</strong></div>
               <div><span>Due date</span><strong>{formatDate(selectedCollection.payment.dueDate)}</strong></div>
-              <div><span>Days late</span><strong>{selectedCollection.daysLate || 0}</strong></div>
+              <div><span>Days late</span><strong>{selectedCollection.daysLate || "0"}</strong></div>
             </div>
-            <DetailSection title="Balance breakdown">
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span>Original charge</span><strong>{formatCurrency(selectedCollection.payment.amount)}</strong></div>
-                <div className="flex justify-between"><span>Late fees</span><strong>{formatCurrency(selectedCollection.payment.lateFeeAmount)}</strong></div>
-                <div className="flex justify-between"><span>Open balance</span><strong>{formatCurrency(selectedCollection.amountDue)}</strong></div>
+
+            <div>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">Balance breakdown</p>
+              <div className="space-y-1.5 rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-[var(--muted)]">Original charge</span>
+                  <strong className="tabular-nums">{formatCurrency(selectedCollection.payment.amount)}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--muted)]">Late fees</span>
+                  <strong className="tabular-nums">{formatCurrency(selectedCollection.payment.lateFeeAmount)}</strong>
+                </div>
+                <div className="flex justify-between border-t border-[var(--line)] pt-1.5">
+                  <span className="font-semibold">Open balance</span>
+                  <strong className="tabular-nums text-[var(--brand)]">{formatCurrency(selectedCollection.amountDue)}</strong>
+                </div>
               </div>
-            </DetailSection>
-            <DetailSection title="Payment history">
-              <div className="space-y-2">
+            </div>
+
+            <div>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">Recent payments</p>
+              <div className="space-y-1.5">
                 {rows.filter((row) =>
                   row.payment.status === "PAID" &&
                   row.lease?.id === selectedCollection.lease?.id &&
                   (!selectedCollection.primaryTenant || row.primaryTenant?.id === selectedCollection.primaryTenant.id)
                 ).slice(0, 4).map((row) => (
                   <div key={row.payment.id} className="flex justify-between rounded-md border border-[var(--line)] px-3 py-2 text-sm">
-                    <span>{formatDateOrUnset(row.paidAt)}</span>
-                    <strong>{formatCurrency(row.amountPaid)}</strong>
+                    <span className="text-[var(--muted)]">{formatDateOrUnset(row.paidAt)}</span>
+                    <strong className="tabular-nums">{formatCurrency(row.amountPaid)}</strong>
                   </div>
                 ))}
                 {!rows.some((row) =>
@@ -967,94 +1226,141 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                   row.lease?.id === selectedCollection.lease?.id &&
                   (!selectedCollection.primaryTenant || row.primaryTenant?.id === selectedCollection.primaryTenant.id)
                 ) ? (
-                  <p className="text-sm text-[var(--muted)]">No linked paid history for this lease yet.</p>
+                  <p className="text-xs text-[var(--muted)]">No linked paid history for this lease yet.</p>
                 ) : null}
               </div>
-            </DetailSection>
-            <DetailSection title="Notes and communication">
-              <div className="space-y-2 text-sm text-[var(--muted)]">
-                <p>{selectedCollection.payment.description}</p>
-                <p>Last system activity: {formatDate(selectedCollection.payment.updatedAt)}</p>
+            </div>
+
+            <div>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">Actions</p>
+              <div className="grid gap-1.5">
+                <Link href={`${paymentsHref(params, { create: "record", unitId: selectedCollection.unit?.id, leaseId: selectedCollection.lease?.id, tenantId: selectedCollection.primaryTenant?.id })}#new-payment`} className="drawer-action">
+                  <ArrowRight className="h-3.5 w-3.5 text-[var(--brand)]" />
+                  Record payment
+                </Link>
+                <Link href={paymentsHref(params, { editPayment: selectedCollection.payment.id, deletePayment: undefined, charge: undefined })} className="drawer-action">
+                  <ArrowRight className="h-3.5 w-3.5 text-[var(--brand)]" />
+                  Edit amount
+                </Link>
+                <Link href={`/messages?q=${encodeURIComponent(selectedCollection.tenantLabel)}`} className="drawer-action">
+                  <ArrowRight className="h-3.5 w-3.5 text-[var(--brand)]" />
+                  Send reminder
+                </Link>
+                {selectedCollection.lease ? (
+                  <Link href={`/leases/${selectedCollection.lease.id}`} className="drawer-action">
+                    <ArrowRight className="h-3.5 w-3.5 text-[var(--brand)]" />
+                    View lease
+                  </Link>
+                ) : null}
+                <Link href={`/tenants?q=${encodeURIComponent(selectedCollection.tenantLabel)}`} className="drawer-action">
+                  <ArrowRight className="h-3.5 w-3.5 text-[var(--brand)]" />
+                  View tenant
+                </Link>
+                <Link href={paymentsHref(params, { deletePayment: selectedCollection.payment.id, editPayment: undefined, charge: undefined })} className="drawer-action drawer-action-danger">
+                  Delete payment
+                </Link>
               </div>
-            </DetailSection>
-            <DetailSection title="Collection actions">
-              <div className="grid gap-2">
-                <Link href={`${paymentsHref(params, { create: "record", unitId: selectedCollection.unit?.id, leaseId: selectedCollection.lease?.id, tenantId: selectedCollection.primaryTenant?.id })}#new-payment`} className="export-action">Record Payment</Link>
-                <Link href={paymentsHref(params, { editPayment: selectedCollection.payment.id, deletePayment: undefined, charge: undefined })} className="export-action">Edit Amount</Link>
-                <Link href={`/messages?q=${encodeURIComponent(selectedCollection.tenantLabel)}`} className="export-action">Send Reminder</Link>
-                {selectedCollection.lease ? <Link href={`/leases/${selectedCollection.lease.id}`} className="export-action">View Lease</Link> : null}
-                <Link href={`/tenants?q=${encodeURIComponent(selectedCollection.tenantLabel)}`} className="export-action">View Tenant</Link>
-                <Link href={paymentsHref(params, { deletePayment: selectedCollection.payment.id, editPayment: undefined, charge: undefined })} className="export-action text-red-700">Delete Payment</Link>
-              </div>
-            </DetailSection>
+            </div>
           </div>
         </aside>
       ) : null}
 
+      {/* ── PAYMENT DETAIL DRAWER ── */}
       {selectedPayment ? (
-        <aside className="workflow-drawer" aria-label="Payment detail drawer">
+        <aside className="workflow-drawer" aria-label="Payment details">
           <div className="workflow-drawer-header">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">Payment Details</p>
-              <h2 className="mt-1 truncate text-lg font-semibold">{formatCurrency(selectedPayment.amountPaid)}</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--brand)]">Payment details</p>
+              <h2 className="mt-1 truncate text-base font-semibold">{formatCurrency(selectedPayment.amountPaid)}</h2>
             </div>
-            <Link href={paymentsHref(params, { payment: undefined })} className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)]">Close</Link>
+            <Link href={paymentsHref(params, { payment: undefined })} className="drawer-close-btn" aria-label="Close">
+              <X className="h-4 w-4" />
+            </Link>
           </div>
           <div className="workflow-drawer-body">
             <div className="drawer-grid">
-              <div><span>Date</span><strong>{formatDateOrUnset(selectedPayment.paidAt)}</strong></div>
+              <div><span>Date paid</span><strong>{formatDateOrUnset(selectedPayment.paidAt)}</strong></div>
               <div><span>Method</span><strong>{selectedPayment.method}</strong></div>
               <div><span>Reference</span><strong>{referenceFor(selectedPayment.payment)}</strong></div>
               <div><span>Tax category</span><strong>{selectedPayment.category}</strong></div>
             </div>
-            <DetailSection title="Linked lease">
+
+            <div>
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">Linked lease</p>
               <p className="text-sm text-[var(--muted)]">{selectedPayment.lease?.nexusLeaseId ?? selectedPayment.lease?.id ?? "No linked lease"}</p>
-            </DetailSection>
-            <DetailSection title="Stripe transaction">
-              <p className="break-all font-mono text-xs text-[var(--muted)]">{selectedPayment.payment.stripePaymentIntentId ?? selectedPayment.payment.stripeCheckoutSessionId ?? "Manual payment"}</p>
-            </DetailSection>
-            <DetailSection title="Notes">
-              <p className="text-sm text-[var(--muted)]">{selectedPayment.payment.description}</p>
-            </DetailSection>
-            <DetailSection title="Actions">
-              <div className="grid gap-2">
-                <Link href={paymentsHref(params, { editPayment: selectedPayment.payment.id, deletePayment: undefined, payment: undefined })} className="export-action">Edit Amount</Link>
-                <Link href={paymentsHref(params, { deletePayment: selectedPayment.payment.id, editPayment: undefined, payment: undefined })} className="export-action text-red-700">Delete Payment</Link>
+            </div>
+
+            <div>
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">Stripe transaction</p>
+              <p className="break-all rounded-md border border-[var(--line)] bg-[var(--surface)] px-2.5 py-2 font-mono text-xs text-[var(--muted)]">
+                {selectedPayment.payment.stripePaymentIntentId ?? selectedPayment.payment.stripeCheckoutSessionId ?? "Manual payment — no Stripe reference"}
+              </p>
+            </div>
+
+            {selectedPayment.payment.description ? (
+              <div>
+                <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">Notes</p>
+                <p className="text-sm text-[var(--muted)]">{selectedPayment.payment.description}</p>
               </div>
-            </DetailSection>
+            ) : null}
+
+            <div>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">Actions</p>
+              <div className="grid gap-1.5">
+                <Link href={paymentsHref(params, { editPayment: selectedPayment.payment.id, deletePayment: undefined, payment: undefined })} className="drawer-action">
+                  <ArrowRight className="h-3.5 w-3.5 text-[var(--brand)]" />
+                  Edit amount
+                </Link>
+                <Link href={paymentsHref(params, { deletePayment: selectedPayment.payment.id, editPayment: undefined, payment: undefined })} className="drawer-action drawer-action-danger">
+                  Delete payment
+                </Link>
+              </div>
+            </div>
           </div>
         </aside>
       ) : null}
 
+      {/* ── ACCOUNTING RECORD DRAWER ── */}
       {selectedLedger ? (
-        <aside className="workflow-drawer" aria-label="Accounting detail drawer">
+        <aside className="workflow-drawer" aria-label="Accounting record">
           <div className="workflow-drawer-header">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">Accounting Record</p>
-              <h2 className="mt-1 truncate text-lg font-semibold">{selectedLedger.category}</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--brand)]">Accounting record</p>
+              <h2 className="mt-1 truncate text-base font-semibold">{selectedLedger.category}</h2>
             </div>
-            <Link href={paymentsHref(params, { ledger: undefined })} className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)]">Close</Link>
+            <Link href={paymentsHref(params, { ledger: undefined })} className="drawer-close-btn" aria-label="Close">
+              <X className="h-4 w-4" />
+            </Link>
           </div>
           <div className="workflow-drawer-body">
             <div className="drawer-total">
               <span>{selectedLedger.taxClassification}</span>
-              <strong>{formatCurrency(selectedLedger.amountPaid)}</strong>
+              <strong className="tabular-nums">{formatCurrency(selectedLedger.amountPaid)}</strong>
             </div>
             <div className="drawer-grid">
               <div><span>Date</span><strong>{formatDateOrUnset(selectedLedger.paidAt)}</strong></div>
               <div><span>Property</span><strong>{selectedLedger.property?.name ?? "Unassigned"}</strong></div>
-              <div><span>Unit</span><strong>{selectedLedger.unit?.unitNumber ?? "No unit"}</strong></div>
+              <div><span>Unit</span><strong>{selectedLedger.unit?.unitNumber ?? "—"}</strong></div>
               <div><span>Reference</span><strong>{referenceFor(selectedLedger.payment)}</strong></div>
             </div>
-            <DetailSection title="Actions">
-              <div className="grid gap-2">
-                <Link href={paymentsHref(params, { editPayment: selectedLedger.payment.id, deletePayment: undefined, ledger: undefined })} className="export-action">Edit Amount</Link>
-                <Link href={paymentsHref(params, { deletePayment: selectedLedger.payment.id, editPayment: undefined, ledger: undefined })} className="export-action text-red-700">Delete Payment</Link>
+
+            <div>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">Actions</p>
+              <div className="grid gap-1.5">
+                <Link href={paymentsHref(params, { editPayment: selectedLedger.payment.id, deletePayment: undefined, ledger: undefined })} className="drawer-action">
+                  <ArrowRight className="h-3.5 w-3.5 text-[var(--brand)]" />
+                  Edit amount
+                </Link>
+                <Link href={paymentsHref(params, { deletePayment: selectedLedger.payment.id, editPayment: undefined, ledger: undefined })} className="drawer-action drawer-action-danger">
+                  Delete record
+                </Link>
               </div>
-            </DetailSection>
+            </div>
           </div>
         </aside>
       ) : null}
+
+      <PaymentCalendar events={portal.calendar} defaultCollapsed />
     </div>
   );
 }

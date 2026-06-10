@@ -7,6 +7,7 @@ import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PhotoCarousel } from "@/components/photo-carousel";
 import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
@@ -81,8 +82,8 @@ export default async function PropertyDetailPage({
   const imageTimestamp = (value: unknown) => (value instanceof Date ? value.toISOString() : String(value));
   const propertyImages = [...(property.files ?? [])]
     .filter((file: any) => file.kind === "PROPERTY_IMAGE" && isAllowedStoredAssetPath(file.path, { allowDemo: true }))
-    .sort((a: any, b: any) => imageTimestamp(b.createdAt).localeCompare(imageTimestamp(a.createdAt)));
-  const coverImage = propertyImages[0];
+    .sort((a: any, b: any) => imageTimestamp(b.createdAt).localeCompare(imageTimestamp(a.createdAt)))
+    .slice(0, 20);
   const documents = portal.scope.files
     .filter((file) => {
       if (!isAllowedStoredAssetPath(file.path, { allowDemo: true })) return false;
@@ -128,20 +129,13 @@ export default async function PropertyDetailPage({
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(420px,1.1fr)]">
         <div className="surface-panel overflow-hidden">
-          {coverImage ? (
-            <img src={coverImage.path} alt={coverImage.label ?? `${property.name} property photo`} className="h-72 w-full object-cover" />
+          {propertyImages.length ? (
+            <PhotoCarousel photos={propertyImages} />
           ) : (
             <div className="flex h-72 items-center justify-center bg-[var(--surface)] text-[var(--muted)]">
               <Building2 className="h-10 w-10" />
             </div>
           )}
-          {propertyImages.length > 1 ? (
-            <div className="grid grid-cols-4 gap-2 border-t border-[var(--line)] p-2">
-              {propertyImages.slice(1, 5).map((file: any) => (
-                <img key={file.id} src={file.path} alt={file.label ?? `${property.name} property photo`} className="aspect-video rounded-md object-cover" />
-              ))}
-            </div>
-          ) : null}
         </div>
 
         <DetailSection title="Property summary" description={property.description || "No property description has been added."}>
@@ -353,7 +347,7 @@ export default async function PropertyDetailPage({
       <section className="ops-split">
         <DetailSection id="edit" title="Edit property" description="Update details, address, amenities, internal notes, manager, and photos.">
           {query.error ? (
-            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="page-alert page-alert-warning mb-4">
               {query.error === "invalid-address"
                 ? "Enter a complete property address with street, city, state, ZIP or postal code, and country."
                 : "Review the property details and try again."}
@@ -376,7 +370,7 @@ export default async function PropertyDetailPage({
                 ))}
               </select>
             ) : null}
-            <MultiUploadInput name="imagePaths" label="Add property photos" accept="image/*" />
+            <MultiUploadInput name="imagePaths" label="Add property photos — up to 20 total" accept="image/*" />
             <SubmitButton>Save changes</SubmitButton>
           </form>
         </DetailSection>
@@ -384,7 +378,7 @@ export default async function PropertyDetailPage({
         <div className="space-y-4">
           <DetailSection id="add-unit" title="Add unit" description="Create a unit under this property.">
             {query.error === "duplicate-unit" ? (
-              <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <div className="page-alert page-alert-warning mb-4">
                 A unit with that number already exists in this property. Use a different unit number.
               </div>
             ) : null}

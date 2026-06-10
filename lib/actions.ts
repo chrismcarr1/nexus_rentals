@@ -29,7 +29,7 @@ import { sendDiscussionMessage } from "@/lib/discussions";
 import { sendPasswordResetEmail } from "@/lib/email";
 import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmittedAssetPath } from "@/lib/file-security";
 import { ensureLeaseConnectionIntegrity, getUnitAvailableStartDate, isActiveLeaseStatus, leaseBlocksNewMoveIn, leaseCanResumeMoveIn } from "@/lib/lease-connections";
-import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
+import { ensureScheduledLeasePayments, formatLateFeePolicy } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { formatPhoneNumber } from "@/lib/phone";
 import { recordPlatformEvent } from "@/lib/platform-events";
@@ -77,6 +77,21 @@ function hasId(items: Array<{ id: string }>, id?: string | null) {
 function getTransactionsReturnPath(formData: FormData) {
   const value = getOptionalString(formData, "returnTo");
   return value?.startsWith("/transactions") ? value : "/transactions";
+}
+
+function resolveLateFeePolicy(formData: FormData): string | undefined {
+  const lateFeeType = getOptionalString(formData, "lateFeeType");
+  const lateFeeAmountRaw = getOptionalString(formData, "lateFeeAmount");
+  const lateFeeGraceDaysRaw = getOptionalString(formData, "lateFeeGraceDays");
+  const lateFeeAmount = lateFeeAmountRaw ? Number(lateFeeAmountRaw) : NaN;
+  if (lateFeeType && Number.isFinite(lateFeeAmount) && lateFeeAmount > 0) {
+    return formatLateFeePolicy({
+      feeType: lateFeeType === "percent" ? "percent" : "fixed",
+      amount: lateFeeAmount,
+      graceDays: lateFeeGraceDaysRaw ? Math.max(0, Math.round(Number(lateFeeGraceDaysRaw))) : 5
+    });
+  }
+  return getOptionalString(formData, "lateFeePolicy");
 }
 
 function readAssetPaths(formData: FormData, key: string) {
@@ -1567,7 +1582,7 @@ export async function createLeaseAction(formData: FormData) {
     rentDueTime: getOptionalString(formData, "rentDueTime") ?? DEFAULT_RENT_DUE_TIME,
     securityDeposit: getString(formData, "securityDeposit"),
     recurringCharges: getOptionalString(formData, "recurringCharges"),
-    lateFeePolicy: getOptionalString(formData, "lateFeePolicy"),
+    lateFeePolicy: resolveLateFeePolicy(formData),
     notes: getOptionalString(formData, "notes"),
     documentPath,
     status: getString(formData, "status")
@@ -1648,7 +1663,7 @@ export async function updateLeaseAction(formData: FormData) {
     rentDueTime: getOptionalString(formData, "rentDueTime") ?? DEFAULT_RENT_DUE_TIME,
     securityDeposit: getString(formData, "securityDeposit"),
     recurringCharges: getOptionalString(formData, "recurringCharges"),
-    lateFeePolicy: getOptionalString(formData, "lateFeePolicy"),
+    lateFeePolicy: resolveLateFeePolicy(formData),
     notes: getOptionalString(formData, "notes"),
     documentPath: newDocumentPath ?? existingDocumentPath,
     status: getString(formData, "status")
@@ -2279,6 +2294,162 @@ export async function createStripeCheckoutAction(formData: FormData) {
     sessionUrl = session.url;
   } catch (error) {
     console.error("[stripe] Failed to create checkout session", error);
+    redirect("/transactions?stripe=checkout-error");
+  }
+
+  if (!sessionUrl) {
+    redirect("/transactions?stripe=missing-session-url");
+  }
+
+  redirect(sessionUrl);
+}
+
+export async function createBundledStripeCheckoutAction(formData: FormData) {
+  const user = await requireRoles([UserRole.TENANT]);
+  const portal = await getPortalContext(user);
+
+  const paymentIds = formData.getAll("paymentId").map(String).filter(Boolean);
+  if (!paymentIds.length) {
+    redirect("/transactions?stripe=invalid-payment");
+  }
+
+  if (!portal.currentTenant?.id) {
+    redirect("/transactions?stripe=invalid-payment");
+  }
+
+  const selectedPayments = paymentIds
+    .map((id) => portal.scope.payments.find((p) => p.id === id))
+    .filter((p): p is NonNullable<typeof p> => Boolean(p));
+
+  if (selectedPayments.length !== paymentIds.length) {
+    redirect("/transactions?stripe=invalid-payment");
+  }
+
+  if (selectedPayments.some((p) => p.status === "PAID")) {
+    redirect("/transactions?stripe=already-paid");
+  }
+
+  if (selectedPayments.some((p) => p.tenantId && p.tenantId !== portal.currentTenant!.id)) {
+    redirect("/transactions?stripe=invalid-payment");
+  }
+
+  const firstPayment = selectedPayments[0];
+  const lease =
+    firstPayment.leaseId
+      ? portal.scope.leases.find((l) => l.id === firstPayment.leaseId)
+      : portal.currentLease?.unitId === firstPayment.unitId
+        ? portal.currentLease
+        : portal.scope.leases.find((l) =>
+            l.unitId === firstPayment.unitId && ["ACTIVE", "UPCOMING", "active", "invited"].includes(l.status)
+          );
+
+  const manager = getLeaseManager(portal, lease, firstPayment);
+  if (!manager) {
+    redirect(`/transactions?stripe=manager-missing`);
+  }
+  if (!getStripeAccountId(manager)) {
+    redirect(`/transactions?stripe=manager-setup-required`);
+  }
+
+  let connectedManager = manager;
+  try {
+    connectedManager = await syncManagerConnectedAccount(manager);
+  } catch {
+    redirect(`/transactions?stripe=manager-setup-required`);
+  }
+
+  const connectedAccountId = getStripeAccountId(connectedManager);
+  if (!isStripeConnectReady(connectedManager) || !connectedAccountId) {
+    redirect(`/transactions?stripe=manager-setup-required`);
+  }
+
+  const applicationFeeAmountCents = getPlatformFeeCents();
+  const totalRentCents = selectedPayments.reduce(
+    (sum, p) => sum + Math.round((p.balanceDue || p.amount) * 100),
+    0
+  );
+
+  if (totalRentCents <= 0) {
+    redirect("/transactions?stripe=invalid-amount");
+  }
+  if (applicationFeeAmountCents > 0 && totalRentCents <= applicationFeeAmountCents) {
+    redirect("/transactions?stripe=amount-below-platform-fee");
+  }
+
+  const totalAmountCents = totalRentCents + applicationFeeAmountCents;
+  const appUrl = getAppBaseUrl();
+  const paymentIdsStr = paymentIds.join(",");
+
+  const metadata = {
+    source: "nexus_bundled_payment",
+    organizationId: user.organizationId,
+    paymentId: firstPayment.id,
+    paymentIds: paymentIdsStr,
+    userId: user.id,
+    tenantId: portal.currentTenant.id,
+    managerUserId: connectedManager?.id ?? "",
+    stripeDestinationAccountId: connectedAccountId,
+    applicationFeeAmountCents: String(applicationFeeAmountCents),
+    leaseId: lease?.id ?? "",
+    unitId: firstPayment.unitId,
+    amountCents: String(totalAmountCents)
+  };
+
+  const lineItems = selectedPayments.map((p) => ({
+    quantity: 1 as const,
+    price_data: {
+      currency: "usd" as const,
+      unit_amount: Math.round((p.balanceDue || p.amount) * 100),
+      product_data: { name: p.description || "Rent payment" }
+    }
+  }));
+
+  lineItems.push({
+    quantity: 1 as const,
+    price_data: {
+      currency: "usd" as const,
+      unit_amount: applicationFeeAmountCents,
+      product_data: { name: "Nexus platform fee" }
+    }
+  });
+
+  let sessionUrl: string | null = null;
+  try {
+    const session = await getStripe().checkout.sessions.create({
+      mode: "payment",
+      customer_email: user.email,
+      client_reference_id: firstPayment.id,
+      line_items: lineItems,
+      metadata,
+      payment_intent_data: {
+        metadata,
+        application_fee_amount: applicationFeeAmountCents,
+        transfer_data: { destination: connectedAccountId }
+      },
+      success_url: `${appUrl}/transactions?stripe=success`,
+      cancel_url: `${appUrl}/transactions?stripe=cancelled`
+    });
+
+    sessionUrl = session.url;
+
+    await updateStore((store) => ({
+      ...store,
+      payments: store.payments.map((p) =>
+        paymentIds.includes(p.id)
+          ? {
+              ...p,
+              leaseId: p.leaseId ?? lease?.id,
+              tenantId: p.tenantId ?? portal.currentTenant!.id,
+              stripeCheckoutSessionId: session.id,
+              stripeDestinationAccountId: connectedAccountId,
+              stripeApplicationFeeAmountCents: applicationFeeAmountCents,
+              updatedAt: nowIso()
+            }
+          : p
+      )
+    }));
+  } catch (error) {
+    console.error("[stripe] Failed to create bundled checkout session", error);
     redirect("/transactions?stripe=checkout-error");
   }
 

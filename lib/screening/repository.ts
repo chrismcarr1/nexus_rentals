@@ -155,12 +155,14 @@ export async function ensureScreeningTables() {
         provider_candidate_id text not null,
         invitation_id text,
         invitation_status text,
+        invitation_url text,
         metadata jsonb not null default '{}'::jsonb,
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now(),
         unique(request_id)
       )
     `;
+    await sql`alter table checkr_candidates add column if not exists invitation_url text`;
     await sql`
       create table if not exists checkr_reports (
         id text primary key,
@@ -432,24 +434,38 @@ export async function saveCheckrCandidate(input: {
   candidateId: string;
   invitationId?: string | null;
   invitationStatus?: string | null;
+  invitationUrl?: string | null;
   metadata?: Record<string, unknown>;
 }) {
   await ensureScreeningTables();
   const sql = getSql();
   await sql`
     insert into checkr_candidates (
-      id, application_id, request_id, provider_candidate_id, invitation_id, invitation_status, metadata
+      id, application_id, request_id, provider_candidate_id, invitation_id, invitation_status, invitation_url, metadata
     ) values (
       ${randomUUID()}, ${input.applicationId}, ${input.requestId}, ${input.candidateId},
-      ${input.invitationId ?? null}, ${input.invitationStatus ?? null}, ${sql.json((input.metadata ?? {}) as any)}
+      ${input.invitationId ?? null}, ${input.invitationStatus ?? null}, ${input.invitationUrl ?? null},
+      ${sql.json((input.metadata ?? {}) as any)}
     )
     on conflict (request_id) do update set
       provider_candidate_id = excluded.provider_candidate_id,
       invitation_id = excluded.invitation_id,
       invitation_status = excluded.invitation_status,
+      invitation_url = coalesce(excluded.invitation_url, checkr_candidates.invitation_url),
       metadata = checkr_candidates.metadata || excluded.metadata,
       updated_at = now()
   `;
+}
+
+export async function getCheckrCandidate(applicationId: string) {
+  await ensureScreeningTables();
+  const rows = await getSql()`
+    select * from checkr_candidates
+    where application_id = ${applicationId}
+    order by created_at desc
+    limit 1
+  `;
+  return rows[0] ?? null;
 }
 
 export async function saveCheckrReport(input: {

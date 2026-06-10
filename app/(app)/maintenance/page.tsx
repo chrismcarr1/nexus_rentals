@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   CalendarClock,
+  CheckCircle2,
   ClipboardList,
   FileImage,
   Hash,
@@ -9,7 +10,8 @@ import {
   Plus,
   Phone,
   Send,
-  Sparkles
+  Sparkles,
+  Wrench
 } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 
@@ -243,7 +245,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
             </DataTable>
           ) : (
             <div className="mt-4">
-              <EmptyState title="No work orders match" description="Adjust the search or filters, or create a new work order." />
+              <EmptyState icon={Wrench} title="No work orders match" description="Adjust the search or filters, or create a new work order." />
             </div>
           )}
         </DetailSection>
@@ -251,7 +253,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
         {params.create === "1" ? (
           <DetailSection id="new-work-order" title="New work order" description="Create and assign an operational maintenance record.">
             {params.error === "invalid-maintenance" ? (
-              <div className="mb-4 border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <div className="page-alert page-alert-warning mb-4">
                 Fill in the required property, title, and issue description.
               </div>
             ) : null}
@@ -406,7 +408,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
               <p className="section-kicker">{user.role === "TENANT" ? "My active requests" : "Active work orders"}</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-normal text-[var(--text)]">Open maintenance queue</h1>
+              <h2 className="mt-2 text-2xl font-semibold tracking-normal text-[var(--text)]">Open maintenance queue</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted-strong)]">
                 Active requests are listed first so urgent issues, access details, and next steps are easy to scan.
               </p>
@@ -491,7 +493,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
               );
             })}
             {activeMaintenance.length === 0 ? (
-              <EmptyState title="No active work orders" description={user.role === "TENANT" ? "You do not have any open maintenance requests right now." : "All scoped maintenance requests are resolved or closed."} />
+              <EmptyState icon={CheckCircle2} title="No active work orders" description={user.role === "TENANT" ? "You do not have any open maintenance requests right now." : "All scoped maintenance requests are resolved or closed."} />
             ) : null}
           </div>
         </div>
@@ -501,7 +503,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
         <p className="section-kicker">{user.role === "TENANT" ? "Submit request" : "New maintenance request"}</p>
         <h2 className="mt-2 text-2xl font-semibold">Request intake</h2>
           {params.error === "invalid-maintenance" ? (
-            <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="page-alert page-alert-warning mt-4">
               Fill in the required maintenance fields: property, issue title, and a description of at least 4 characters.
             </div>
           ) : null}
@@ -739,7 +741,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
             );
           })}
         </div>
-        {pastMaintenance.length === 0 ? <EmptyState title="No resolved maintenance yet" description="Resolved work orders will be saved here as maintenance history." /> : null}
+        {pastMaintenance.length === 0 ? <EmptyState icon={CheckCircle2} title="No resolved maintenance yet" description="Resolved work orders will be saved here as maintenance history." /> : null}
       </Card>
     </div>
   );

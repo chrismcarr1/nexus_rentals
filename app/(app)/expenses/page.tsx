@@ -1,3 +1,5 @@
+import { Receipt } from "lucide-react";
+
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Card } from "@/components/ui/card";
@@ -24,7 +26,7 @@ export default async function ExpensesPage() {
         <Card className="p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Expense register</p>
           <div className="mt-5 space-y-3">
-            {expenses.length === 0 ? <EmptyState title="No expenses yet" description="New expense entries will appear here as soon as they are recorded." /> : null}
+            {expenses.length === 0 ? <EmptyState icon={Receipt} title="No expenses yet" description="New expense entries will appear here as soon as they are recorded." /> : null}
             {expenses.map((expense) => {
               const property = portal.scope.properties.find((item) => item.id === expense.propertyId);
               const unit = expense.unitId ? portal.scope.units.find((item) => item.id === expense.unitId) : null;

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
@@ -187,7 +187,7 @@ export default async function TenantsPage({ searchParams }: { searchParams?: Pro
           </DataTable>
         ) : (
           <div className="mt-4">
-            <EmptyState title="No tenants match" description="Adjust search or filters, or add a tenant record." />
+            <EmptyState icon={Users} title="No tenants match" description="Adjust search or filters, or add a tenant record." action={<Link href="/tenants?create=1" className="inline-flex items-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]"><Plus className="h-4 w-4" />Add tenant</Link>} />
           </div>
         )}
       </DetailSection>

@@ -42,7 +42,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
   return (
     <div className="messages-page">
       {params.error ? (
-        <div className="rounded-md border border-red-300/20 bg-red-400/10 px-4 py-3 text-sm text-red-200">
+        <div className="page-alert page-alert-error">
           {params.error}
         </div>
       ) : null}
@@ -63,7 +63,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">Nexus Messages</p>
-                  <h1 className="mt-1 text-2xl font-semibold text-[var(--text)]">Messages</h1>
+                  <h2 className="mt-1 text-xl font-semibold text-[var(--text)]">Messages</h2>
                   <p className="mt-1 truncate text-xs text-[var(--muted)]">
                     {data.conversations.length} threads / {unreadCount ? `${unreadCount} unread` : "All caught up"}
                   </p>

@@ -1,3 +1,5 @@
+import { Activity, BarChart2 } from "lucide-react";
+
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
@@ -83,7 +85,7 @@ export default async function ReportsPage() {
               ))}
             </DataTable>
           ) : (
-            <EmptyState title="No report data" description="Create properties and units to populate property performance reporting." />
+            <EmptyState icon={BarChart2} title="No report data" description="Create properties and units to populate property performance reporting." />
           )}
         </DetailSection>
 
@@ -101,7 +103,7 @@ export default async function ReportsPage() {
               ))}
             </div>
           ) : (
-            <EmptyState title="No recent activity" description="Payments, maintenance, and notices will appear here." />
+            <EmptyState icon={Activity} title="No recent activity" description="Payments, maintenance, and notices will appear here." />
           )}
         </DetailSection>
       </section>

@@ -1,3 +1,5 @@
+import { FolderOpen } from "lucide-react";
+
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
@@ -118,7 +120,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams?: P
           </DataTable>
         ) : (
           <div className="mt-4">
-            <EmptyState title="No documents match" description="Uploaded files from properties, units, leases, and inspections will appear here." />
+            <EmptyState icon={FolderOpen} title="No documents match" description="Uploaded files from properties, units, leases, and inspections will appear here." />
           </div>
         )}
       </DetailSection>

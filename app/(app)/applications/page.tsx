@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { ClipboardList, Plus } from "lucide-react";
 
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
@@ -193,7 +193,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams?
           </DataTable>
         ) : (
           <div className="mt-4">
-            <EmptyState title="No applications match" description="Adjust filters or create a public application link for an available unit." />
+            <EmptyState icon={ClipboardList} title="No applications match" description="Adjust filters or create a public application link for an available unit." />
           </div>
         )}
       </DetailSection>

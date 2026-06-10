@@ -87,7 +87,7 @@ export function SidebarItem({ item, active }: { item: NavItem; active: boolean }
       href={item.href}
       title={item.description}
       className={cn(
-        "sidebar-nav-item group relative flex items-center gap-2 px-3 transition duration-150",
+        "sidebar-nav-item group relative flex items-center gap-2.5 px-3 transition duration-150",
         active
           ? "bg-[var(--sidebar-active)] text-[var(--sidebar-active-text)]"
           : "text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-hover)] hover:text-white"
@@ -96,7 +96,7 @@ export function SidebarItem({ item, active }: { item: NavItem; active: boolean }
       <span
         aria-hidden="true"
         className={cn(
-          "absolute inset-y-1 left-0 w-0.5 bg-transparent transition",
+          "absolute inset-y-1.5 left-0 w-[3px] rounded-r-full bg-transparent transition",
           active && "bg-[var(--brand)]"
         )}
       />
@@ -110,9 +110,8 @@ export function SidebarItem({ item, active }: { item: NavItem; active: boolean }
       >
         <Icon className="h-4 w-4" />
       </span>
-      <span className="min-w-0">
-        <span className="block text-[13px] font-medium">{item.label}</span>
-        <span className="sidebar-nav-description sr-only">{item.description}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium leading-5">{item.label}</span>
       </span>
     </Link>
   );

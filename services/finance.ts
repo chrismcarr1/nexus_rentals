@@ -2,6 +2,56 @@ import { addMonthsToDateKey, appDateIsBefore, appDateKeyFromValue, getAppDateKey
 import { db } from "@/lib/db";
 import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
 
+export type RevenueProjectionPoint = {
+  label: string;
+  monthKey: string;
+  rent: number;
+  deposit: number;
+};
+
+export function projectMonthlyRevenue(
+  leases: Array<{
+    status: string;
+    monthlyRent: number;
+    securityDeposit: number;
+    startDate?: string | Date | null;
+    endDate?: string | Date | null;
+  }>,
+  startMonthKey: string,
+  months = 6
+): RevenueProjectionPoint[] {
+  const result: RevenueProjectionPoint[] = [];
+  const activeStatuses = new Set(["ACTIVE", "UPCOMING", "active", "invited"]);
+
+  for (let i = 0; i < months; i++) {
+    const cursor = addMonthsToDateKey(`${startMonthKey}-01`, i);
+    const mKey = cursor.slice(0, 7);
+    let rent = 0;
+    let deposit = 0;
+
+    for (const lease of leases) {
+      if (!activeStatuses.has(lease.status)) continue;
+      const start = appDateKeyFromValue(lease.startDate);
+      const end = appDateKeyFromValue(lease.endDate);
+      if (start && mKey < start.slice(0, 7)) continue;
+      if (end && mKey > end.slice(0, 7)) continue;
+      rent += lease.monthlyRent ?? 0;
+      if (start && start.slice(0, 7) === mKey) {
+        deposit += lease.securityDeposit ?? 0;
+      }
+    }
+
+    result.push({
+      label: monthLabel(cursor),
+      monthKey: mKey,
+      rent,
+      deposit
+    });
+  }
+
+  return result;
+}
+
 function leaseCountsAsCurrent(status: string) {
   return status === "ACTIVE" || status === "UPCOMING" || status === "active" || status === "invited";
 }

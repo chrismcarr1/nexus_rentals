@@ -1,4 +1,5 @@
 import { CalendarDays, FileText, Home, Mail, Phone, ShieldCheck, Wallet } from "lucide-react";
+import { FileCheck2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { EmptyState } from "@/components/empty-state";
@@ -105,7 +106,7 @@ function TenantLeaseDocuments({
         </div>
       ) : (
         <div className="mt-5">
-          <EmptyState title="No lease documents uploaded" description="Your manager can attach the lease agreement without changing your account connection." />
+          <EmptyState icon={FileText} title="No lease documents uploaded" description="Your manager can attach the lease agreement without changing your account connection." />
         </div>
       )}
     </Card>
@@ -203,6 +204,7 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
         {!portal.currentLease || !portal.currentProperty ? (
           <>
             <EmptyState
+              icon={FileCheck2}
               title={tenantLeases.length ? "No current active lease" : "No lease connected yet"}
               description={
                 tenantLeases.length
@@ -220,10 +222,10 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div className="min-w-0">
                     <p className="section-kicker">My lease</p>
-                    <h1 className="mt-2 text-3xl font-semibold text-[var(--text)]">
+                    <h2 className="mt-2 text-2xl font-semibold text-[var(--text)]">
                       {portal.currentProperty.name}
                       {portal.currentUnit?.unitNumber ? ` Unit ${portal.currentUnit.unitNumber}` : ""}
-                    </h1>
+                    </h2>
                     <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted-strong)]">{formatUnitAddress(portal.currentProperty, portal.currentUnit)}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -309,7 +311,7 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
   return (
     <div className="space-y-4">
       {params.error === "invalid-lease" ? (
-        <div className="rounded-md border border-amber-600/18 bg-amber-500/12 px-4 py-3 text-sm text-amber-800">
+        <div className="page-alert page-alert-warning">
           Review the lease details before creating a tenant invite.
         </div>
       ) : null}

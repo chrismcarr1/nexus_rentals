@@ -4,13 +4,42 @@ import { normalizeEmail } from "@/lib/admin";
 import {
   appDateIsAfter,
   appDateIsBefore,
+  appDateKeyFromValue,
   appTimeHasReached,
   dateOnlyToUtcNoonIso,
+  differenceInAppCalendarDays,
+  getAppDateKey,
   getAppDateTimeParts,
   monthKeyFromValue,
   normalizeRentDueTime
 } from "@/lib/app-time";
 import { createId, nowIso, updateStore, type AppStore, type Lease, type Payment } from "@/lib/store";
+
+export type LateFeePolicy = {
+  feeType: "fixed" | "percent";
+  amount: number;
+  graceDays: number;
+};
+
+export function parseLateFeePolicy(policy: string | undefined | null): LateFeePolicy | null {
+  if (!policy) return null;
+  try {
+    const parsed = JSON.parse(policy);
+    if (!parsed || typeof parsed !== "object") return null;
+    const feeType = parsed.feeType === "percent" ? "percent" : "fixed";
+    const amount = Number(parsed.amount);
+    const graceDays = Number(parsed.graceDays ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    return { feeType, amount, graceDays: Math.max(0, Math.round(graceDays)) };
+  } catch {
+    return null;
+  }
+}
+
+export function formatLateFeePolicy(policy: LateFeePolicy | null): string {
+  if (!policy) return "";
+  return JSON.stringify(policy);
+}
 
 function leaseCanGeneratePayments(status: string) {
   return status === "ACTIVE" || status === "UPCOMING" || status === "active" || status === "invited";
@@ -40,6 +69,130 @@ function hasRentChargeForMonth(payments: Payment[], lease: Lease, monthKey: stri
     if (payment.generatedRentMonth === monthKey) return true;
     if ((payment.categoryTag ?? "").toLowerCase() !== "rent") return false;
     return monthKeyFromValue(payment.dueDate) === monthKey && /rent/i.test(payment.description);
+  });
+}
+
+export async function ensureInitialLeaseCharges(organizationId?: string) {
+  await updateStore((store) => {
+    let changed = false;
+    const payments = [...store.payments];
+    const now = nowIso();
+
+    for (const lease of store.leases) {
+      if (!leaseCanGeneratePayments(lease.status)) continue;
+
+      const property = getLeaseProperty(store, lease);
+      const unit = getLeaseUnit(store, lease);
+      if (!property || !unit) continue;
+      if (organizationId && property.organizationId !== organizationId) continue;
+
+      const tenantId = lease.tenantIds?.[0];
+
+      if (lease.securityDeposit && lease.securityDeposit > 0) {
+        const hasDeposit = payments.some(
+          (p) =>
+            p.leaseId === lease.id &&
+            (p.categoryTag?.toLowerCase() === "deposit" || /deposit/i.test(p.description))
+        );
+
+        if (!hasDeposit) {
+          const depositDueDate = lease.startDate
+            ? dateOnlyToUtcNoonIso(appDateKeyFromValue(lease.startDate))
+            : now;
+          payments.push({
+            id: createId("payment"),
+            unitId: unit.id,
+            leaseId: lease.id,
+            tenantId,
+            description: "Security deposit",
+            amount: lease.securityDeposit,
+            dueDate: depositDueDate,
+            status: "PENDING",
+            lateFeeAmount: 0,
+            balanceDue: lease.securityDeposit,
+            categoryTag: "Deposit",
+            createdAt: now,
+            updatedAt: now
+          });
+          changed = true;
+        }
+      }
+    }
+
+    return changed ? { ...store, payments } : store;
+  });
+}
+
+export async function applyLeaseLateFees(organizationId?: string) {
+  await updateStore((store) => {
+    const todayKey = getAppDateKey();
+    let changed = false;
+    const payments = [...store.payments];
+    const now = nowIso();
+
+    for (const lease of store.leases) {
+      if (!leaseCanGeneratePayments(lease.status)) continue;
+
+      const policy = parseLateFeePolicy(lease.lateFeePolicy);
+      if (!policy) continue;
+
+      const property = getLeaseProperty(store, lease);
+      const unit = getLeaseUnit(store, lease);
+      if (!property || !unit) continue;
+      if (organizationId && property.organizationId !== organizationId) continue;
+
+      const leaseRentPayments = payments.filter(
+        (p) => p.leaseId === lease.id && p.categoryTag === "Rent" && p.status !== "PAID"
+      );
+
+      for (const rentPayment of leaseRentPayments) {
+        const dueDateKey = appDateKeyFromValue(rentPayment.dueDate);
+        if (!dueDateKey) continue;
+        const daysLate = differenceInAppCalendarDays(todayKey, dueDateKey);
+        if (daysLate <= policy.graceDays) continue;
+
+        const monthKey = rentPayment.generatedRentMonth || monthKeyFromValue(rentPayment.dueDate);
+        const hasLateFee = payments.some(
+          (p) =>
+            p.leaseId === lease.id &&
+            p.categoryTag === "Late Fee" &&
+            (p.generatedRentMonth === monthKey ||
+              (monthKeyFromValue(p.dueDate) === monthKey && /late fee/i.test(p.description)))
+        );
+        if (hasLateFee) continue;
+
+        const lateFeeAmount =
+          policy.feeType === "percent"
+            ? Math.round(((rentPayment.amount * policy.amount) / 100) * 100) / 100
+            : policy.amount;
+
+        payments.push({
+          id: createId("payment"),
+          unitId: rentPayment.unitId,
+          leaseId: lease.id,
+          tenantId: rentPayment.tenantId,
+          description: `Late fee — ${rentPayment.description}`,
+          amount: lateFeeAmount,
+          dueDate: rentPayment.dueDate,
+          status: "PENDING",
+          lateFeeAmount: 0,
+          balanceDue: lateFeeAmount,
+          categoryTag: "Late Fee",
+          generatedRentMonth: monthKey,
+          createdAt: now,
+          updatedAt: now
+        });
+
+        const idx = payments.findIndex((p) => p.id === rentPayment.id);
+        if (idx >= 0 && payments[idx].lateFeeAmount !== lateFeeAmount) {
+          payments[idx] = { ...payments[idx], lateFeeAmount, updatedAt: now };
+        }
+
+        changed = true;
+      }
+    }
+
+    return changed ? { ...store, payments } : store;
   });
 }
 
@@ -121,4 +274,7 @@ export async function ensureScheduledLeasePayments(organizationId?: string) {
 
     return changed ? { ...store, leases, payments, notifications } : store;
   });
+
+  await ensureInitialLeaseCharges(organizationId);
+  await applyLeaseLateFees(organizationId);
 }

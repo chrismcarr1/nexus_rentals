@@ -1,13 +1,14 @@
-import { Activity, CircleDollarSign, Sparkles, TriangleAlert, type LucideIcon } from "lucide-react";
+import { Activity, AlertCircle, CircleDollarSign, Sparkles, TriangleAlert, type LucideIcon } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-const accentIcons: Record<"default" | "brand" | "success" | "warning", LucideIcon> = {
+const accentIcons: Record<"default" | "brand" | "success" | "warning" | "danger", LucideIcon> = {
   default: Activity,
   brand: Sparkles,
   success: CircleDollarSign,
-  warning: TriangleAlert
+  warning: TriangleAlert,
+  danger: AlertCircle
 };
 
 export function MetricCard({
@@ -19,7 +20,7 @@ export function MetricCard({
   label: string;
   value: string;
   hint: string;
-  accent?: "default" | "brand" | "success" | "warning";
+  accent?: "default" | "brand" | "success" | "warning" | "danger";
 }) {
   const Icon = accentIcons[accent];
 

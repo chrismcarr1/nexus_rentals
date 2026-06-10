@@ -80,7 +80,7 @@ export default async function ApplicationSubmissionPage({
         }
       />
 
-      {query.updated ? <div className="rounded-md border border-emerald-600/15 bg-emerald-600/10 px-4 py-3 text-sm text-emerald-800">Application review updated.</div> : null}
+      {query.updated ? <div className="page-alert page-alert-success">Application review updated.</div> : null}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.42fr)]">
         <div className="space-y-4">
