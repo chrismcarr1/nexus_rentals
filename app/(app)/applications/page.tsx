@@ -139,7 +139,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams?
           <DataTable
             className="mt-1"
             minWidth="58rem"
-            columns={["Applicant", "Property / unit", "Requested", "Status", "Sent", ""]}
+            columns={["Applicant", "Property / unit", "Requested", "Move-in", "Status", "Sent", ""]}
           >
             {invites.map((invite) => {
               const property = store.properties.find((item) => item.id === invite.propertyId);
@@ -164,6 +164,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams?
                       {invite.requestIncomeVerification ? <Badge tone="warning">Bank / income</Badge> : null}
                     </div>
                   </td>
+                  <td className="table-cell text-[var(--muted)]">{invite.desiredMoveInDate ? formatDate(invite.desiredMoveInDate) : "Flexible"}</td>
                   <td className="table-cell"><Badge tone={view.tone}>{view.label}</Badge></td>
                   <td className="table-cell text-[var(--muted)]">{invite.sentAt ? formatDate(invite.sentAt) : formatDate(invite.createdAt)}</td>
                   <td className="table-cell text-right">

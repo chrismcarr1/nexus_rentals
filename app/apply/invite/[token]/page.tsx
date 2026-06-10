@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { getApplicationAddressLabel, getApplicationLocationLabel } from "@/lib/applications";
 import { hashInviteToken } from "@/lib/lease-connections";
 import { readStore } from "@/lib/store";
+import { formatDate } from "@/lib/utils";
 
 function RequirementRow({
   icon: Icon,
@@ -104,6 +105,9 @@ export default async function InvitedApplicationPage({
             {invitePayload.managerName} at {invitePayload.organizationName} invited you to apply
           </h1>
           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{payload.location} - {payload.address}</p>
+          {invite.desiredMoveInDate ? (
+            <p className="mt-1 text-sm font-semibold text-[var(--text)]">Requested move-in date: {formatDate(invite.desiredMoveInDate)}</p>
+          ) : null}
           {invite.note ? (
             <p className="mt-3 rounded-md border-l-2 border-[var(--brand)] bg-[var(--surface)] px-4 py-3 text-sm leading-6 text-[var(--muted)]">
               &ldquo;{invite.note}&rdquo;

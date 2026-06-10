@@ -542,6 +542,7 @@ export async function sendApplicationInviteEmail(input: {
   inviteUrl: string;
   requestBackgroundCheck: boolean;
   requestIncomeVerification: boolean;
+  desiredMoveInDate?: string;
   note?: string;
   expiresAt: string;
   organizationId?: string;
@@ -589,6 +590,7 @@ export async function sendApplicationInviteEmail(input: {
         <h1 style="font-size: 22px;">Apply for ${safeProperty}</h1>
         <p>Hi ${safeName},</p>
         <p>${safeManagerName} at ${safeOrganizationName} invited you to apply for ${safeProperty}.</p>
+        ${input.desiredMoveInDate ? `<p><strong>Requested move-in date:</strong> ${escapeHtml(input.desiredMoveInDate)}</p>` : ""}
         ${safeNote ? `<p style="border-left: 3px solid #1f6b5f; padding-left: 12px; color: #334155;">${safeNote}</p>` : ""}
         <p>You will be asked to:</p>
         <ul>
@@ -603,7 +605,7 @@ export async function sendApplicationInviteEmail(input: {
         <p style="font-size: 12px; color: #5f6b7d;">${safeInviteUrl}</p>
       </div>
     `,
-    text: `Hi ${input.applicantName},\n\n${input.managerName} at ${input.organizationName} invited you to apply for ${input.propertyLabel}.\n${input.note ? `\n"${input.note}"\n` : ""}\nYou will be asked to:\n${checklist.map((item) => `- ${item}`).join("\n")}\n\nThis invitation expires on ${input.expiresAt}. Start your application here:\n\n${canonicalInviteUrl}`
+    text: `Hi ${input.applicantName},\n\n${input.managerName} at ${input.organizationName} invited you to apply for ${input.propertyLabel}.\n${input.desiredMoveInDate ? `\nRequested move-in date: ${input.desiredMoveInDate}\n` : ""}${input.note ? `\n"${input.note}"\n` : ""}\nYou will be asked to:\n${checklist.map((item) => `- ${item}`).join("\n")}\n\nThis invitation expires on ${input.expiresAt}. Start your application here:\n\n${canonicalInviteUrl}`
   });
 }
 

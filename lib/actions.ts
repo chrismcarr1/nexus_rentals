@@ -34,7 +34,7 @@ import {
   sendPasswordResetEmail
 } from "@/lib/email";
 import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmittedAssetPath } from "@/lib/file-security";
-import { ensureLeaseConnectionIntegrity, generateInviteToken, getUnitAvailableStartDate, hashInviteToken, isActiveLeaseStatus, leaseBlocksNewMoveIn, leaseCanResumeMoveIn } from "@/lib/lease-connections";
+import { ensureLeaseConnectionIntegrity, generateInviteToken, getUnitAvailableStartDate, hashInviteToken, isActiveLeaseStatus, leaseBlocksNewMoveIn, leaseCanResumeMoveIn, leaseStartIsAvailable, normalizeLeaseLifecycleStatus } from "@/lib/lease-connections";
 import { ensureScheduledLeasePayments, formatLateFeePolicy } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { formatPhoneNumber } from "@/lib/phone";
@@ -1046,6 +1046,34 @@ export async function sendApplicationInviteAction(formData: FormData) {
       const unit = parsed.unitId ? store.units.find((item) => item.id === parsed.unitId && item.propertyId === property.id) : null;
       if (parsed.unitId && !unit) throw new Error("Unit not found for this property.");
 
+      if (unit && parsed.desiredMoveInDate) {
+        const requestedKey = appDateKeyFromValue(parsed.desiredMoveInDate);
+        if (!requestedKey) throw new Error("The desired move-in date is invalid.");
+        const todayKey = getAppDateKey();
+        const unitLeases = store.leases
+          .filter((lease) => lease.unitId === unit.id)
+          .map((lease) => ({ id: lease.id, status: normalizeLeaseLifecycleStatus(lease, todayKey), endDate: lease.endDate }));
+        if (!leaseStartIsAvailable(unitLeases, parsed.desiredMoveInDate)) {
+          const availableFrom = getUnitAvailableStartDate(unitLeases);
+          const latestBlockingEnd = unitLeases
+            .filter((lease) => leaseBlocksNewMoveIn(lease.status) && lease.endDate)
+            .map((lease) => appDateKeyFromValue(lease.endDate))
+            .filter(Boolean)
+            .sort()
+            .at(-1);
+          if (!availableFrom) {
+            throw new Error(
+              `Unit ${unit.unitNumber} is unavailable on ${formatDate(requestedKey)} because an existing lease has no end date. Update that lease before sending this invite.`
+            );
+          }
+          throw new Error(
+            latestBlockingEnd
+              ? `Unit ${unit.unitNumber} is unavailable on ${formatDate(requestedKey)} because an existing lease runs through ${formatDate(latestBlockingEnd)}. Earliest available move-in date is ${formatDate(availableFrom)}.`
+              : `Unit ${unit.unitNumber} is unavailable on ${formatDate(requestedKey)}. Earliest available move-in date is ${formatDate(availableFrom)}.`
+          );
+        }
+      }
+
       const propertyLabel = [property.name, unit?.unitNumber ? `Unit ${unit.unitNumber}` : null, formatUnitAddress(property, unit ?? null)]
         .filter(Boolean)
         .join(", ");
@@ -1135,6 +1163,7 @@ export async function sendApplicationInviteAction(formData: FormData) {
       inviteUrl: buildAppUrl(`/apply/invite/${encodeURIComponent(rawToken)}`),
       requestBackgroundCheck: parsed.requestBackgroundCheck,
       requestIncomeVerification: parsed.requestIncomeVerification,
+      desiredMoveInDate: invite.desiredMoveInDate ? formatDate(invite.desiredMoveInDate) : undefined,
       note: parsed.note,
       expiresAt: formatDate(invite.expiresAt),
       organizationId: user.organizationId,
