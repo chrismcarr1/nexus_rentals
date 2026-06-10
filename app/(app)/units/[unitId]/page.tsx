@@ -6,6 +6,7 @@ import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { PhotoCarousel } from "@/components/photo-carousel";
 import { StatCard } from "@/components/stat-card";
 import { SingleUploadInput } from "@/components/upload-inputs";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +41,9 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
   });
 
   if (!unit || !portal.scope.units.some((item) => item.id === unit.id)) notFound();
-  const unitFiles = unit.files.filter((file) => isAllowedStoredAssetPath(file.path, { allowDemo: true }));
+  const unitFiles = unit.files
+    .filter((file) => file.kind === "UNIT_IMAGE" && isAllowedStoredAssetPath(file.path, { allowDemo: true }))
+    .slice(0, 20);
   const canStartMoveIn =
     user.role === "MANAGER" &&
     unit.property.managerId === user.id &&
@@ -82,15 +85,7 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
 
       <DetailSection title="Unit gallery" description="Reference photos and unit-specific visual records.">
         {unitFiles.length ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {unitFiles.map((file) => (
-              <figure key={file.id} className="overflow-hidden rounded-md border border-[var(--line)] bg-white">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={file.path} alt={file.label ?? "Unit image"} className="h-40 w-full object-cover" />
-                <figcaption className="border-t border-[var(--line)] px-3 py-2 text-xs font-medium text-[var(--muted)]">{file.kind}</figcaption>
-              </figure>
-            ))}
-          </div>
+          <PhotoCarousel photos={unitFiles} height="h-64" />
         ) : (
           <EmptyState title="No unit photos" description="Upload the first unit image to build a visual record for inspections, listings, and turnover." />
         )}

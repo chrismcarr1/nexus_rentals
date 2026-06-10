@@ -390,7 +390,8 @@ export async function createConnectedLease({
   dueDay,
   rentDueTime,
   securityDeposit,
-  documentPath
+  documentPath,
+  lateFeePolicy
 }: {
   manager: User;
   propertyId: string;
@@ -403,6 +404,7 @@ export async function createConnectedLease({
   rentDueTime?: string;
   securityDeposit?: number;
   documentPath?: string;
+  lateFeePolicy?: string;
 }) {
   await ensureLeaseConnectionIntegrity(manager.organizationId);
   let lease: Lease | null = null;
@@ -437,6 +439,7 @@ export async function createConnectedLease({
       securityDeposit: securityDeposit ?? 0,
       recurringCharges: "",
       documentPath,
+      lateFeePolicy,
       status: "draft",
       createdAt: now,
       updatedAt: now

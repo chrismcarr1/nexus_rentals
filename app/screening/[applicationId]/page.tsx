@@ -32,6 +32,7 @@ export default async function ApplicantScreeningPage({
               status: request.status,
               updatedAt: request.updatedAt
             })),
+            checkrInvitationUrl: summary.checkrInvitationUrl ?? null,
             plaid: summary.plaid
               ? {
                   status: summary.plaid.status,

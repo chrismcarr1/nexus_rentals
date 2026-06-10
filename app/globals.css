@@ -592,30 +592,31 @@ textarea::placeholder {
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition: border-color 150ms ease, background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
 .row-actions-trigger:hover,
 .row-actions-trigger-open {
-  border-color: var(--line-strong);
   background: var(--surface-hover);
+  border-color: var(--line);
   color: var(--text);
 }
 
 .row-actions-menu {
-  min-width: 11rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  background: rgba(255, 255, 255, 0.94);
-  padding: 0.35rem;
+  min-width: 13rem;
+  border: 1px solid rgba(186, 200, 197, 0.85);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.97);
+  padding: 0.3rem;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 14px 30px rgba(20, 33, 30, 0.12);
-  backdrop-filter: blur(12px);
+    0 0 0 1px rgba(20, 33, 30, 0.03),
+    0 4px 8px rgba(20, 33, 30, 0.06),
+    0 20px 44px rgba(20, 33, 30, 0.13);
+  backdrop-filter: blur(20px);
 }
 
 .row-actions-menu-floating {
@@ -623,6 +624,41 @@ textarea::placeholder {
   z-index: 80;
   max-height: min(20rem, calc(100vh - 1rem));
   overflow-y: auto;
+}
+
+/* ─── Row action menu items ───────────────────────────────── */
+.row-action-item {
+  display: block;
+  border-radius: 6px;
+  padding: 0.48rem 0.65rem;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+  line-height: 1.4;
+  transition: background 90ms ease;
+}
+.row-action-item:hover {
+  background: var(--surface-hover);
+}
+.row-action-item-destructive {
+  color: #9b1c1c;
+  margin-top: 0.25rem;
+  padding-top: 0.6rem;
+  position: relative;
+}
+.row-action-item-destructive::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0.4rem;
+  right: 0.4rem;
+  height: 1px;
+  background: rgba(220, 38, 38, 0.13);
+}
+.row-action-item-destructive:hover {
+  background: rgba(220, 38, 38, 0.05);
+  color: #7f1d1d;
 }
 
 .lease-records-table {
@@ -698,7 +734,7 @@ textarea::placeholder {
 }
 
 .lease-records-table .row-actions-trigger {
-  background: var(--surface);
+  background: transparent;
 }
 
 .payment-records-table {
@@ -784,60 +820,77 @@ textarea::placeholder {
 }
 
 .payment-records-table .row-actions-trigger {
-  background: var(--surface);
+  background: transparent;
 }
 
 .payments-workflow {
   position: relative;
 }
 
+.payments-tab-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
 .payments-tabs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.25rem;
+  display: flex;
+  gap: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .payments-tab {
   display: flex;
   min-width: 0;
-  min-height: 2.75rem;
   align-items: center;
-  justify-content: center;
   gap: 0.5rem;
-  border-radius: 6px;
-  padding: 0.65rem 0.75rem;
+  padding: 0.8rem 1rem;
   color: var(--muted);
   font-size: 0.875rem;
-  font-weight: 700;
-  transition: background 160ms ease, color 160ms ease;
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+  text-decoration: none;
 }
 
 .payments-tab:hover {
-  background: var(--surface-hover);
   color: var(--text);
+  background: transparent;
+}
+
+.payments-tab svg {
+  flex-shrink: 0;
 }
 
 .payments-tab span {
   border-radius: 999px;
-  background: var(--surface);
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
   padding: 0.1rem 0.45rem;
-  font-size: 0.7rem;
-  color: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--muted);
 }
 
 .payments-tab-active {
-  background: var(--text);
-  color: #fff;
+  color: var(--brand);
+  border-bottom-color: var(--brand);
 }
 
 .payments-tab-active:hover {
-  background: var(--text);
-  color: #fff;
+  color: var(--brand);
+  background: transparent;
 }
 
 .payments-tab-active span {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: var(--accent-soft);
+  border-color: rgba(13, 143, 123, 0.2);
+  color: var(--brand);
 }
 
 .payments-main-grid {
@@ -974,7 +1027,7 @@ textarea::placeholder {
 .collections-table .row-actions-trigger,
 .money-table .row-actions-trigger,
 .accounting-table .row-actions-trigger {
-  background: var(--surface);
+  background: transparent;
 }
 
 .collections-table th:nth-child(1),
@@ -1841,13 +1894,12 @@ body {
 }
 
 .row-actions-trigger {
-  border-radius: 3px;
-  background: #fff;
+  border-radius: 6px;
+  background: transparent;
 }
 
 .row-actions-menu {
-  background: #fff;
-  backdrop-filter: none;
+  background: rgba(255, 255, 255, 0.97);
 }
 
 .workflow-drawer {
@@ -2774,3 +2826,778 @@ body {
     display: none;
   }
 }
+
+/* Payment Calendar */
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.cal-day-label {
+  padding: 4px 2px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cal-day {
+  min-height: 52px;
+  padding: 3px 2px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cal-day-today {
+  border-color: var(--brand);
+  background: var(--accent-soft);
+}
+
+.cal-day-number {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 2px;
+  line-height: 1.4;
+}
+
+.cal-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cal-chip {
+  display: flex;
+  align-items: center;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  overflow: hidden;
+  transition: opacity 0.1s;
+}
+
+.cal-chip:hover {
+  opacity: 0.8;
+}
+
+.cal-chip-rent {
+  background: #e7f6f2;
+  color: #087364;
+}
+
+.cal-chip-deposit {
+  background: #edf3ff;
+  color: #315ccf;
+}
+
+.cal-chip-late {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.bundled-payment-select {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bundled-payment-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.bundled-payment-item:has(input:checked) {
+  border-color: var(--brand);
+  background: var(--accent-soft);
+}
+
+.bundled-payment-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.bundled-payment-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.bundled-payment-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  display: block;
+  truncate: overflow;
+}
+
+.bundled-payment-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+  display: block;
+}
+
+.bundled-payment-amount {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+/* ─── Polish Pass ─────────────────────────────────────────── */
+
+/* Missing danger accent for MetricCard */
+.metric-accent-danger {
+  color: var(--danger);
+}
+
+/* Empty state icon container */
+.empty-state-icon {
+  display: flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  margin-bottom: 0.85rem;
+  margin-inline: auto;
+  flex-shrink: 0;
+}
+
+/* Breadcrumb navigation */
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.breadcrumb a:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+.breadcrumb-sep {
+  color: var(--line-strong);
+  user-select: none;
+}
+
+/* Inline page alerts (replaces ad-hoc Tailwind on many pages) */
+.page-alert {
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line);
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.page-alert-success {
+  border-color: rgba(18, 134, 95, 0.22);
+  background: rgba(18, 134, 95, 0.07);
+  color: #0d5c3a;
+}
+
+.page-alert-warning {
+  border-color: rgba(183, 121, 31, 0.22);
+  background: rgba(183, 121, 31, 0.08);
+  color: #7c4a1a;
+}
+
+.page-alert-error {
+  border-color: rgba(220, 38, 38, 0.16);
+  background: rgba(220, 38, 38, 0.07);
+  color: #9b1c1c;
+}
+
+.page-alert-info {
+  border-color: rgba(49, 92, 207, 0.2);
+  background: rgba(49, 92, 207, 0.07);
+  color: #1e3a8a;
+}
+
+/* Key-value list (settings, lease details, account summaries) */
+.kv-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.kv-row {
+  display: grid;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--line);
+  padding: 0.75rem 0;
+  grid-template-columns: 9rem 1fr;
+  align-items: center;
+}
+
+.kv-row:last-child {
+  border-bottom: 0;
+}
+
+.kv-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Sidebar nav item improvements */
+.sidebar-nav-item {
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+/* Form section grouping with label */
+.form-section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.form-section-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Field label - visible labels above fields */
+.field-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted-strong);
+  margin-bottom: 0.35rem;
+}
+
+/* Better focus-visible for keyboard nav */
+.sidebar-nav-item:focus-visible,
+.row-actions-trigger:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+/* Subtle hover improvement on queue-item links */
+.queue-item a {
+  color: var(--brand);
+  font-weight: 600;
+}
+
+/* Better tag/pill for status chips in tables */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+/* Divider utility */
+.divider {
+  height: 1px;
+  background: var(--line);
+}
+
+/* Card action footer - consistent CTAs at bottom of cards */
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid var(--line);
+  padding: 0.85rem 1rem;
+  margin: 0 -1rem -1rem;
+}
+
+/* Improved ops-grid responsive behavior */
+@media (max-width: 700px) {
+  .ops-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .ops-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ─── Payments Page Redesign ──────────────────────────────── */
+
+/* Tab bar right-side actions */
+.payments-tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Stripe status pill */
+.stripe-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid;
+  text-decoration: none;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.stripe-status-pill:hover { opacity: 0.8; }
+.stripe-ready {
+  background: rgba(18, 134, 95, 0.07);
+  border-color: rgba(18, 134, 95, 0.2);
+  color: #0d5c3a;
+}
+.stripe-pending {
+  background: rgba(183, 121, 31, 0.08);
+  border-color: rgba(183, 121, 31, 0.22);
+  color: #7c4a1a;
+}
+
+/* ─── Tenant balance hero — dark header / light form split ── */
+.pay-hero {
+  overflow: hidden;
+  padding: 0;
+}
+.pay-hero-balance {
+  padding: 2rem 1.75rem 1.75rem;
+  background: linear-gradient(145deg, #121e1a 0%, #0d1813 100%);
+}
+.pay-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+.pay-hero-eyebrow {
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+}
+.pay-hero-amount {
+  margin-top: 0.55rem;
+  font-size: 3.5rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.pay-hero-meta {
+  margin-top: 0.65rem;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.45);
+}
+.pay-hero-icon {
+  display: flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-panel);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
+}
+.pay-hero-form {
+  padding: 1.35rem 1.75rem 1.5rem;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+.pay-hero-security {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.85rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.pay-bundle-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.pay-bundle-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* All-clear standalone card */
+.pay-hero-clear-card {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.5rem 1.75rem;
+  border-radius: var(--radius-panel);
+  border: 1px solid rgba(18, 134, 95, 0.22);
+  background: rgba(18, 134, 95, 0.04);
+}
+.pay-hero-icon-clear {
+  display: flex;
+  height: 3rem;
+  width: 3rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-panel);
+  border: 1px solid rgba(18, 134, 95, 0.22);
+  background: rgba(18, 134, 95, 0.1);
+  color: #0d5c3a;
+}
+
+/* ─── Financial Pulse Bar ─────────────────────────────────── */
+.payments-pulse {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: var(--panel);
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.pulse-metric {
+  padding: 1.15rem 1.35rem;
+  border-right: 1px solid var(--line);
+  min-width: 0;
+  position: relative;
+}
+.pulse-metric:last-child { border-right: 0; }
+.pulse-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pulse-value {
+  margin-top: 0.5rem;
+  font-size: 1.65rem;
+  font-weight: 700;
+  color: #000;
+  letter-spacing: -0.028em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pulse-detail {
+  margin-top: 0.38rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pulse-danger .pulse-value { color: #b91c1c; }
+.pulse-warning .pulse-value { color: #92400e; }
+.pulse-success .pulse-value { color: var(--brand); }
+/* Accent line at top of each metric */
+.pulse-metric::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: transparent;
+}
+.pulse-danger::before { background: rgba(185, 28, 28, 0.25); }
+.pulse-warning::before { background: rgba(146, 64, 14, 0.2); }
+.pulse-success::before { background: rgba(13, 143, 123, 0.25); }
+
+/* ─── Overdue collection row urgency ─────────────────────── */
+.collections-table tbody tr.row-late {
+  background: rgba(220, 38, 38, 0.026);
+}
+.collections-table tbody tr.row-late:hover {
+  background: rgba(220, 38, 38, 0.05) !important;
+}
+.collections-table tbody tr.row-late td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+/* ─── Export download cards ───────────────────────────────── */
+.export-card {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.export-card:hover {
+  border-color: var(--brand);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px rgba(13, 143, 123, 0.08);
+}
+.export-card-icon {
+  display: flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--brand);
+  transition: background 0.15s;
+}
+.export-card:hover .export-card-icon {
+  background: var(--accent-soft);
+  border-color: rgba(13, 143, 123, 0.25);
+}
+.export-card-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.export-card-desc {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
+/* Inline record quick-action in collections table */
+.record-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.32rem 0.62rem;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--muted-strong);
+  text-decoration: none;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+  white-space: nowrap;
+}
+.record-btn:hover {
+  border-color: var(--brand);
+  background: var(--accent-soft);
+  color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(13, 143, 123, 0.08);
+}
+
+/* Pulse bar responsive */
+@media (max-width: 640px) {
+  .payments-pulse {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pulse-metric:nth-child(2) { border-right: 0; }
+  .pulse-metric:nth-child(3) {
+    border-top: 1px solid var(--line);
+  }
+  .pulse-metric:nth-child(4) {
+    border-right: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+
+/* Drawer backdrop */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 69;
+  cursor: pointer;
+  display: block;
+}
+/* Drawer close button */
+.drawer-close-btn {
+  display: flex;
+  height: 2rem;
+  width: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  transition: background 0.12s, color 0.12s;
+}
+.drawer-close-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+/* Drawer action links */
+.drawer-action {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  transition: background 0.12s, border-color 0.12s;
+}
+.drawer-action:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+}
+.drawer-action-danger {
+  color: #9b1c1c;
+  border-color: rgba(220, 38, 38, 0.18);
+  background: rgba(220, 38, 38, 0.04);
+}
+.drawer-action-danger:hover {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.3);
+}
+
+/* Tab bar responsive: stack on narrow screens */
+@media (max-width: 640px) {
+  .payments-tab-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
+  .payments-tab-actions {
+    border-top: 1px solid var(--line);
+    padding: 0.6rem 0;
+    width: 100%;
+    margin-bottom: -1px;
+  }
+  .payments-tab {
+    padding: 0.65rem 0.75rem;
+  }
+}
+
+/* ─── No-scroll fixed-layout tables ─────────────────────────── */
+/*
+ * Forces tables to fill their container without horizontal overflow.
+ * table-layout: fixed distributes column widths deterministically;
+ * overflow: hidden on cells clips long text at the column boundary.
+ * minWidth must be "0" (or omitted) on the DataTable component.
+ */
+
+.collections-table table,
+.money-table table,
+.accounting-table table {
+  table-layout: fixed;
+  min-width: 0 !important;
+  width: 100%;
+}
+
+/* Improved typography and cell padding scoped to payments tables */
+.collections-table table,
+.money-table table,
+.accounting-table table {
+  font-size: 13.5px;
+  line-height: 1.35;
+}
+
+.collections-table .table-cell,
+.money-table .table-cell,
+.accounting-table .table-cell {
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+  overflow: hidden;
+}
+
+/* Tighter header tracking for better readability at small size */
+.collections-table thead tr,
+.money-table thead tr,
+.accounting-table thead tr {
+  letter-spacing: 0.04em;
+}
+
+/* Column widths — collections (8 columns: Tenant / Location / Amount / Due date / Days late / Status / Record / Actions) */
+.collections-table th:nth-child(1) { width: 23%; }
+.collections-table th:nth-child(2) { width: 20%; }
+.collections-table th:nth-child(3) { width: 12%; }
+.collections-table th:nth-child(4) { width: 11%; }
+.collections-table th:nth-child(5) { width: 7%;  }
+.collections-table th:nth-child(6) { width: 12%; }
+.collections-table th:nth-child(7) { width: 9%;  }
+.collections-table th:nth-child(8) { width: 6%;  }
+
+/* Column widths — payments (8 columns: Date paid / Tenant / Location / Method / Amount / Category / Reference / Actions) */
+.money-table th:nth-child(1) { width: 11%; }
+.money-table th:nth-child(2) { width: 17%; }
+.money-table th:nth-child(3) { width: 20%; }
+.money-table th:nth-child(4) { width: 10%; }
+.money-table th:nth-child(5) { width: 10%; }
+.money-table th:nth-child(6) { width: 13%; }
+.money-table th:nth-child(7) { width: 15%; }
+.money-table th:nth-child(8) { width: 4%;  }
+
+/* Column widths — accounting (7 columns: Date / Category / Description / Property / Amount / Tax classification / Actions) */
+.accounting-table th:nth-child(1) { width: 11%; }
+.accounting-table th:nth-child(2) { width: 12%; }
+.accounting-table th:nth-child(3) { width: 20%; }
+.accounting-table th:nth-child(4) { width: 17%; }
+.accounting-table th:nth-child(5) { width: 11%; }
+.accounting-table th:nth-child(6) { width: 25%; }
+.accounting-table th:nth-child(7) { width: 4%;  }
+
+/* Tenant payment history table (6 columns: Description / Due date / Status / Amount / Reference / Pay) */
+.tenant-history-table table {
+  table-layout: fixed;
+  min-width: 0 !important;
+  width: 100%;
+  font-size: 13.5px;
+}
+.tenant-history-table .table-cell {
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+  overflow: hidden;
+}
+.tenant-history-table th:nth-child(1) { width: 30%; }
+.tenant-history-table th:nth-child(2) { width: 13%; }
+.tenant-history-table th:nth-child(3) { width: 12%; }
+.tenant-history-table th:nth-child(4) { width: 12%; }
+.tenant-history-table th:nth-child(5) { width: 25%; }
+.tenant-history-table th:nth-child(6) { width: 8%;  }

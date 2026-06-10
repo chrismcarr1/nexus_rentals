@@ -44,8 +44,8 @@ export default async function ApplicationDetailPage({
         }
       />
 
-      {query.created ? <div className="rounded-md border border-emerald-600/15 bg-emerald-600/10 px-4 py-3 text-sm text-emerald-800">Application created successfully.</div> : null}
-      {query.updated ? <div className="rounded-md border border-emerald-600/15 bg-emerald-600/10 px-4 py-3 text-sm text-emerald-800">Application updated.</div> : null}
+      {query.created ? <div className="page-alert page-alert-success">Application created successfully.</div> : null}
+      {query.updated ? <div className="page-alert page-alert-success">Application updated.</div> : null}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(320px,0.55fr)]">
         <Card className="p-5 lg:p-6">

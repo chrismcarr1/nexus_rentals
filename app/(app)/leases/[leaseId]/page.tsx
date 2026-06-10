@@ -11,6 +11,7 @@ import { formatUnitAddress } from "@/lib/address";
 import { formatRentDueTime, toDateInputValue } from "@/lib/app-time";
 import { requireRoles } from "@/lib/auth";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
+import { parseLateFeePolicy } from "@/lib/lease-payment-scheduler";
 import { UserRole } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
@@ -47,6 +48,7 @@ export default async function ManageLeasePage({
     unit && ["VACANT", "TURNOVER"].includes(unit.occupancyStatus) && !hasAnotherReservation
   );
   const leaseCanBeReleased = Boolean(unit && blockingStatuses.has(lease.status));
+  const existingLateFeePolicy = parseLateFeePolicy(lease.lateFeePolicy);
 
   return (
     <div className="space-y-4">
@@ -62,13 +64,13 @@ export default async function ManageLeasePage({
       />
 
       {query.error === "invalid-lease" ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="page-alert page-alert-warning">
           Review the lease details and make sure the required fields are complete.
         </div>
       ) : null}
 
       {query.moveIn === "created" ? (
-        <div className="rounded-2xl border border-emerald-600/15 bg-emerald-600/10 px-4 py-3 text-sm text-emerald-800">
+        <div className="page-alert page-alert-success">
           New move-in created successfully.{" "}
           {query.invite === "sent"
             ? "A fresh tenant setup link was emailed to the address on the lease."
@@ -79,7 +81,7 @@ export default async function ManageLeasePage({
       ) : null}
 
       {query.released === "1" ? (
-        <div className="rounded-md border border-emerald-600/15 bg-emerald-600/10 px-4 py-3 text-sm text-emerald-800">
+        <div className="page-alert page-alert-success">
           The lease was closed and the unit availability was recalculated. It can now be used for a new move-in unless another lease reserves it.
         </div>
       ) : null}
@@ -151,7 +153,17 @@ export default async function ManageLeasePage({
               <input name="securityDeposit" type="number" min="0" step="0.01" required defaultValue={lease.securityDeposit} placeholder="Deposit" className="field" />
             </div>
             <textarea name="recurringCharges" defaultValue={lease.recurringCharges ?? ""} placeholder="Recurring charges" className="field min-h-24" />
-            <input name="lateFeePolicy" defaultValue={lease.lateFeePolicy ?? ""} placeholder="Late fee policy" className="field" />
+            <div>
+              <p className="mb-2 text-sm font-medium text-[var(--text)]">Late fee rule</p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <select name="lateFeeType" className="field" defaultValue={existingLateFeePolicy?.feeType ?? "fixed"}>
+                  <option value="fixed">Fixed ($)</option>
+                  <option value="percent">Percent (%)</option>
+                </select>
+                <input name="lateFeeAmount" type="number" min="0" step="0.01" defaultValue={existingLateFeePolicy?.amount ?? ""} placeholder="Amount" className="field" />
+                <input name="lateFeeGraceDays" type="number" min="0" max="30" defaultValue={existingLateFeePolicy?.graceDays ?? 5} placeholder="Grace days" className="field" />
+              </div>
+            </div>
             <textarea name="notes" defaultValue={lease.notes ?? ""} placeholder="Notes" className="field min-h-24" />
             <SingleUploadInput name="documentPath" label="Replace lease agreement" accept=".pdf,.doc,.docx,image/*" />
             <select name="status" className="field" required defaultValue={lease.status}>

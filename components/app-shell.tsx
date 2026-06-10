@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRef, useState } from "react";
-import { BookOpen, ChevronDown, Gauge, LogOut, Settings, UserRound } from "lucide-react";
+import { BookOpen, ChevronDown, Gauge, LogOut, Settings } from "lucide-react";
 
 import { DropdownDismissListener } from "@/components/dropdown-dismiss-listener";
 import { SidebarNav } from "@/components/sidebar-nav";
@@ -84,36 +84,35 @@ export function AppShell({
             ) : null}
             <div ref={accountMenuRef} className="relative">
               {accountOpen ? (
-                <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-30 border border-[var(--line)] bg-white p-1.5 shadow-[0_16px_36px_rgba(15,23,42,0.18)]">
-                  <div className="px-3 py-2">
-                    <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">Signed in as</p>
-                    <p className="mt-1 truncate text-sm font-semibold text-[var(--text)]">{user.firstName} {user.lastName}</p>
+                <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-30 overflow-hidden border border-[var(--line)] bg-white shadow-[0_16px_36px_rgba(15,23,42,0.18)]">
+                  <div className="border-b border-[var(--line)] px-3 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Signed in as</p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-[var(--text)]">{user.firstName} {user.lastName}</p>
+                    <p className="mt-0.5 truncate text-xs text-[var(--muted)]">{user.organization.name}</p>
                   </div>
-                  <Link href="/dashboard" className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>
-                    <Gauge className="h-4 w-4" />
-                    Dashboard
-                  </Link>
-                  <Link href="/settings" className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>
-                    <Settings className="h-4 w-4" />
-                    Settings
-                  </Link>
-                  <Link href="/settings" className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>
-                    <UserRound className="h-4 w-4" />
-                    Account info
-                  </Link>
-                  {guideLink ? (
-                    <Link href={guideLink.href} className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>
-                      <BookOpen className="h-4 w-4" />
-                      {user.role === "MANAGER" ? "Manager tips" : "Renter tips"}
+                  <div className="p-1">
+                    <Link href="/dashboard" className="flex items-center gap-2.5 rounded px-2.5 py-2 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>
+                      <Gauge className="h-4 w-4 shrink-0" />
+                      Dashboard
                     </Link>
-                  ) : null}
-                  <div className="my-2 h-px bg-[var(--line)]" />
-                  <form action={logoutAction}>
-                    <button type="submit" className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-semibold text-red-700 transition hover:bg-red-600/10">
-                      <LogOut className="h-4 w-4" />
-                      Logout
-                    </button>
-                  </form>
+                    <Link href="/settings" className="flex items-center gap-2.5 rounded px-2.5 py-2 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>
+                      <Settings className="h-4 w-4 shrink-0" />
+                      Settings &amp; profile
+                    </Link>
+                    {guideLink ? (
+                      <Link href={guideLink.href} className="flex items-center gap-2.5 rounded px-2.5 py-2 text-sm text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>
+                        <BookOpen className="h-4 w-4 shrink-0" />
+                        {user.role === "MANAGER" ? "Manager guide" : "Renter guide"}
+                      </Link>
+                    ) : null}
+                    <div className="my-1 h-px bg-[var(--line)]" />
+                    <form action={logoutAction}>
+                      <button type="submit" className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-sm font-semibold text-red-700 transition hover:bg-red-600/10">
+                        <LogOut className="h-4 w-4 shrink-0" />
+                        Sign out
+                      </button>
+                    </form>
+                  </div>
                 </div>
               ) : null}
               <button

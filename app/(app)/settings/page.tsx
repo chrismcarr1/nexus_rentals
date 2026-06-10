@@ -77,20 +77,20 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
   return (
     <div className="space-y-4">
       <PageHeader
-        eyebrow={user.role === "ADMIN" ? "Settings and controls" : user.role === "MANAGER" ? "Profile and workspace" : "Profile and preferences"}
+        eyebrow={user.role === "ADMIN" ? "Administration" : user.role === "MANAGER" ? "Profile & workspace" : "Account preferences"}
         title={
           user.role === "ADMIN"
-            ? "Platform settings, team visibility, and permissions context."
+            ? "Platform settings"
             : user.role === "MANAGER"
-              ? "Your profile, assigned scope, and operational reference materials."
-              : "Resident account details and communication preferences."
+              ? "Profile & Stripe payouts"
+              : "Account & preferences"
         }
         description={
           user.role === "ADMIN"
-            ? "Admins retain global settings and team-level visibility. Managers and tenants get intentionally narrower settings experiences."
+            ? "Manage organization details, Stripe Connect, team visibility, and platform-wide configuration."
             : user.role === "MANAGER"
-              ? "Keep your contact details current while staying grounded in the portfolio scope you actively manage."
-              : "Update your basic profile details and review the documents and notices most relevant to your tenancy."
+              ? "Update your profile, manage Stripe payouts, and review your assigned portfolio scope."
+              : "Update your contact details and review lease documents and notices relevant to your tenancy."
         }
       />
 
@@ -184,17 +184,23 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
         {user.role === "ADMIN" ? (
           <Card className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Organization settings</p>
-            <h1 className="mt-2 text-3xl font-semibold">Account and business profile</h1>
+            <h2 className="mt-2 text-xl font-semibold">Account and business profile</h2>
             {params.error ? (
-              <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <div className="page-alert page-alert-warning mt-4">
                 {params.error === "invalid-address"
                   ? "Enter a complete mailing address with street, city, state, ZIP or postal code, and country."
                   : "Review the organization settings and try again."}
               </div>
             ) : null}
-            <form action={updateSettingsAction} className="mt-6 space-y-4">
-              <input name="name" defaultValue={user.organization.name} className="field" />
-              <input name="email" defaultValue={user.organization.email} className="field" />
+            <form action={updateSettingsAction} className="mt-5 space-y-3">
+              <div>
+                <label className="field-label" htmlFor="settings-name">Organization name</label>
+                <input id="settings-name" name="name" defaultValue={user.organization.name} className="field" />
+              </div>
+              <div>
+                <label className="field-label" htmlFor="settings-email">Billing email</label>
+                <input id="settings-email" name="email" defaultValue={user.organization.email} className="field" />
+              </div>
               <PhoneInput name="phone" defaultValue={user.organization.phone ?? ""} />
               <AddressFields
                 fieldNames={MAILING_ADDRESS_FORM_FIELDS}
@@ -207,14 +213,23 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
         ) : (
           <Card className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">My profile</p>
-            <h1 className="mt-2 text-3xl font-semibold">Basic account details</h1>
-            <form action={updateProfileAction} className="mt-6 space-y-4">
+            <h2 className="mt-2 text-xl font-semibold">Contact details</h2>
+            <form action={updateProfileAction} className="mt-5 space-y-3">
               <div className="form-grid-2">
-                <input name="firstName" defaultValue={user.firstName} className="field" />
-                <input name="lastName" defaultValue={user.lastName} className="field" />
+                <div>
+                  <label className="field-label" htmlFor="profile-first">First name</label>
+                  <input id="profile-first" name="firstName" defaultValue={user.firstName} className="field" />
+                </div>
+                <div>
+                  <label className="field-label" htmlFor="profile-last">Last name</label>
+                  <input id="profile-last" name="lastName" defaultValue={user.lastName} className="field" />
+                </div>
               </div>
               <PhoneInput name="phone" defaultValue={user.phone ?? ""} />
-              <input name="title" defaultValue={user.title ?? ""} className="field" />
+              <div>
+                <label className="field-label" htmlFor="profile-title">Job title</label>
+                <input id="profile-title" name="title" defaultValue={user.title ?? ""} placeholder="e.g. Property Manager" className="field" />
+              </div>
               <SubmitButton>Save profile</SubmitButton>
             </form>
           </Card>

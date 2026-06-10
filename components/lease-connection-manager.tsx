@@ -181,7 +181,10 @@ export function LeaseConnectionManager({
     dueDay: "1",
     rentDueTime: DEFAULT_RENT_DUE_TIME,
     securityDeposit: "",
-    documentPath: ""
+    documentPath: "",
+    lateFeeType: "fixed" as "fixed" | "percent",
+    lateFeeAmount: "",
+    lateFeeGraceDays: "5"
   });
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -242,7 +245,10 @@ export function LeaseConnectionManager({
           dueDay: form.dueDay ? Number(form.dueDay) : undefined,
           rentDueTime: form.rentDueTime || DEFAULT_RENT_DUE_TIME,
           securityDeposit: form.securityDeposit ? Number(form.securityDeposit) : undefined,
-          documentPath: form.documentPath || undefined
+          documentPath: form.documentPath || undefined,
+          lateFeeType: form.lateFeeAmount ? form.lateFeeType : undefined,
+          lateFeeAmount: form.lateFeeAmount ? Number(form.lateFeeAmount) : undefined,
+          lateFeeGraceDays: form.lateFeeGraceDays ? Number(form.lateFeeGraceDays) : undefined
         })
       });
       const payload = await readApiPayload(response, "Could not create lease.");
@@ -259,7 +265,10 @@ export function LeaseConnectionManager({
         dueDay: "1",
         rentDueTime: DEFAULT_RENT_DUE_TIME,
         securityDeposit: "",
-        documentPath: ""
+        documentPath: "",
+        lateFeeType: "fixed",
+        lateFeeAmount: "",
+        lateFeeGraceDays: "5"
       });
       setMessage("Lease created. Send the tenant invite when you are ready.");
     } catch (createError) {
@@ -469,6 +478,41 @@ export function LeaseConnectionManager({
                     onChange={(event) => setForm((current) => ({ ...current, rentDueTime: event.target.value }))}
                   />
                 </label>
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel hint="Optional">Late fee rule</FieldLabel>
+                <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+                  <Select
+                    value={form.lateFeeType}
+                    onChange={(e) => setForm((current) => ({ ...current, lateFeeType: e.target.value as "fixed" | "percent" }))}
+                    aria-label="Late fee type"
+                  >
+                    <option value="fixed">Fixed ($)</option>
+                    <option value="percent">Percent (%)</option>
+                  </Select>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.lateFeeAmount}
+                    onChange={(e) => setForm((current) => ({ ...current, lateFeeAmount: e.target.value }))}
+                    placeholder={form.lateFeeType === "percent" ? "e.g. 5" : "e.g. 75"}
+                    aria-label="Late fee amount"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="30"
+                      value={form.lateFeeGraceDays}
+                      onChange={(e) => setForm((current) => ({ ...current, lateFeeGraceDays: e.target.value }))}
+                      placeholder="5"
+                      aria-label="Grace period days"
+                    />
+                    <span className="shrink-0 text-xs text-[var(--muted)]">grace days</span>
+                  </div>
+                </div>
               </div>
 
               <FileUploader

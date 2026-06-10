@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 
 import { db } from "@/lib/db";
 import { recordPlatformEvent } from "@/lib/platform-events";
+import { nowIso, updateStore } from "@/lib/store";
 import { getPlatformFeeCents, getStripe, getStripeWebhookSecret } from "@/lib/stripe";
 
 export const runtime = "nodejs";
@@ -17,62 +18,89 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCr
     return { ignored: "checkout session is not paid" };
   }
 
-  const paymentId = session.metadata?.paymentId;
-  if (!paymentId) {
+  const paymentIdsStr = session.metadata?.paymentIds;
+  const singlePaymentId = session.metadata?.paymentId;
+
+  const paymentIds = paymentIdsStr
+    ? paymentIdsStr.split(",").filter(Boolean)
+    : singlePaymentId
+      ? [singlePaymentId]
+      : [];
+
+  if (!paymentIds.length) {
     return { ignored: "checkout session is missing payment metadata" };
   }
 
-  const payment = await db.payment.findFirst({ where: { id: paymentId } });
-  if (!payment) {
-    throw new Error(`Payment ${paymentId} was not found for Stripe session ${session.id}.`);
-  }
-
-  if (session.metadata?.unitId && payment.unitId !== session.metadata.unitId) {
-    throw new Error(`Stripe session ${session.id} unit metadata does not match payment ${paymentId}.`);
-  }
-
-  if (session.metadata?.leaseId && payment.leaseId !== session.metadata.leaseId) {
-    throw new Error(`Stripe session ${session.id} lease metadata does not match payment ${paymentId}.`);
-  }
-
-  if (session.metadata?.tenantId && payment.tenantId && payment.tenantId !== session.metadata.tenantId) {
-    throw new Error(`Stripe session ${session.id} tenant metadata does not match payment ${paymentId}.`);
-  }
-
-  const amountPaidCents = session.amount_total ?? 0;
-  if (session.metadata?.amountCents && Number(session.metadata.amountCents) !== amountPaidCents) {
-    throw new Error(`Stripe session ${session.id} amount does not match payment ${paymentId}.`);
-  }
+  const paidAt = new Date(eventCreated * 1000);
+  const paidAtIso = paidAt.toISOString();
   const metadataApplicationFeeAmountCents = session.metadata?.applicationFeeAmountCents
     ? Number(session.metadata.applicationFeeAmountCents)
     : NaN;
   const applicationFeeAmountCents = Number.isFinite(metadataApplicationFeeAmountCents)
     ? metadataApplicationFeeAmountCents
     : getPlatformFeeCents();
+  const paymentIntentId = getPaymentIntentId(session);
+  const sessionId = session.id;
+  const destinationAccountId = session.metadata?.stripeDestinationAccountId || undefined;
+  const tenantId = session.metadata?.tenantId || undefined;
 
-  const paidAt = new Date(eventCreated * 1000);
-
-  await db.payment.update({
-    where: { id: paymentId },
-    data: {
-      status: "PAID",
-      ...(!payment.tenantId && session.metadata?.tenantId ? { tenantId: session.metadata.tenantId } : {}),
-      paidDate: paidAt,
-      balanceDue: 0,
-      amountPaid: amountPaidCents > 0 ? amountPaidCents / 100 : payment.amount,
-      stripeCheckoutSessionId: session.id,
-      stripePaymentIntentId: getPaymentIntentId(session),
-      stripeDestinationAccountId: session.metadata?.stripeDestinationAccountId || undefined,
-      stripeApplicationFeeAmountCents: applicationFeeAmountCents,
-      stripeAmountPaidCents: amountPaidCents,
-      stripePaidAt: paidAt
+  if (paymentIds.length === 1) {
+    const paymentId = paymentIds[0];
+    const payment = await db.payment.findFirst({ where: { id: paymentId } });
+    if (!payment) {
+      throw new Error(`Payment ${paymentId} was not found for Stripe session ${sessionId}.`);
     }
-  });
+
+    if (session.metadata?.unitId && payment.unitId !== session.metadata.unitId) {
+      throw new Error(`Stripe session ${sessionId} unit metadata does not match payment ${paymentId}.`);
+    }
+
+    const amountPaidCents = session.amount_total ?? 0;
+
+    await db.payment.update({
+      where: { id: paymentId },
+      data: {
+        status: "PAID",
+        ...(!payment.tenantId && tenantId ? { tenantId } : {}),
+        paidDate: paidAt,
+        balanceDue: 0,
+        amountPaid: amountPaidCents > 0 ? amountPaidCents / 100 : payment.amount,
+        stripeCheckoutSessionId: sessionId,
+        stripePaymentIntentId: paymentIntentId,
+        stripeDestinationAccountId: destinationAccountId,
+        stripeApplicationFeeAmountCents: applicationFeeAmountCents,
+        stripeAmountPaidCents: amountPaidCents,
+        stripePaidAt: paidAt
+      }
+    });
+  } else {
+    await updateStore((store) => ({
+      ...store,
+      payments: store.payments.map((p) => {
+        if (!paymentIds.includes(p.id)) return p;
+        return {
+          ...p,
+          status: "PAID" as const,
+          ...(!p.tenantId && tenantId ? { tenantId } : {}),
+          paidDate: paidAtIso,
+          balanceDue: 0,
+          amountPaid: p.balanceDue || p.amount,
+          stripeCheckoutSessionId: sessionId,
+          stripePaymentIntentId: paymentIntentId,
+          stripeDestinationAccountId: destinationAccountId,
+          stripeApplicationFeeAmountCents: applicationFeeAmountCents,
+          stripeAmountPaidCents: Math.round((p.balanceDue || p.amount) * 100),
+          stripePaidAt: paidAtIso,
+          updatedAt: nowIso()
+        };
+      })
+    }));
+  }
 
   revalidatePath("/dashboard");
   revalidatePath("/transactions");
 
-  return { updated: paymentId };
+  return { updated: paymentIds.join(",") };
 }
 
 export async function POST(request: Request) {

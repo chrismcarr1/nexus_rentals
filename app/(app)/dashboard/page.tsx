@@ -3,6 +3,7 @@ import {
   ArrowRight,
   BellRing,
   Building2,
+  CheckCircle2,
   ClipboardList,
   CreditCard,
   FileText,
@@ -15,11 +16,13 @@ import {
 } from "lucide-react";
 
 import { CashFlowChart } from "@/components/charts/cash-flow-chart";
+import { ProjectedRevenueChart } from "@/components/charts/projected-revenue-chart";
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
+import { PaymentCalendar } from "@/components/payment-calendar";
 import { QuickActionMenu } from "@/components/quick-action-menu";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
@@ -29,12 +32,12 @@ import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createStripeCheckoutAction } from "@/lib/actions";
 import { managerOwnsApplication, primaryApplicant } from "@/lib/applications";
-import { appDateIsOnOrAfter, getAppDateKey } from "@/lib/app-time";
+import { appDateIsOnOrAfter, getAppDateKey, getAppMonthKey } from "@/lib/app-time";
 import { requireUser } from "@/lib/auth";
 import { getRoleConfig } from "@/lib/rbac";
 import { readStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { getDashboardSnapshot } from "@/services/finance";
+import { getDashboardSnapshot, projectMonthlyRevenue } from "@/services/finance";
 import {
   badgeToneFromMaintenance,
   badgeToneFromPayment,
@@ -96,8 +99,8 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       <div className="dashboard-page">
         <PageHeader
           eyebrow={role.homeLabel}
-          title="Manager operations dashboard"
-          description="Search the portfolio, scan exceptions, and act on leasing, rent, maintenance, and move-in work from one dense command view."
+          title="Operations"
+          description="Scan collections, maintenance, applications, and lease events from one view."
           actions={<QuickActionMenu role={user.role} />}
         />
 
@@ -161,24 +164,24 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                   );
                 })}
               </DataTable>
-            ) : <EmptyState title="Collections are clear" description="There are no overdue balances in the current portfolio." />}
+            ) : <EmptyState icon={CheckCircle2} title="Collections are clear" description="There are no overdue balances in the current portfolio." />}
           </DetailSection>
 
           <DetailSection title="Quick actions" description="Start the most common manager workflows.">
-            <div className="grid gap-1">
+            <div>
               {[
-                { href: "/move-ins/new", label: "Start move-in", detail: "Create lease, charges, and invite" },
+                { href: "/move-ins/new", label: "Start move-in", detail: "Create lease, charges, and invite tenant" },
                 { href: "/transactions?create=charge", label: "Create charge", detail: "Add an open resident balance" },
                 { href: "/maintenance?create=1", label: "New work order", detail: "Log and assign maintenance" },
                 { href: "/applications/new", label: "Publish application", detail: "Open a leasing funnel" },
                 { href: "/properties?create=1", label: "Add property", detail: "Expand portfolio inventory" }
               ].map((item) => (
-                <Link key={item.href} href={item.href} className="flex items-center justify-between gap-4 border-b border-[var(--line)] px-1 py-2.5 text-sm last:border-b-0 hover:text-[var(--brand)]">
-                  <span>
-                    <span className="block font-semibold">{item.label}</span>
-                    <span className="mt-0.5 block text-xs text-[var(--muted)]">{item.detail}</span>
+                <Link key={item.href} href={item.href} className="group flex items-center justify-between gap-4 border-b border-[var(--line)] px-1 py-2.5 text-sm last:border-b-0 hover:text-[var(--brand)]">
+                  <span className="min-w-0">
+                    <span className="block font-semibold transition group-hover:text-[var(--brand)]">{item.label}</span>
+                    <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{item.detail}</span>
                   </span>
-                  <ArrowRight className="h-4 w-4 shrink-0" />
+                  <ArrowRight className="h-4 w-4 shrink-0 text-[var(--muted)] transition group-hover:text-[var(--brand)]" />
                 </Link>
               ))}
             </div>
@@ -211,7 +214,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                 })}
               </DataTable>
             ) : (
-              <EmptyState title="No application submissions" description="Published application activity will appear here." />
+              <EmptyState icon={ClipboardList} title="No application submissions" description="Published application activity will appear here." />
             )}
           </DetailSection>
 
@@ -232,7 +235,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                   <StatusBadge status={item.priority} />
                 </div>
               );
-            }) : <EmptyState title="No open work orders" description="Maintenance exceptions will appear here." />}
+            }) : <EmptyState icon={Wrench} title="No open work orders" description="Maintenance exceptions will appear here." />}
           </DetailSection>
         </section>
 
@@ -252,7 +255,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                   );
                 })}
               </DataTable>
-            ) : <EmptyState title="No near-term lease events" description="Upcoming renewals and expirations will appear here." />}
+            ) : <EmptyState icon={CheckCircle2} title="No near-term lease events" description="Upcoming renewals and expirations will appear here." />}
           </DetailSection>
 
           <DetailSection title="Recent activity" description="Payments, requests, notices, and system updates.">
@@ -268,10 +271,36 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                     <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(item.date)}</p>
                   </div>
                 </div>
-              )) : <EmptyState title="No recent activity" description="New operational updates will appear here." />}
+              )) : <EmptyState icon={BellRing} title="No recent activity" description="New operational updates will appear here." />}
             </div>
           </DetailSection>
         </section>
+
+        {(() => {
+          const revenueProjection = projectMonthlyRevenue(portal.scope.leases, getAppMonthKey(), 6);
+          return (
+            <section className="ops-split">
+              <DetailSection
+                title="Projected monthly revenue"
+                description="Expected rent and deposits from active leases over the next 6 months."
+              >
+                <div className="mt-4">
+                  <ProjectedRevenueChart data={revenueProjection} />
+                </div>
+              </DetailSection>
+              <DetailSection
+                title="Cash flow trend"
+                description="Actual rent collected and expenses by month."
+              >
+                <div className="mt-4">
+                  <CashFlowChart data={trend} />
+                </div>
+              </DetailSection>
+            </section>
+          );
+        })()}
+
+        <PaymentCalendar events={portal.calendar} defaultCollapsed />
       </div>
     );
   }
@@ -474,7 +503,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                     <Badge tone="default">{getNotificationLabel(item)}</Badge>
                   </div>
                 </div>
-              )) : <EmptyState title="No active notices" description="You are caught up on building announcements." />
+              )) : <EmptyState icon={CheckCircle2} title="No active notices" description="You are caught up on building announcements." />
             ) : portal.expiringLeases.length ? (
               portal.expiringLeases.slice(0, 5).map((lease) => (
                 <div key={lease.id} className="queue-item">
@@ -490,7 +519,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                 </div>
               ))
             ) : (
-              <EmptyState title="No near-term expirations" description="There are no active leases nearing end date in the current role scope." />
+              <EmptyState icon={CheckCircle2} title="No near-term expirations" description="There are no active leases nearing end date in the current role scope." />
             )}
           </div>
         </Card>
@@ -520,7 +549,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                 <p className="mt-3 text-lg font-semibold">{formatCurrency(payment.amount)}</p>
               </div>
             ))}
-            {portal.scope.payments.length === 0 ? <EmptyState title="No payment history" description="Payment activity will appear here." /> : null}
+            {portal.scope.payments.length === 0 ? <EmptyState icon={ReceiptText} title="No payment history" description="Payment activity will appear here." /> : null}
           </div>
         </Card>
 
@@ -548,7 +577,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                 <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{item.description}</p>
               </div>
             ))}
-            {portal.scope.maintenance.length === 0 ? <EmptyState title="No current requests" description="Your role scope does not have any maintenance items right now." /> : null}
+            {portal.scope.maintenance.length === 0 ? <EmptyState icon={Wrench} title="No current requests" description="Your role scope does not have any maintenance items right now." /> : null}
           </div>
         </Card>
 
@@ -571,10 +600,12 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
                 <p className="mt-3 text-xs font-medium uppercase tracking-[0.18em] text-[var(--muted)]">{formatDate(user.role === "ADMIN" ? item.date : item.createdAt)}</p>
               </div>
             ))}
-            {(user.role === "ADMIN" ? portal.recentActivity : portal.messageCenter).length === 0 ? <EmptyState title="No recent activity" description="New updates will appear here." /> : null}
+            {(user.role === "ADMIN" ? portal.recentActivity : portal.messageCenter).length === 0 ? <EmptyState icon={MessageSquare} title="No recent activity" description="New updates will appear here." /> : null}
           </div>
         </Card>
       </section>
+
+      <PaymentCalendar events={portal.calendar} defaultCollapsed />
 
       <div className="flex justify-end">
         <Link href={user.role === "TENANT" ? "/messages" : "/reports"} className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--brand)] transition hover:text-[var(--brand-strong)]">

@@ -261,15 +261,57 @@ export const getPortalContext = cache(async (user: AppUser) => {
         id: lease.id,
         label: "Lease expiry",
         date: lease.endDate,
-        note: `Renewal decision due in ${Math.max(lease.daysRemaining, 0)} days`
+        note: `Renewal decision due in ${Math.max(lease.daysRemaining, 0)} days`,
+        kind: "lease" as const,
+        status: undefined as string | undefined,
+        amount: 0,
+        paymentId: undefined as string | undefined
       })),
       ...maintenanceOpen.slice(0, 3).map((item) => ({
         id: item.id,
         label: "Work order",
         date: addDaysToDateKey(item.requestedAt, 2),
-        note: item.title
-      }))
-    ].sort((a, b) => a.date.localeCompare(b.date))
+        note: item.title,
+        kind: "maintenance" as const,
+        status: undefined as string | undefined,
+        amount: 0,
+        paymentId: undefined as string | undefined
+      })),
+      ...scoped.payments
+        .filter((p) => {
+          const key = appDateIsBefore(p.dueDate, todayKey);
+          // Include pending/late within last 30 days and all future ones
+          if (p.status === "PAID") return false;
+          if (key && differenceInAppCalendarDays(todayKey, p.dueDate) > 30) return false;
+          return true;
+        })
+        .slice(0, 20)
+        .map((p) => {
+          const unit = scoped.units.find((u) => u.id === p.unitId);
+          const property = scoped.properties.find((pr) => pr.id === unit?.propertyId);
+          const tag = (p.categoryTag ?? "").toLowerCase();
+          const kind = tag === "deposit" ? "deposit" : tag === "late fee" ? "late-fee" : "rent";
+          const propertyLabel = property?.name ?? unit?.unitNumber ?? "Unit";
+          const label =
+            kind === "deposit"
+              ? `${propertyLabel} Deposit`
+              : kind === "late-fee"
+                ? `${propertyLabel} Late Fee`
+                : `${propertyLabel} Rent`;
+          return {
+            id: p.id,
+            label,
+            date: p.dueDate,
+            note: `${p.status} — $${(p.balanceDue || p.amount).toFixed(2)}`,
+            kind: kind as "rent" | "deposit" | "late-fee",
+            status: p.status,
+            amount: p.balanceDue || p.amount,
+            paymentId: p.id
+          };
+        })
+    ]
+      .filter((e) => Boolean(e.date))
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
   };
 });
 

@@ -1,3 +1,5 @@
+import { Building2, ScanLine } from "lucide-react";
+
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { MultiUploadInput } from "@/components/upload-inputs";
@@ -19,8 +21,8 @@ export default async function AiAssessmentsPage() {
     <div className="space-y-4">
       <PageHeader
         eyebrow="Damage estimation"
-        title="Move-out photo review tied to inspections and unit records."
-        description="Upload inspection photos, optionally add baseline images, and generate a structured local estimate with severity, confidence, categories, cost range, and recommended next steps."
+        title="AI Damage Assessments"
+        description="Upload move-out photos, optionally add baseline images, and generate a structured estimate with severity, confidence, categories, cost range, and recommended next steps."
       />
       <div className="content-split">
         <div className="space-y-4">
@@ -28,7 +30,7 @@ export default async function AiAssessmentsPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">Assessment history</p>
             <div className="mt-5 space-y-3">
               {assessments.length === 0 ? (
-                <EmptyState title="No assessments yet" description="Generated damage estimates will appear here with their linked unit and inspection context." />
+                <EmptyState icon={ScanLine} title="No assessments yet" description="Generated damage estimates will appear here with their linked unit and inspection context." />
               ) : null}
               {assessments.map((assessment) => {
                 const inspection = portal.scope.inspections.find((item) => item.id === assessment.inspectionId);
@@ -74,7 +76,7 @@ export default async function AiAssessmentsPage() {
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Run new assessment</p>
           {portal.scope.units.length === 0 ? (
             <div className="mt-6">
-              <EmptyState title="No units available" description="Create or assign a property and unit before running a damage assessment." />
+              <EmptyState icon={Building2} title="No units available" description="Create or assign a property and unit before running a damage assessment." />
             </div>
           ) : (
             <form action={createDamageAssessmentAction} className="mt-6 space-y-4">

@@ -106,6 +106,7 @@ export type ScreeningSummary = {
   requests: ScreeningRequestRecord[];
   checkr: NormalizedCheckrResult | null;
   plaid: NormalizedPlaidResult | null;
+  checkrInvitationUrl?: string | null;
   recommendation: RiskScoringResult;
   applicantPortalReady: boolean;
   mockMode: {

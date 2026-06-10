@@ -139,8 +139,8 @@ export function RowActionLink({
       href={href}
       role="menuitem"
       className={cn(
-        "block rounded-md px-3 py-2 text-sm font-medium transition hover:bg-[var(--surface-hover)]",
-        destructive ? "text-red-700" : "text-[var(--text)]"
+        "row-action-item",
+        destructive && "row-action-item-destructive"
       )}
     >
       {children}

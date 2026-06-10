@@ -227,7 +227,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
             </DataTable>
         ) : (
           <div className="mt-4">
-            <EmptyState title="No properties match" description="Adjust search or filters, or create the first property in this portfolio." />
+            <EmptyState icon={Building2} title="No properties match" description="Adjust search or filters, or create the first property in this portfolio." action={<Link href="/properties?create=1" className="inline-flex items-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]"><Plus className="h-4 w-4" />Add first property</Link>} />
           </div>
         )}
       </DetailSection>
@@ -235,7 +235,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
       {showCreate ? (
         <DetailSection id="create" title={user.role === "ADMIN" ? "Create property" : "Create assigned property"} description="Add a portfolio asset without leaving the property register.">
           {params.error ? (
-            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="page-alert page-alert-warning mb-4">
               {params.error === "invalid-address"
                 ? "Enter a complete property address with street, city, state, ZIP or postal code, and country."
                 : "Review the property details and try again."}
@@ -259,7 +259,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
                   ))}
                 </select>
               ) : null}
-              <MultiUploadInput name="imagePaths" label="Upload property photos" accept="image/*" />
+              <MultiUploadInput name="imagePaths" label="Upload property photos — up to 20 total" accept="image/*" />
               <div className="flex gap-2">
                 <SubmitButton>Save property</SubmitButton>
                 <Link href="/properties">

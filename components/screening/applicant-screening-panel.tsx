@@ -2,7 +2,7 @@
 
 import Script from "next/script";
 import { useState, useTransition } from "react";
-import { Building2, CheckCircle2, Landmark, Loader2, ShieldCheck } from "lucide-react";
+import { Building2, CheckCircle2, ExternalLink, Landmark, Loader2, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ declare global {
 
 type ApplicantStatus = {
   requests: Array<{ provider: "CHECKR" | "PLAID"; status: string; updatedAt: string }>;
+  checkrInvitationUrl?: string | null;
   plaid: { status: string; identityVerified: boolean; incomeVerified: boolean } | null;
 };
 
@@ -45,7 +46,10 @@ export function ApplicantScreeningPanel({
 
   async function refresh() {
     const response = await fetch(`/api/applications/${applicationId}/screening/status`);
-    if (response.ok) setStatus(await response.json());
+    if (response.ok) {
+      const data = await response.json();
+      setStatus((prev) => ({ ...prev, ...data }));
+    }
   }
 
   function exchange(publicToken: string) {
@@ -116,12 +120,23 @@ export function ApplicantScreeningPanel({
           <Card className="p-5">
             <div className="flex items-start gap-3">
               <ShieldCheck className="mt-0.5 h-5 w-5 text-[var(--brand)]" />
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="font-semibold text-[var(--text)]">Background screening</p>
                 <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
                   Checkr securely collects the information and authorization needed for a background report.
                 </p>
                 <div className="mt-3"><Badge tone={checkrRequest?.status === "COMPLETED" ? "success" : "warning"}>{checkrRequest?.status.replaceAll("_", " ") ?? "Not requested"}</Badge></div>
+                {status.checkrInvitationUrl && checkrRequest && !["COMPLETED", "FAILED", "EXPIRED"].includes(checkrRequest.status) ? (
+                  <a
+                    href={status.checkrInvitationUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 inline-flex items-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Complete background check
+                  </a>
+                ) : null}
               </div>
             </div>
           </Card>

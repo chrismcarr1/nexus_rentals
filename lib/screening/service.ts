@@ -18,6 +18,7 @@ import { getCheckrConfig, getRiskScoringRules, getScreeningMockMode } from "@/li
 import { encryptProviderToken } from "@/lib/screening/crypto";
 import {
   createScreeningRequest,
+  getCheckrCandidate,
   getLatestRequest,
   getNormalizedResults,
   getScreeningApplication,
@@ -97,16 +98,25 @@ export async function assertManagerScreeningAccess(application: ScreeningApplica
 
 export async function getScreeningSummary(id: string): Promise<ScreeningSummary> {
   const application = await resolveScreeningApplication(id);
-  const [requests, results] = await Promise.all([
+  const [requests, results, checkrCandidate] = await Promise.all([
     listScreeningRequests(application.id),
-    getNormalizedResults(application.id)
+    getNormalizedResults(application.id),
+    getCheckrCandidate(application.id)
   ]);
   const mockMode = getScreeningMockMode();
+  const checkrRequest = requests.find((r) => r.provider === "CHECKR");
+  const invitationUrl =
+    checkrCandidate?.invitation_url &&
+    checkrRequest &&
+    !["COMPLETED", "FAILED", "EXPIRED"].includes(checkrRequest.status)
+      ? String(checkrCandidate.invitation_url)
+      : null;
   return {
     application,
     requests,
     checkr: results.checkr,
     plaid: results.plaid,
+    checkrInvitationUrl: invitationUrl,
     recommendation: scoreTenantScreening({
       monthlyRent: application.monthlyRent,
       statedMonthlyIncome: application.statedMonthlyIncome,
@@ -138,7 +148,7 @@ export async function startCheckrScreening(application: ScreeningApplicationReco
       candidateId: candidate.id,
       invitationId: invitation.id,
       invitationStatus: invitation.status,
-      metadata: { invitationUrlPresent: Boolean(invitation.invitation_url) }
+      invitationUrl: invitation.invitation_url ?? null
     });
     const updated = await updateScreeningRequest(request.id, {
       status: invitation.report_id ? "IN_PROGRESS" : "INVITED",

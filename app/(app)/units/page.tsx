@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Building2, LayoutGrid, Plus } from "lucide-react";
 
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
@@ -177,7 +177,7 @@ export default async function UnitsPage({ searchParams }: { searchParams?: Promi
           </DataTable>
         ) : (
           <div className="mt-4">
-            <EmptyState title="No units match" description="Adjust filters or add a new unit to one of your properties." />
+            <EmptyState icon={LayoutGrid} title="No units match" description="Adjust filters or add a new unit to one of your properties." />
           </div>
         )}
       </DetailSection>
@@ -185,7 +185,7 @@ export default async function UnitsPage({ searchParams }: { searchParams?: Promi
       {showCreate ? (
         <DetailSection id="create" title="Create unit" description="Add inventory to an existing property.">
           {!portal.scope.properties.length ? (
-            <EmptyState title="Create a property first" description="Units must belong to a property before they can be tracked." />
+            <EmptyState icon={Building2} title="Create a property first" description="Units must belong to a property before they can be tracked." />
           ) : (
             <form action={createUnitAction} className="grid gap-4 lg:grid-cols-2">
               <div className="space-y-4">
