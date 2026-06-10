@@ -26,22 +26,30 @@ import { appDateKeyFromValue, dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, getAp
 import { clearSession, createSession, requireRoles, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sendDiscussionMessage } from "@/lib/discussions";
-import { sendPasswordResetEmail } from "@/lib/email";
+import {
+  sendApplicationDecisionEmail,
+  sendApplicationInviteEmail,
+  sendApplicationReceivedEmail,
+  sendApplicationSubmittedEmail,
+  sendPasswordResetEmail
+} from "@/lib/email";
 import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmittedAssetPath } from "@/lib/file-security";
-import { ensureLeaseConnectionIntegrity, getUnitAvailableStartDate, isActiveLeaseStatus, leaseBlocksNewMoveIn, leaseCanResumeMoveIn } from "@/lib/lease-connections";
+import { ensureLeaseConnectionIntegrity, generateInviteToken, getUnitAvailableStartDate, hashInviteToken, isActiveLeaseStatus, leaseBlocksNewMoveIn, leaseCanResumeMoveIn } from "@/lib/lease-connections";
 import { ensureScheduledLeasePayments, formatLateFeePolicy } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { formatPhoneNumber } from "@/lib/phone";
 import { recordPlatformEvent } from "@/lib/platform-events";
 import { buildAppUrl, getAppBaseUrl } from "@/lib/request-origin";
-import { ensureApplicantPortalAccess } from "@/lib/screening/service";
-import { FileKind, UserRole, createId, nowIso, updateStore, type LeaseStatus, type UnitOccupancyStatus } from "@/lib/store";
+import { ensureApplicantPortalAccess, startCheckrScreening, startPlaidScreening } from "@/lib/screening/service";
+import { FileKind, UserRole, createId, nowIso, updateStore, type ApplicationInvite, type LeaseStatus, type RentalApplicationStatus, type UnitOccupancyStatus } from "@/lib/store";
 import { getPlatformFeeCents, getStripe } from "@/lib/stripe";
 import { clearManagerStripeConnection, createManagerConnectedAccount, createManagerDashboardLoginLink, createManagerOnboardingLink, getStripeAccountId, getStripeConnectRedirectStatus, isStripeConnectReady, syncManagerConnectedAccount } from "@/lib/stripe-connect";
 import { sendLeaseTenantInvite } from "@/lib/tenant-invite-delivery";
+import { formatDate } from "@/lib/utils";
 import {
   damageAssessmentSchema,
   expenseSchema,
+  applicationInviteSchema,
   applicationSubmissionSchema,
   leaseSchema,
   loginSchema,
@@ -981,15 +989,208 @@ export async function updateRentalApplicationPublicationAction(formData: FormDat
   redirect(`/applications/${applicationId}?updated=1`);
 }
 
+const APPLICATION_INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 14;
+
+const DEFAULT_INVITE_REQUIRED_FIELDS = ["phone", "currentAddress", "employment", "income", "rentalHistory", "references"];
+
+export async function sendApplicationInviteAction(formData: FormData) {
+  const user = await requireRoles([UserRole.MANAGER]);
+  const raw = {
+    firstName: getString(formData, "firstName").trim(),
+    lastName: getString(formData, "lastName").trim(),
+    email: getString(formData, "email").trim(),
+    phone: getOptionalString(formData, "phone"),
+    propertyId: getString(formData, "propertyId"),
+    unitId: getOptionalString(formData, "unitId"),
+    desiredMoveInDate: getOptionalString(formData, "desiredMoveInDate"),
+    requestBackgroundCheck: getBoolean(formData, "requestBackgroundCheck"),
+    requestIncomeVerification: getBoolean(formData, "requestIncomeVerification"),
+    note: getOptionalString(formData, "note")
+  };
+
+  function failurePath(message: string) {
+    const params = new URLSearchParams({
+      error: message,
+      firstName: raw.firstName,
+      lastName: raw.lastName,
+      email: raw.email,
+      phone: raw.phone ?? "",
+      propertyId: raw.propertyId,
+      unitId: raw.unitId ?? "",
+      desiredMoveInDate: raw.desiredMoveInDate ?? "",
+      requestBackgroundCheck: String(raw.requestBackgroundCheck),
+      requestIncomeVerification: String(raw.requestIncomeVerification),
+      note: raw.note ?? ""
+    });
+    return `/applications/invite?${params.toString()}`;
+  }
+
+  const result = applicationInviteSchema.safeParse(raw);
+  if (!result.success) {
+    redirect(failurePath("Review the required invite fields."));
+  }
+  const parsed = result.data;
+
+  let inviteContext: {
+    applicationId: string;
+    propertyLabel: string;
+    organizationName: string;
+  } | null = null;
+
+  try {
+    await updateStore((store) => {
+      const property = store.properties.find(
+        (item) => item.id === parsed.propertyId && item.organizationId === user.organizationId && item.managerId === user.id
+      );
+      if (!property) throw new Error("Property not found in your manager portfolio.");
+      const unit = parsed.unitId ? store.units.find((item) => item.id === parsed.unitId && item.propertyId === property.id) : null;
+      if (parsed.unitId && !unit) throw new Error("Unit not found for this property.");
+
+      const propertyLabel = [property.name, unit?.unitNumber ? `Unit ${unit.unitNumber}` : null, formatUnitAddress(property, unit ?? null)]
+        .filter(Boolean)
+        .join(", ");
+      const organizationName = store.organizations.find((item) => item.id === user.organizationId)?.name ?? "Nexus Rentals";
+
+      const existing = store.rentalApplications
+        .filter(
+          (item) =>
+            item.propertyId === property.id &&
+            (item.unitId ?? "") === (unit?.id ?? "") &&
+            item.managerUserId === user.id &&
+            item.status === "PUBLISHED"
+        )
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+
+      if (existing) {
+        inviteContext = { applicationId: existing.id, propertyLabel, organizationName };
+        return store;
+      }
+
+      const now = nowIso();
+      const id = createId("app");
+      inviteContext = { applicationId: id, propertyLabel, organizationName };
+      const application = {
+        id,
+        organizationId: user.organizationId,
+        managerUserId: user.id,
+        propertyId: property.id,
+        unitId: unit?.id,
+        publicSlug: createPublicSlug(),
+        title: [property.name, unit?.unitNumber ? `Unit ${unit.unitNumber}` : null].filter(Boolean).join(" - ") + " application",
+        monthlyRent: unit?.monthlyRent ?? 0,
+        securityDeposit: unit?.depositAmount ?? 0,
+        availableMoveInDate: parsed.desiredMoveInDate ? toIsoDate(parsed.desiredMoveInDate) : now,
+        applicationFee: 0,
+        requiredFields: DEFAULT_INVITE_REQUIRED_FIELDS,
+        allowCoApplicants: true,
+        allowPets: true,
+        status: "PUBLISHED" as const,
+        publishedAt: now,
+        createdAt: now,
+        updatedAt: now
+      };
+      return { ...store, rentalApplications: [...store.rentalApplications, application] };
+    });
+  } catch (error) {
+    redirect(failurePath(error instanceof Error ? error.message : "Could not prepare the application invite."));
+  }
+
+  if (!inviteContext) {
+    redirect(failurePath("Could not prepare the application invite."));
+  }
+  const context = inviteContext;
+
+  const rawToken = generateInviteToken();
+  const now = nowIso();
+  const invite: ApplicationInvite = {
+    id: createId("appinv"),
+    organizationId: user.organizationId,
+    managerUserId: user.id,
+    applicationId: context.applicationId,
+    propertyId: parsed.propertyId,
+    unitId: parsed.unitId || undefined,
+    applicantFirstName: parsed.firstName,
+    applicantLastName: parsed.lastName,
+    applicantEmail: normalizeEmail(parsed.email),
+    applicantPhone: parsed.phone,
+    desiredMoveInDate: parsed.desiredMoveInDate ? toIsoDate(parsed.desiredMoveInDate) : undefined,
+    requestBackgroundCheck: parsed.requestBackgroundCheck,
+    requestIncomeVerification: parsed.requestIncomeVerification,
+    note: parsed.note,
+    tokenHash: hashInviteToken(rawToken),
+    status: "SENT",
+    expiresAt: new Date(Date.now() + APPLICATION_INVITE_TTL_MS).toISOString(),
+    sentAt: now,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  try {
+    const delivery = await sendApplicationInviteEmail({
+      to: invite.applicantEmail,
+      applicantName: parsed.firstName,
+      managerName: `${user.firstName} ${user.lastName}`.trim() || user.email,
+      organizationName: context.organizationName,
+      propertyLabel: context.propertyLabel,
+      inviteUrl: buildAppUrl(`/apply/invite/${encodeURIComponent(rawToken)}`),
+      requestBackgroundCheck: parsed.requestBackgroundCheck,
+      requestIncomeVerification: parsed.requestIncomeVerification,
+      note: parsed.note,
+      expiresAt: formatDate(invite.expiresAt),
+      organizationId: user.organizationId,
+      userId: user.id,
+      relatedId: invite.id
+    });
+    if (!delivery.sent) {
+      throw new Error(delivery.error || "Cloudflare did not accept the application invite email.");
+    }
+  } catch (error) {
+    redirect(failurePath(error instanceof Error ? error.message : "The application invite email could not be delivered."));
+  }
+
+  await updateStore((store) => ({
+    ...store,
+    applicationInvites: [...store.applicationInvites, invite]
+  }));
+
+  revalidatePath("/applications");
+  redirect(`/applications?invited=${encodeURIComponent(invite.applicantEmail)}`);
+}
+
 export async function submitRentalApplicationAction(formData: FormData) {
   const publicSlug = getString(formData, "publicSlug");
+  const inviteToken = getOptionalString(formData, "inviteToken");
   let redirectSlug = publicSlug;
   let submittedId = "";
+  let inviteScreening: { background: boolean; income: boolean } | null = null;
+  let submissionEmailContext: {
+    applicantName: string;
+    applicantEmail: string;
+    applicationId: string;
+    applicationTitle: string;
+    propertyLabel: string;
+    organizationId: string;
+    managerUserId: string;
+    managerName: string;
+    managerEmail: string;
+  } | null = null;
 
   try {
     await updateStore((store) => {
       const application = store.rentalApplications.find((item) => item.publicSlug === publicSlug && item.status === "PUBLISHED");
       if (!application) throw new Error("This application is no longer accepting submissions.");
+
+      const invite = inviteToken
+        ? store.applicationInvites.find((item) => item.tokenHash === hashInviteToken(inviteToken)) ?? null
+        : null;
+      if (inviteToken && (!invite || invite.applicationId !== application.id)) {
+        throw new Error("This invitation link is no longer valid.");
+      }
+      if (invite?.status === "REVOKED") throw new Error("This invitation was withdrawn by the property manager.");
+      if (invite?.status === "SUBMITTED") throw new Error("An application was already submitted for this invitation.");
+      if (invite && new Date(invite.expiresAt).getTime() < Date.now()) {
+        throw new Error("This invitation has expired. Ask the property manager to send a new one.");
+      }
 
       const questions = store.applicationQuestions
         .filter((question) => question.applicationId === application.id)
@@ -1002,6 +1203,9 @@ export async function submitRentalApplicationAction(formData: FormData) {
       }));
       const result = applicationSubmissionSchema.safeParse({
         publicSlug,
+        inviteToken,
+        backgroundCheckConsent: getBoolean(formData, "backgroundCheckConsent"),
+        incomeVerificationConsent: getBoolean(formData, "incomeVerificationConsent"),
         firstName: getString(formData, "firstName"),
         lastName: getString(formData, "lastName"),
         email: getString(formData, "email"),
@@ -1036,6 +1240,12 @@ export async function submitRentalApplicationAction(formData: FormData) {
         (application.allowPets && requiredFields.has("pets") && !parsed.pets);
       if (missingRequired) throw new Error("Complete all required application sections.");
       if (!parsed.authorizationAccepted) throw new Error("Authorization is required before submitting.");
+      if (invite?.requestBackgroundCheck && !parsed.backgroundCheckConsent) {
+        throw new Error("Background check consent is required before submitting this application.");
+      }
+      if (invite?.requestIncomeVerification && !parsed.incomeVerificationConsent) {
+        throw new Error("Bank and income verification consent is required before submitting this application.");
+      }
       if (questions.some((question) => question.required && !questionAnswers.find((answer) => answer.questionId === question.id)?.answer)) {
         throw new Error("Answer all required screening questions.");
       }
@@ -1088,6 +1298,11 @@ export async function submitRentalApplicationAction(formData: FormData) {
         vehicles: parsed.vehicles,
         documentNotes: parsed.documentNotes,
         authorizationAccepted: parsed.authorizationAccepted,
+        inviteId: invite?.id,
+        backgroundCheckConsent: invite ? Boolean(parsed.backgroundCheckConsent) : undefined,
+        backgroundCheckConsentAt: invite && parsed.backgroundCheckConsent ? now : undefined,
+        incomeVerificationConsent: invite ? Boolean(parsed.incomeVerificationConsent) : undefined,
+        incomeVerificationConsentAt: invite && parsed.incomeVerificationConsent ? now : undefined,
         answers: questionAnswers,
         createdAt: now,
         updatedAt: now
@@ -1105,9 +1320,40 @@ export async function submitRentalApplicationAction(formData: FormData) {
       }));
 
       redirectSlug = application.publicSlug;
+      inviteScreening = invite ? { background: invite.requestBackgroundCheck, income: invite.requestIncomeVerification } : null;
+
+      const manager = store.users.find((item) => item.id === application.managerUserId);
+      submissionEmailContext = {
+        applicantName: primaryApplicant.firstName,
+        applicantEmail: primaryApplicant.email,
+        applicationId: application.id,
+        applicationTitle: application.title,
+        propertyLabel: getApplicationAddressLabel(store, application),
+        organizationId: application.organizationId,
+        managerUserId: application.managerUserId,
+        managerName: manager?.firstName ?? "there",
+        managerEmail: manager?.email ?? ""
+      };
 
       return {
         ...store,
+        applicationInvites: invite
+          ? store.applicationInvites.map((item) =>
+              item.id === invite.id
+                ? { ...item, status: "SUBMITTED" as const, submittedAt: now, submissionId, updatedAt: now }
+                : item
+            )
+          : store.applicationInvites,
+        applicationStatusHistory: [
+          ...store.applicationStatusHistory,
+          {
+            id: createId("apphist"),
+            applicationId: application.id,
+            submissionId,
+            toStatus: "SUBMITTED" as const,
+            createdAt: now
+          }
+        ],
         applicationSubmissions: [...store.applicationSubmissions, submission],
         applicationApplicants: [...store.applicationApplicants, primaryApplicant, ...(coApplicant ? [coApplicant] : [])],
         applicationDocuments: [...store.applicationDocuments, ...submittedDocuments],
@@ -1129,7 +1375,46 @@ export async function submitRentalApplicationAction(formData: FormData) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not submit the application.";
-    redirect(`/apply/${encodeURIComponent(redirectSlug)}?error=${encodeURIComponent(message)}`);
+    redirect(
+      inviteToken
+        ? `/apply/invite/${encodeURIComponent(inviteToken)}?error=${encodeURIComponent(message)}`
+        : `/apply/${encodeURIComponent(redirectSlug)}?error=${encodeURIComponent(message)}`
+    );
+  }
+
+  if (submittedId && submissionEmailContext) {
+    const context = submissionEmailContext;
+    const deliveries = await Promise.allSettled([
+      sendApplicationSubmittedEmail({
+        to: context.applicantEmail,
+        applicantName: context.applicantName,
+        applicationTitle: context.applicationTitle,
+        propertyLabel: context.propertyLabel,
+        organizationId: context.organizationId,
+        relatedId: submittedId
+      }),
+      context.managerEmail
+        ? sendApplicationReceivedEmail({
+            to: context.managerEmail,
+            managerName: context.managerName,
+            applicantName: context.applicantName,
+            applicationTitle: context.applicationTitle,
+            propertyLabel: context.propertyLabel,
+            reviewUrl: buildAppUrl(`/applications/${context.applicationId}/submissions/${submittedId}`),
+            organizationId: context.organizationId,
+            userId: context.managerUserId,
+            relatedId: submittedId
+          })
+        : Promise.resolve(null)
+    ]);
+    for (const delivery of deliveries) {
+      if (delivery.status === "rejected") {
+        console.warn("[applications] Application lifecycle email failed.", {
+          submissionId: submittedId,
+          error: delivery.reason instanceof Error ? delivery.reason.message : String(delivery.reason)
+        });
+      }
+    }
   }
 
   revalidatePath("/applications");
@@ -1138,6 +1423,26 @@ export async function submitRentalApplicationAction(formData: FormData) {
     try {
       const access = await ensureApplicantPortalAccess(submittedId);
       screeningAccessPath = access.path;
+      if (inviteScreening?.background) {
+        try {
+          await startCheckrScreening(access.application);
+        } catch (error) {
+          console.warn("[screening] Requested background check could not be auto-started.", {
+            submissionId: submittedId,
+            error: error instanceof Error ? error.message : "Unknown Checkr error"
+          });
+        }
+      }
+      if (inviteScreening?.income) {
+        try {
+          await startPlaidScreening(access.application, false);
+        } catch (error) {
+          console.warn("[screening] Requested bank verification could not be auto-started.", {
+            submissionId: submittedId,
+            error: error instanceof Error ? error.message : "Unknown Plaid error"
+          });
+        }
+      }
     } catch (error) {
       console.warn("[screening] Application was submitted, but the screening portal could not be provisioned.", {
         submissionId: submittedId,
@@ -1146,7 +1451,11 @@ export async function submitRentalApplicationAction(formData: FormData) {
     }
     if (screeningAccessPath) redirect(screeningAccessPath);
   }
-  redirect(`/apply/${encodeURIComponent(redirectSlug)}?submitted=1`);
+  redirect(
+    inviteToken
+      ? `/apply/invite/${encodeURIComponent(inviteToken)}?submitted=1`
+      : `/apply/${encodeURIComponent(redirectSlug)}?submitted=1`
+  );
 }
 
 export async function updateApplicationSubmissionStatusAction(formData: FormData) {
@@ -1161,17 +1470,53 @@ export async function updateApplicationSubmissionStatusAction(formData: FormData
     redirect(`/applications/${applicationId}/submissions/${submissionId}?error=invalid-status`);
   }
 
+  let decisionEmailContext: {
+    to: string;
+    applicantName: string;
+    applicationTitle: string;
+    propertyLabel: string;
+    decision: "APPROVED" | "REJECTED";
+    organizationId: string;
+    relatedId: string;
+  } | null = null;
+
   await updateStore((store) => {
     const bundle = getSubmissionBundle(store, submissionId);
     if (!bundle || bundle.application.id !== applicationId || !managerOwnsApplication(store, user, bundle.application)) {
       throw new Error("Application submission not found.");
     }
     const now = nowIso();
+    const fromStatus = bundle.submission.status;
+    const applicant = primaryApplicant(bundle.applicants);
+    if ((status === "APPROVED" || status === "REJECTED") && status !== fromStatus && applicant) {
+      decisionEmailContext = {
+        to: applicant.email,
+        applicantName: applicant.firstName,
+        applicationTitle: bundle.application.title,
+        propertyLabel: getApplicationAddressLabel(store, bundle.application),
+        decision: status,
+        organizationId: bundle.application.organizationId,
+        relatedId: submissionId
+      };
+    }
     return {
       ...store,
       applicationSubmissions: store.applicationSubmissions.map((submission) =>
         submission.id === submissionId ? { ...submission, status: status as any, updatedAt: now } : submission
       ),
+      applicationStatusHistory: [
+        ...store.applicationStatusHistory,
+        {
+          id: createId("apphist"),
+          applicationId,
+          submissionId,
+          fromStatus,
+          toStatus: status as RentalApplicationStatus,
+          changedByUserId: user.id,
+          note,
+          createdAt: now
+        }
+      ],
       applicationNotes: note
         ? [
             ...store.applicationNotes,
@@ -1187,6 +1532,17 @@ export async function updateApplicationSubmissionStatusAction(formData: FormData
         : store.applicationNotes
     };
   });
+
+  if (decisionEmailContext) {
+    try {
+      await sendApplicationDecisionEmail(decisionEmailContext);
+    } catch (error) {
+      console.warn("[applications] Application decision email failed.", {
+        submissionId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
 
   revalidatePath("/applications");
   revalidatePath(`/applications/${applicationId}`);

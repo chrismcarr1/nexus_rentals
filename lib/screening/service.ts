@@ -225,7 +225,8 @@ export async function startPlaidScreening(application: ScreeningApplicationRecor
       propertyLabel,
       screeningUrl: buildAppUrl(`/screening/access/${token}`),
       organizationId: application.organizationId,
-      userId: application.applicantUserId ?? undefined
+      userId: application.applicantUserId ?? undefined,
+      relatedId: application.id
     });
     if (!delivery.sent) {
       await updateScreeningRequest(request.id, {
