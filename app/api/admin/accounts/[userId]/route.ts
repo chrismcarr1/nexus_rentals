@@ -81,6 +81,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ us
       const phone = formatPhoneNumber(parsed.phone) || undefined;
       const title = parsed.title || undefined;
       const previousEmail = target.email;
+      const nextIsActive = currentTargetIsAdmin ? true : parsed.isActive;
+      // Disabling an account, or changing its email or role, must revoke any
+      // live session tokens that account already holds.
+      const shouldRevokeSessions =
+        (target.isActive !== false && nextIsActive === false) ||
+        normalizeEmail(previousEmail) !== nextEmail ||
+        getEffectiveUserRole(target.role, target.email) !== role;
 
       const users = store.users.map((user) =>
         user.id === userId
@@ -90,9 +97,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ us
               lastName: parsed.lastName,
               email: nextEmail,
               role,
-              isActive: currentTargetIsAdmin ? true : parsed.isActive,
+              isActive: nextIsActive,
               phone,
               title,
+              sessionVersion: shouldRevokeSessions ? (user.sessionVersion ?? 0) + 1 : user.sessionVersion,
               updatedAt
             }
           : user

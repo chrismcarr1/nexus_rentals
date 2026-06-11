@@ -180,7 +180,7 @@ export function AddressFields({
   return (
     <div className={className}>
       <label className="block">
-        <span className="mb-2 block text-sm font-medium">Street address</span>
+        <span className="field-label">Street address</span>
         <div className="relative">
           <input
             name={fieldNames.addressLine1}
@@ -195,14 +195,14 @@ export function AddressFields({
             className={inputClassName}
           />
           {showSuggestions && suggestions.length ? (
-            <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-xl">
+            <div className="address-suggestions absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden border border-[var(--line)] bg-white">
               {suggestions.map((suggestion) => (
                 <button
                   key={suggestion.id}
                   type="button"
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => selectSuggestion(suggestion)}
-                  className="block w-full px-4 py-3 text-left text-sm text-[var(--text)] transition hover:bg-[var(--panel)]"
+                  className="address-suggestion block w-full px-3 py-2.5 text-left text-sm text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
                 >
                   {suggestion.label}
                 </button>
@@ -214,7 +214,7 @@ export function AddressFields({
         {status === "loading" ? <span className="mt-2 block text-xs text-[var(--muted)]">Searching addresses...</span> : null}
       </label>
       <label className="block">
-        <span className="mb-2 block text-sm font-medium">Apt, suite, or unit</span>
+        <span className="field-label">Apt, suite, or unit</span>
         <input
           name={fieldNames.addressLine2}
           value={address.addressLine2}

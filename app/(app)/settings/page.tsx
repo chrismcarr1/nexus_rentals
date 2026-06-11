@@ -78,13 +78,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
     <div className="space-y-4">
       <PageHeader
         eyebrow={user.role === "ADMIN" ? "Administration" : user.role === "MANAGER" ? "Profile & workspace" : "Account preferences"}
-        title={
-          user.role === "ADMIN"
-            ? "Platform settings"
-            : user.role === "MANAGER"
-              ? "Profile & Stripe payouts"
-              : "Account & preferences"
-        }
+        title="Settings"
         description={
           user.role === "ADMIN"
             ? "Manage organization details, Stripe Connect, team visibility, and platform-wide configuration."

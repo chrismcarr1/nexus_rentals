@@ -1,6 +1,8 @@
 import Link from "next/link";
 
+import { AuthShell } from "@/components/auth-shell";
 import { PasswordField } from "@/components/password-field";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { resetPasswordAction } from "@/lib/actions";
 
 export default async function ResetPasswordPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
@@ -8,35 +10,38 @@ export default async function ResetPasswordPage({ searchParams }: { searchParams
   const token = params.token ?? "";
 
   return (
-    <main className="grid-bg flex min-h-screen items-center justify-center p-6">
-      <div className="glass card-shadow w-full max-w-xl rounded-2xl border border-white/60 p-6 sm:p-8">
-        <p className="text-sm uppercase tracking-[0.28em] text-[var(--brand)]">Reset Password</p>
-        <h1 className="mt-3 font-[var(--font-display)] text-4xl">Set a new password</h1>
-        {params.error ? (
-          <div className="mt-5 rounded-2xl border border-[var(--line)] bg-red-50 px-4 py-3 text-sm text-red-900">
-            {params.error === "invalid-form" ? "Enter a password of at least 8 characters and make sure both passwords match." : "Reset link is invalid or expired."}
-          </div>
-        ) : null}
-        {token ? (
-          <form action={resetPasswordAction} className="mt-8 space-y-4">
-            <input name="token" type="hidden" value={token} readOnly />
-            <PasswordField name="password" required minLength={8} label="New password" placeholder="New password" />
-            <PasswordField name="confirmPassword" required minLength={8} label="Confirm new password" placeholder="Confirm new password" />
-            <button type="submit" className="w-full rounded-xl bg-[var(--brand)] px-4 py-3 font-semibold text-white">
-              Save password
-            </button>
-          </form>
-        ) : (
-          <div className="mt-8 rounded-2xl border border-[var(--line)] bg-stone-900/5 px-4 py-3 text-sm text-stone-600">
-            This page needs a reset link from your email.
-          </div>
-        )}
-        <div className="mt-6 text-sm text-stone-500">
-          <Link href="/forgot-password" className="font-semibold text-[var(--brand)]">
-            Request a new reset link
-          </Link>
+    <AuthShell
+      eyebrow="Account recovery"
+      title="Choose a new password."
+      description="Use a password you do not use elsewhere. Once saved, any older Nexus sessions will be signed out."
+      cardTitle="Set your password"
+      cardDescription="Your new password must contain at least eight characters."
+      noteTitle="A clean restart"
+      note="Changing your password invalidates existing sessions tied to the account."
+      footer={<p>Need another link? <Link href="/forgot-password">Request a new reset</Link></p>}
+    >
+      {params.error ? (
+        <div className="auth-alert auth-alert-error" role="alert">
+          {params.error === "invalid-form"
+            ? "Use at least eight characters and make sure both passwords match."
+            : "This reset link is invalid or has expired."}
         </div>
-      </div>
-    </main>
+      ) : null}
+
+      {token ? (
+        <form action={resetPasswordAction} className="auth-form">
+          <input name="token" type="hidden" value={token} readOnly />
+          <PasswordField name="password" required minLength={8} autoComplete="new-password" label="New password" />
+          <PasswordField name="confirmPassword" required minLength={8} autoComplete="new-password" label="Confirm new password" />
+          <SubmitButton pendingLabel="Saving password..." className="auth-primary-button">
+            Save password
+          </SubmitButton>
+        </form>
+      ) : (
+        <div className="auth-alert auth-alert-neutral" role="status">
+          Open the password reset link from your email to continue.
+        </div>
+      )}
+    </AuthShell>
   );
 }

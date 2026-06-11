@@ -17,7 +17,13 @@ export function SearchInput({
     <label className={cn("relative block min-w-0", className)}>
       <span className="sr-only">{placeholder}</span>
       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
-      <input name={name} defaultValue={defaultValue} placeholder={placeholder} className="field search-field text-sm" />
+      <input
+        name={name}
+        autoComplete="off"
+        defaultValue={defaultValue}
+        placeholder={placeholder}
+        className="field search-field text-sm"
+      />
     </label>
   );
 }

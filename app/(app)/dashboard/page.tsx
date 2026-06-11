@@ -11,12 +11,10 @@ import {
   MessageSquare,
   ReceiptText,
   ShieldCheck,
-  Sparkles,
   Wrench
 } from "lucide-react";
 
-import { CashFlowChart } from "@/components/charts/cash-flow-chart";
-import { ProjectedRevenueChart } from "@/components/charts/projected-revenue-chart";
+import { CashFlowChart, ProjectedRevenueChart } from "@/components/charts/lazy-charts";
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
@@ -99,7 +97,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       <div className="dashboard-page">
         <PageHeader
           eyebrow={role.homeLabel}
-          title="Operations"
+          title="Dashboard"
           description="Scan collections, maintenance, applications, and lease events from one view."
           actions={<QuickActionMenu role={user.role} />}
         />
@@ -305,19 +303,6 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     );
   }
 
-  const dashboardCopy =
-    user.role === "ADMIN"
-      ? {
-          title: "Portfolio command center",
-          description: "A clean operating view across occupancy, collections, renewals, maintenance, and team activity.",
-          eyebrow: role.homeLabel
-        }
-      : {
-          title: "Your rental home base",
-          description: "Track rent, lease status, service requests, notices, and messages without digging through separate portals.",
-          eyebrow: role.homeLabel
-        };
-
   const heroMetrics =
     user.role === "TENANT"
       ? [
@@ -362,12 +347,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       <section className="dashboard-hero">
         <div className="surface-panel dashboard-hero-main">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[rgba(13,143,123,0.18)] bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">
-              <Sparkles className="h-3.5 w-3.5" />
-              {dashboardCopy.eyebrow}
-            </div>
-            <h1 className="page-title mt-5 font-semibold text-[var(--text)]">{dashboardCopy.title}</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)] lg:text-[15px]">{dashboardCopy.description}</p>
+            <h1 className="page-title font-semibold text-[var(--text)]">Dashboard</h1>
           </div>
           <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="hero-kpi-strip min-w-0 flex-1">

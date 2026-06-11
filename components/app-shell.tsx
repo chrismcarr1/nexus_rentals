@@ -84,7 +84,7 @@ export function AppShell({
             ) : null}
             <div ref={accountMenuRef} className="relative">
               {accountOpen ? (
-                <div className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-30 overflow-hidden border border-[var(--line)] bg-white shadow-[0_16px_36px_rgba(15,23,42,0.18)]">
+                <div className="account-menu absolute bottom-[calc(100%+8px)] left-0 right-0 z-30 overflow-hidden border border-[var(--line)] bg-white shadow-[0_16px_36px_rgba(15,23,42,0.18)]">
                   <div className="border-b border-[var(--line)] px-3 py-2.5">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Signed in as</p>
                     <p className="mt-0.5 truncate text-sm font-semibold text-[var(--text)]">{user.firstName} {user.lastName}</p>
@@ -120,7 +120,7 @@ export function AppShell({
                 onClick={() => setAccountOpen((open) => !open)}
                 aria-expanded={accountOpen}
                 className={cn(
-                  "flex w-full items-center gap-2.5 border-t border-[var(--sidebar-line)] px-2 py-3 text-left transition hover:bg-[var(--sidebar-hover)]",
+                  "account-trigger flex w-full items-center gap-2.5 border-t border-[var(--sidebar-line)] px-2 py-3 text-left transition hover:bg-[var(--sidebar-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand)]",
                   accountOpen && "bg-[var(--sidebar-hover)]"
                 )}
               >

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, CircleAlert, MailWarning, ShieldAlert } from "lucide-react";
 
-import { AdminAnalyticsChart } from "@/components/admin/admin-analytics-chart";
+import { AdminAnalyticsChart } from "@/components/charts/lazy-charts";
 import { AdminDataTable } from "@/components/admin/admin-data-table";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { AdminMetricCard } from "@/components/admin/admin-metric-card";

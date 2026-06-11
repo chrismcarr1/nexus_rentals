@@ -86,6 +86,7 @@ export function SidebarItem({ item, active }: { item: NavItem; active: boolean }
     <Link
       href={item.href}
       title={item.description}
+      aria-current={active ? "page" : undefined}
       className={cn(
         "sidebar-nav-item group relative flex items-center gap-2.5 px-3 transition duration-150",
         active

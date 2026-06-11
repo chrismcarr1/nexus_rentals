@@ -36,7 +36,7 @@ export default async function ManagerGuidePage() {
     <div className="space-y-4">
       <PageHeader
         eyebrow="Manager guide"
-        title="Tips to being a good manager."
+        title="Manager Guide"
         description="A practical operating checklist for keeping residents informed, properties cared for, and decisions easy to defend."
       />
       <div className="card-grid-3">
@@ -45,7 +45,7 @@ export default async function ManagerGuidePage() {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">{section.title}</p>
             <div className="mt-5 space-y-3">
               {section.tips.map((tip) => (
-                <div key={tip} className="rounded-2xl border border-[var(--line)] bg-white/70 p-4 text-sm leading-6 text-[var(--muted)]">
+                <div key={tip} className="guide-tip">
                   {tip}
                 </div>
               ))}

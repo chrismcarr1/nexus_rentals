@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -7,6 +8,7 @@ import { redirect } from "next/navigation";
 import { getEffectiveUserRole, isSystemAdminEmail } from "@/lib/admin";
 import { getOrganizationById, getUserById, type UserRole } from "@/lib/store";
 import { canAccessPath } from "@/lib/rbac";
+import { isRetiredAccountEmail } from "@/lib/retired-accounts";
 
 const SESSION_COOKIE = "rentroll_session";
 const encoder = new TextEncoder();
@@ -16,14 +18,26 @@ type SessionPayload = {
   organizationId: string;
   role: UserRole;
   email: string;
+  // Session-revocation version captured when the token was issued. Compared
+  // against the user's current sessionVersion on every authenticated request.
+  sessionVersion: number;
 };
 
 function getAuthSecret() {
-  if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("Missing AUTH_SECRET. Set a long random secret in Vercel.");
+  const secret = process.env.AUTH_SECRET?.trim();
+  if (secret) {
+    if (process.env.NODE_ENV === "production" && secret.length < 32) {
+      throw new Error("AUTH_SECRET must be at least 32 characters in production.");
+    }
+    return secret;
   }
-  return "dev-secret-change-me";
+  // The fallback is a publicly-known string, so it must never sign real sessions.
+  // Only the explicit local development mode may use it; preview/staging/test
+  // deployments must provide a real secret or sessions cannot be issued.
+  if (process.env.NODE_ENV === "development") {
+    return "dev-secret-change-me";
+  }
+  throw new Error("Missing AUTH_SECRET. Set a long random secret in the environment.");
 }
 
 export async function createSession(payload: SessionPayload) {
@@ -61,7 +75,11 @@ export async function getSession() {
   }
 }
 
-export async function getCurrentUser() {
+// Request-scoped: the layout and the page each call requireUser(), and
+// getPortalContext() memoizes by user object identity. Deduplicating here means
+// both receive the same instance, so the portal context is computed once per
+// request instead of twice (and the user/org store reads run once).
+export const getCurrentUser = cache(async () => {
   const session = await getSession();
   if (!session) return null;
 
@@ -69,6 +87,10 @@ export async function getCurrentUser() {
     const user = await getUserById(session.sub);
     if (!user) return null;
     if (user.isActive === false) return null;
+    if (isRetiredAccountEmail(user.email)) return null;
+    // Reject tokens issued before the user's session version was last advanced
+    // (logout, password reset, account disable, role/email change).
+    if ((user.sessionVersion ?? 0) !== (session.sessionVersion ?? 0)) return null;
     const organization = await getOrganizationById(user.organizationId);
     if (!organization) return null;
     return { ...user, role: getEffectiveUserRole(user.role, user.email), organization };
@@ -76,7 +98,7 @@ export async function getCurrentUser() {
     console.error("[auth] Failed to load current user from database", error);
     return null;
   }
-}
+});
 
 export async function requireUser() {
   const user = await getCurrentUser();

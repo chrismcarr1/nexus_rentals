@@ -13,7 +13,7 @@ export function PhotoCarousel({ photos, height = "h-72" }: { photos: Photo[]; he
   return (
     <div className={`relative overflow-hidden bg-black ${height}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={photo.path} alt={photo.label ?? "Photo"} className="h-full w-full object-cover" />
+      <img src={photo.path} alt={photo.label ?? "Photo"} className="h-full w-full object-cover" loading="lazy" decoding="async" />
       {multi && (
         <>
           <button

@@ -28,14 +28,14 @@ export function MetricCard({
     <Card className="metric-card">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--muted)]">{label}</p>
-          <p className="mt-4 break-words text-3xl font-semibold tracking-normal text-[var(--text)]">{value}</p>
+          <p className="metric-label text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">{label}</p>
+          <p className="metric-value mt-3 break-words text-3xl font-semibold text-[var(--text)]">{value}</p>
         </div>
         <span className={cn("metric-icon", `metric-accent-${accent}`)}>
           <Icon className="h-4 w-4" />
         </span>
       </div>
-      <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{hint}</p>
+      <p className="metric-hint mt-3 text-sm leading-6 text-[var(--muted)]">{hint}</p>
     </Card>
   );
 }

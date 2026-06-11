@@ -44,7 +44,7 @@ export function QuickActionMenu({
         type="button"
         onClick={() => setOpen((current) => !current)}
         className={cn(
-          "inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]",
+          "quick-action-trigger inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]",
           compact && "w-10 px-0"
         )}
         aria-expanded={open}
@@ -55,7 +55,7 @@ export function QuickActionMenu({
         {compact ? null : <ChevronDown className={cn("h-4 w-4 transition", open && "rotate-180")} />}
       </button>
       {open ? (
-        <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-56 rounded-md border border-[var(--line)] bg-[var(--surface-strong)] p-1.5 shadow-[0_18px_38px_rgba(20,33,30,0.14)]">
+        <div className="quick-action-menu absolute right-0 top-[calc(100%+8px)] z-40 w-56 rounded-md border border-[var(--line)] bg-[var(--surface-strong)] p-1.5 shadow-[0_18px_38px_rgba(20,33,30,0.14)]">
           {actions.map((action) => {
             const Icon = action.icon;
             return (

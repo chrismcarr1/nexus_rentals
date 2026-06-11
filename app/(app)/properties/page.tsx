@@ -183,7 +183,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
                   <td className="table-cell">
                     <Link href={`/properties/${row.property.id}`} className="table-link flex items-center gap-3">
                       {row.coverImagePath ? (
-                        <img src={row.coverImagePath} alt="" className="h-9 w-9 rounded-md object-cover" />
+                        <img src={row.coverImagePath} alt="" className="h-9 w-9 rounded-md object-cover" loading="lazy" decoding="async" />
                       ) : (
                         <span className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--line)] bg-[var(--surface)] text-[var(--muted)]">
                           <Building2 className="h-4 w-4" />
@@ -243,21 +243,33 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
           ) : null}
           <form action={createPropertyAction} className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-4">
-              <input name="name" placeholder="Property name" className="field" />
+              <label className="block">
+                <span className="field-label">Property name</span>
+                <input name="name" placeholder="e.g. Cedar Ridge Apartments" className="field" />
+              </label>
               <AddressFields />
-              <textarea name="description" placeholder="Asset summary" className="field min-h-24" />
+              <label className="block">
+                <span className="field-label">Asset summary</span>
+                <textarea name="description" placeholder="Add useful portfolio context" className="field min-h-24" />
+              </label>
             </div>
             <div className="space-y-4">
-              <input name="amenities" placeholder="Amenities, comma separated" className="field" />
+              <label className="block">
+                <span className="field-label">Amenities</span>
+                <input name="amenities" placeholder="Comma separated, e.g. parking, laundry" className="field" />
+              </label>
               {user.role === "ADMIN" ? (
-                <select name="managerId" className="field">
-                  <option value="">Unassigned manager</option>
-                  {portal.managers.map((manager) => (
-                    <option key={manager.id} value={manager.id}>
-                      {manager.firstName} {manager.lastName}
-                    </option>
-                  ))}
-                </select>
+                <label className="block">
+                  <span className="field-label">Property manager</span>
+                  <select name="managerId" className="field">
+                    <option value="">Unassigned manager</option>
+                    {portal.managers.map((manager) => (
+                      <option key={manager.id} value={manager.id}>
+                        {manager.firstName} {manager.lastName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               ) : null}
               <MultiUploadInput name="imagePaths" label="Upload property photos — up to 20 total" accept="image/*" />
               <div className="flex gap-2">
