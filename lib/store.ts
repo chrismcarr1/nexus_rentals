@@ -74,6 +74,10 @@ export type User = {
   stripePastDue?: string[];
   stripeUpdatedAt?: string;
   lastLoginAt?: string;
+  // Monotonic counter embedded in issued session tokens. Bumping it invalidates
+  // every previously-issued JWT for this user (logout, password reset, account
+  // disable, role/email change). Absent/undefined is treated as 0.
+  sessionVersion?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -403,15 +407,72 @@ async function writeLocalStore(store: AppStore) {
   await fs.writeFile(LOCAL_STORE_PATH, JSON.stringify(store, null, 2), "utf8");
 }
 
+// Read cache: a typical page render used to issue several identical full-blob
+// SELECTs (auth, portal snapshot, page-level queries). Reads within the short
+// TTL share one in-flight fetch. Any local write bumps the version, which
+// invalidates the cache immediately, and updateStore always reads fresh inside
+// its locked transaction, never through this cache. The TTL is kept at one
+// second so a write on another server instance can only be invisible briefly.
+const READ_CACHE_TTL_MS = 1_000;
+let storeVersion = 0;
+let readCache: { version: number; expiresAt: number; promise: Promise<AppStore> } | null = null;
+
+function invalidateStoreReadCache() {
+  storeVersion += 1;
+  readCache = null;
+}
+
+const SLOW_READ_MS = 400;
+const SLOW_WRITE_MS = 600;
+
+function logStoreTiming(op: string, startedAt: number, slowThresholdMs: number, extra?: Record<string, unknown>) {
+  const durationMs = Date.now() - startedAt;
+  if (durationMs >= slowThresholdMs) {
+    console.warn(`[store:perf] Slow ${op}: ${durationMs}ms`, extra ?? {});
+  } else if (process.env.NEXUS_PERF_LOG === "1") {
+    console.log(`[store:perf] ${op}: ${durationMs}ms`, extra ?? {});
+  }
+}
+
+function storeSizeSummary(store: AppStore) {
+  return {
+    users: store.users.length,
+    properties: store.properties.length,
+    leases: store.leases.length,
+    payments: store.payments.length,
+    notifications: store.notifications.length
+  };
+}
+
+async function fetchHostedStore(): Promise<AppStore> {
+  const startedAt = Date.now();
+  await ensureAppStoreTable();
+  const rows = await getSql()`select data from app_store where id = ${STORE_ID} limit 1`;
+  const store = normalizeStore((rows[0]?.data as AppStore | undefined) ?? emptyStore());
+  logStoreTiming("read", startedAt, SLOW_READ_MS, storeSizeSummary(store));
+  return store;
+}
+
 export async function readStore(): Promise<AppStore> {
   if (shouldUseLocalFallback()) {
     return readLocalStore();
   }
+
+  const now = Date.now();
+  if (readCache && readCache.version === storeVersion && readCache.expiresAt > now) {
+    try {
+      return await readCache.promise;
+    } catch {
+      // Cached fetch failed; fall through to a fresh attempt.
+    }
+  }
+
+  const promise = fetchHostedStore();
+  readCache = { version: storeVersion, expiresAt: now + READ_CACHE_TTL_MS, promise };
   try {
-    await ensureAppStoreTable();
-    const rows = await getSql()`select data from app_store where id = ${STORE_ID} limit 1`;
-    return normalizeStore((rows[0]?.data as AppStore | undefined) ?? emptyStore());
+    return await promise;
   } catch (error) {
+    if (readCache?.promise === promise) readCache = null;
     if (isLocalDevelopment()) {
       enterLocalFallback(error);
       return readLocalStore();
@@ -494,8 +555,10 @@ function normalizeStore(store: AppStore): AppStore {
 export async function writeStore(store: AppStore) {
   if (shouldUseLocalFallback()) {
     await writeLocalStore(store);
+    invalidateStoreReadCache();
     return;
   }
+  const startedAt = Date.now();
   try {
     await ensureAppStoreTable();
     await getSql()`
@@ -503,6 +566,7 @@ export async function writeStore(store: AppStore) {
       values (${STORE_ID}, ${getSql().json(store)}::jsonb, now())
       on conflict (id) do update set data = excluded.data, updated_at = now()
     `;
+    logStoreTiming("write", startedAt, SLOW_WRITE_MS, storeSizeSummary(store));
   } catch (error) {
     if (isLocalDevelopment()) {
       enterLocalFallback(error);
@@ -511,6 +575,8 @@ export async function writeStore(store: AppStore) {
     }
     console.error("[store] Failed to write hosted Postgres datastore", error);
     throw error;
+  } finally {
+    invalidateStoreReadCache();
   }
 }
 
@@ -519,6 +585,7 @@ async function updateLocalStore(updater: (store: AppStore) => AppStore | Promise
   const next = await updater(store);
   if (next !== store) {
     await writeLocalStore(next);
+    invalidateStoreReadCache();
   }
   return next;
 }
@@ -532,6 +599,8 @@ export async function updateStore(updater: (store: AppStore) => AppStore | Promi
   // trip the local-development Postgres fallback (which is only for connectivity).
   let updaterError: unknown = null;
 
+  const startedAt = Date.now();
+  let wrote = false;
   try {
     await ensureAppStoreTable();
     const sql = getSql();
@@ -553,9 +622,14 @@ export async function updateStore(updater: (store: AppStore) => AppStore | Promi
           values (${STORE_ID}, ${sql.json(next)}::jsonb, now())
           on conflict (id) do update set data = excluded.data, updated_at = now()
         `;
+        wrote = true;
       }
       return next;
     });
+    if (wrote) {
+      invalidateStoreReadCache();
+    }
+    logStoreTiming("update-transaction", startedAt, SLOW_WRITE_MS, { wrote });
     return result as AppStore;
   } catch (error) {
     if (updaterError) {
@@ -568,6 +642,21 @@ export async function updateStore(updater: (store: AppStore) => AppStore | Promi
     console.error("[store] Failed to update hosted Postgres datastore", error);
     throw error;
   }
+}
+
+// Revoke every session token previously issued to a user by advancing the
+// version that getCurrentUser compares against. Used by logout, password reset,
+// and admin account disable/role changes.
+export async function incrementUserSessionVersion(userId: string) {
+  await updateStore((store) => {
+    let changed = false;
+    const users = store.users.map((user) => {
+      if (user.id !== userId) return user;
+      changed = true;
+      return { ...user, sessionVersion: (user.sessionVersion ?? 0) + 1, updatedAt: nowIso() };
+    });
+    return changed ? { ...store, users } : store;
+  });
 }
 
 export async function getUserByEmail(email: string) {

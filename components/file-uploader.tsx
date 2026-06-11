@@ -88,13 +88,13 @@ export function FileUploader({
   }
 
   return (
-    <div className="rounded-2xl border border-dashed border-[var(--line)] bg-white/50 p-4">
-      <label className="mb-3 flex cursor-pointer flex-col gap-2 rounded-xl border border-[var(--line)] bg-white px-4 py-3 text-sm font-medium text-[var(--muted)] sm:flex-row sm:items-center sm:justify-between">
+    <div className="upload-surface">
+      <label className="upload-picker">
         <span className="inline-flex items-center gap-2">
           <Upload className="h-4 w-4" />
           {label}
         </span>
-        <span>{isUploading ? "Uploading..." : multiple ? "Choose files" : "Choose file"}</span>
+        <span className="upload-picker-action">{isUploading ? "Uploading..." : multiple ? "Choose files" : "Choose file"}</span>
         <input
           type="file"
           className="hidden"
@@ -109,17 +109,18 @@ export function FileUploader({
       </label>
       <div className="space-y-2">
         {errorMessage ? (
-          <p className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" aria-live="polite">
+          <p className="page-alert page-alert-error" role="alert" aria-live="polite">
             {errorMessage}
           </p>
         ) : null}
-        {items.length === 0 ? <p className="text-sm text-stone-500">No files uploaded yet.</p> : null}
+        {items.length === 0 ? <p className="upload-empty">No files uploaded yet.</p> : null}
         {items.map((item) => (
-          <div key={item.path} className="flex items-center justify-between rounded-2xl bg-stone-900/5 px-3 py-2 text-sm">
+          <div key={item.path} className="upload-item">
             <span className="truncate">{item.name}</span>
             <button
               type="button"
-              className="rounded-full p-1 text-stone-500 hover:bg-white"
+              className="upload-remove"
+              aria-label={`Remove ${item.name}`}
               onClick={() => {
                 const next = items.filter((candidate) => candidate.path !== item.path);
                 setItems(next);

@@ -205,7 +205,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
       <div className="space-y-5">
         <PageHeader
           eyebrow="Rent & Fees"
-          title="My Payments"
+          title="Payments"
           description="View your current balance, pay securely through Stripe, and review your complete payment history."
         />
 

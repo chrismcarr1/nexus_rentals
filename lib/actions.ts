@@ -23,7 +23,7 @@ import {
   validateOptionalAddress
 } from "@/lib/address";
 import { appDateKeyFromValue, dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, getAppDateKey, monthKeyFromValue, normalizeRentDueTime } from "@/lib/app-time";
-import { clearSession, createSession, requireRoles, requireUser } from "@/lib/auth";
+import { clearSession, createSession, getCurrentUser, requireRoles, requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sendDiscussionMessage } from "@/lib/discussions";
 import {
@@ -42,7 +42,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { recordPlatformEvent } from "@/lib/platform-events";
 import { buildAppUrl, getAppBaseUrl } from "@/lib/request-origin";
 import { ensureApplicantPortalAccess, startCheckrScreening, startPlaidScreening } from "@/lib/screening/service";
-import { FileKind, UserRole, createId, nowIso, updateStore, type ApplicationInvite, type LeaseStatus, type RentalApplicationStatus, type UnitOccupancyStatus } from "@/lib/store";
+import { FileKind, UserRole, createId, incrementUserSessionVersion, nowIso, updateStore, type ApplicationInvite, type LeaseStatus, type RentalApplicationStatus, type UnitOccupancyStatus } from "@/lib/store";
 import { getPlatformFeeCents, getStripe } from "@/lib/stripe";
 import { clearManagerStripeConnection, createManagerConnectedAccount, createManagerDashboardLoginLink, createManagerOnboardingLink, getStripeAccountId, getStripeConnectRedirectStatus, isStripeConnectReady, syncManagerConnectedAccount } from "@/lib/stripe-connect";
 import { sendLeaseTenantInvite } from "@/lib/tenant-invite-delivery";
@@ -67,6 +67,7 @@ import {
   tenantSchema,
   unitSchema
 } from "@/lib/validations";
+import { isRetiredAccountEmail } from "@/lib/retired-accounts";
 import { generateDamageEstimate } from "@/services/damage-estimator";
 import { getPortalContext } from "@/services/portal";
 
@@ -387,6 +388,10 @@ export async function signupAction(formData: FormData) {
 
   const parsed = result.data;
 
+  if (isRetiredAccountEmail(parsed.email)) {
+    redirect("/signup?error=invalid-form");
+  }
+
   if (isSystemAdminEmail(parsed.email)) {
     redirect("/signup?error=reserved-admin");
   }
@@ -450,7 +455,8 @@ export async function signupAction(formData: FormData) {
     sub: user.id,
     organizationId: organization.id,
     role: getEffectiveUserRole(user.role, user.email),
-    email: user.email
+    email: user.email,
+    sessionVersion: user.sessionVersion ?? 0
   });
 
   const inviteRedirect = getInviteRedirect(formData);
@@ -471,6 +477,10 @@ export async function loginAction(formData: FormData) {
   }
 
   const parsed = result.data;
+
+  if (isRetiredAccountEmail(parsed.email)) {
+    redirect("/login?error=invalid-credentials");
+  }
 
   const rateLimit = checkRateLimit({
     key: `login:${normalizeEmail(parsed.email)}`,
@@ -503,7 +513,8 @@ export async function loginAction(formData: FormData) {
     sub: user.id,
     organizationId: user.organizationId,
     role: getEffectiveUserRole(user.role, user.email),
-    email: user.email
+    email: user.email,
+    sessionVersion: user.sessionVersion ?? 0
   });
 
   if (isSystemAdminEmail(user.email)) {
@@ -519,6 +530,12 @@ export async function loginAction(formData: FormData) {
 }
 
 export async function logoutAction() {
+  // Advance the session version so the just-cleared token (and any copy of it,
+  // e.g. a stolen one) is rejected by getCurrentUser on every future request.
+  const user = await getCurrentUser();
+  if (user) {
+    await incrementUserSessionVersion(user.id);
+  }
   await clearSession();
   redirect("/login");
 }
@@ -533,6 +550,10 @@ export async function requestResetAction(formData: FormData) {
   }
 
   const email = result.data.email;
+
+  if (isRetiredAccountEmail(email)) {
+    redirect("/forgot-password?success=1");
+  }
 
   // Cap reset requests per email so the action cannot be used to flood an inbox.
   // Redirect to the generic success page so account existence is never revealed.
@@ -618,6 +639,9 @@ export async function resetPasswordAction(formData: FormData) {
     where: { id: record.id },
     data: { usedAt: new Date() }
   });
+  // Invalidate any sessions that were active before the password was reset
+  // (e.g. an attacker still holding a stolen token for this account).
+  await incrementUserSessionVersion(record.userId);
 
   redirect("/login?reset=1");
 }

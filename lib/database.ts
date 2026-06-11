@@ -46,12 +46,25 @@ export function getSql() {
   return sqlClient;
 }
 
-export async function ensureAppStoreTable() {
-  await getSql()`
-    create table if not exists app_store (
-      id text primary key,
-      data jsonb not null,
-      updated_at timestamptz not null default now()
-    )
-  `;
+let appStoreTableReady: Promise<void> | null = null;
+
+// Memoized: this used to issue a CREATE TABLE IF NOT EXISTS round-trip before
+// every datastore read and write. The table only needs to be verified once per
+// process; on failure the promise resets so the next call retries.
+export function ensureAppStoreTable() {
+  appStoreTableReady ??= (async () => {
+    try {
+      await getSql()`
+        create table if not exists app_store (
+          id text primary key,
+          data jsonb not null,
+          updated_at timestamptz not null default now()
+        )
+      `;
+    } catch (error) {
+      appStoreTableReady = null;
+      throw error;
+    }
+  })();
+  return appStoreTableReady;
 }

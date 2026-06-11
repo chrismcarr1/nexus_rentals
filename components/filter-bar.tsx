@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { SearchInput } from "@/components/search-input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -24,6 +26,10 @@ export function FilterBar({
   hidden?: Record<string, string | undefined>;
   className?: string;
 }) {
+  const hasActiveFilters =
+    Boolean(query) ||
+    filters.some((filter) => Boolean(filter.value) && !["all", "active"].includes(filter.value ?? ""));
+
   return (
     <form action={action} className={cn("filter-bar", className)}>
       {Object.entries(hidden).map(([name, value]) =>
@@ -44,9 +50,16 @@ export function FilterBar({
           </label>
         ))}
       </div>
-      <Button type="submit" variant="secondary" className="button-compact px-3">
-        Apply
-      </Button>
+      <div className="filter-actions">
+        <Button type="submit" variant="secondary" className="button-compact px-3">
+          Apply
+        </Button>
+        {hasActiveFilters ? (
+          <Link href={action} className="filter-reset">
+            Reset
+          </Link>
+        ) : null}
+      </div>
     </form>
   );
 }

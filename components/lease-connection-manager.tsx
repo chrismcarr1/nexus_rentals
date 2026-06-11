@@ -329,7 +329,7 @@ export function LeaseConnectionManager({
     <div className="space-y-4">
       <PageHeader
         eyebrow="Leases"
-        title="Portfolio lease board"
+        title="Leases"
         description="Create lease records, send tenant invites, and monitor account connections and upcoming renewals."
         actions={
           <>

@@ -196,14 +196,14 @@ export default async function HomePage() {
         <div className="public-container public-mission-grid">
           <div>
             <p className="public-eyebrow">Our mission</p>
-            <h2 className="public-section-title">Make rental operations clearer, more accountable, and easier to manage.</h2>
+            <h2 className="public-section-title">Help independent landlords run their rental businesses with confidence.</h2>
           </div>
           <div className="public-mission-copy">
             <p>
-              Nexus Rentals exists to give property managers and residents a shared source of truth. We believe better records, clearer workflows, and timely communication create stronger rental experiences for everyone involved.
+              Nexus Rentals is built for small and mid-sized landlords who want to manage properties, residents, leases, payments, maintenance, and records themselves without assembling a complicated software stack or hiring a large team.
             </p>
             <p>
-              Our goal is not to add more software noise. It is to reduce administrative friction so managers can protect their portfolios, residents can understand what is happening, and important work does not disappear between systems.
+              Our mission is to make the work straightforward: one organized system that helps owners stay in control, make informed decisions, serve residents well, and grow their rental business at their own pace.
             </p>
           </div>
         </div>

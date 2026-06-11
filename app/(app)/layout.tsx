@@ -50,9 +50,9 @@ export default async function ProtectedLayout({ children }: Readonly<{ children:
       id: notification.id,
       title: notification.title,
       body: notification.body,
-      href: notification.href?.startsWith("/messages?conversation=")
-        ? `/api/discussions/read?conversation=${encodeURIComponent(new URLSearchParams(notification.href.split("?")[1]).get("conversation") ?? "")}`
-        : notification.href,
+      // Navigate straight to the thread; opening it marks the conversation read
+      // via a same-origin POST (see MessageScrollArea) instead of a GET endpoint.
+      href: notification.href,
       label: notification.href?.startsWith("/messages?conversation=") ? "Message" : "Alert",
       isUnread: true
     }));

@@ -5,10 +5,7 @@ import { cn } from "@/lib/utils";
 export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
-      className={cn(
-        "field text-sm",
-        className
-      )}
+      className={cn("field text-sm", className)}
       {...props}
     />
   );

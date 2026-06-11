@@ -52,25 +52,25 @@ export default async function AiAssessmentsPage({ searchParams }: { searchParams
                         <p className="font-semibold">
                           {property?.name ?? "Property"} {unit?.unitNumber ?? ""}
                         </p>
-                        <p className="text-sm text-stone-500">{inspection?.inspectionDate ? formatDate(inspection.inspectionDate) : formatDate(assessment.createdAt)}</p>
+                        <p className="mt-0.5 text-sm text-[var(--muted)]">{inspection?.inspectionDate ? formatDate(inspection.inspectionDate) : formatDate(assessment.createdAt)}</p>
                       </div>
                       <Badge tone={assessment.severity === "LOW" ? "success" : assessment.severity === "CRITICAL" ? "danger" : "warning"}>{assessment.severity}</Badge>
                     </div>
-                    <p className="mt-3 text-sm text-stone-600">{assessment.summary}</p>
+                    <p className="mt-3 text-sm leading-6 text-[var(--muted-strong)]">{assessment.summary}</p>
                     <p className="mt-4 text-lg font-semibold">
                       {formatCurrency(assessment.estimatedLow)} - {formatCurrency(assessment.estimatedHigh)}
                     </p>
                     <div className="form-grid-3 mt-3">
-                      <div className="rounded-2xl bg-stone-900/5 px-3 py-2 text-sm">
-                        <p className="text-stone-400">Confidence</p>
+                      <div className="assessment-fact">
+                        <p>Confidence</p>
                         <p className="font-semibold">{Math.round(assessment.confidenceScore * 100)}%</p>
                       </div>
-                      <div className="rounded-2xl bg-stone-900/5 px-3 py-2 text-sm">
-                        <p className="text-stone-400">Categories</p>
+                      <div className="assessment-fact">
+                        <p>Categories</p>
                         <p className="font-semibold">{assessment.damageCategories}</p>
                       </div>
-                      <div className="rounded-2xl bg-stone-900/5 px-3 py-2 text-sm">
-                        <p className="text-stone-400">Next steps</p>
+                      <div className="assessment-fact">
+                        <p>Next steps</p>
                         <p className="font-semibold">{assessment.recommendedNext}</p>
                       </div>
                     </div>
@@ -88,29 +88,41 @@ export default async function AiAssessmentsPage({ searchParams }: { searchParams
             </div>
           ) : (
             <form action={createDamageAssessmentAction} className="mt-6 space-y-4">
-              <select name="unitId" className="field">
-                {portal.scope.units.map((unit) => {
-                  const property = portal.scope.properties.find((item) => item.id === unit.propertyId);
-                  return (
-                    <option key={unit.id} value={unit.id}>
-                      {property?.name} {unit.unitNumber}
-                    </option>
-                  );
-                })}
-              </select>
-              <select name="leaseId" className="field">
-                <option value="">No linked lease</option>
-                {portal.scope.leases.map((lease) => {
-                  const unit = portal.scope.units.find((item) => item.id === lease.unitId);
-                  return (
-                    <option key={lease.id} value={lease.id}>
-                      {unit?.unitNumber} lease
-                    </option>
-                  );
-                })}
-              </select>
-              <input name="inspectionDate" type="date" className="field" />
-              <textarea name="notes" placeholder="Inspection notes, observed damage, or context" className="field min-h-28" />
+              <label className="block">
+                <span className="field-label">Unit</span>
+                <select name="unitId" className="field">
+                  {portal.scope.units.map((unit) => {
+                    const property = portal.scope.properties.find((item) => item.id === unit.propertyId);
+                    return (
+                      <option key={unit.id} value={unit.id}>
+                        {property?.name} {unit.unitNumber}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <label className="block">
+                <span className="field-label">Linked lease</span>
+                <select name="leaseId" className="field">
+                  <option value="">No linked lease</option>
+                  {portal.scope.leases.map((lease) => {
+                    const unit = portal.scope.units.find((item) => item.id === lease.unitId);
+                    return (
+                      <option key={lease.id} value={lease.id}>
+                        {unit?.unitNumber} lease
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <label className="block">
+                <span className="field-label">Inspection date</span>
+                <input name="inspectionDate" type="date" className="field" />
+              </label>
+              <label className="block">
+                <span className="field-label">Inspection notes</span>
+                <textarea name="notes" placeholder="Observed damage, room context, or relevant history" className="field min-h-28" />
+              </label>
               <MultiUploadInput name="imagePaths" label="Upload damage or move-out photos" />
               <MultiUploadInput name="baselinePaths" label="Upload optional move-in baseline photos" />
               <SubmitButton pendingLabel="Generating estimate...">Generate assessment</SubmitButton>

@@ -4,7 +4,7 @@ Nexus Rentals is a rental operations app for landlord and property-operator work
 
 ## Product Overview
 
-Use this demo to show:
+Nexus supports:
 
 - A portfolio dashboard with occupancy, rent collection, overdue balances, expenses, deposits held, NOI-style cash flow, notifications, and recent AI assessments.
 - Property, unit, tenant, lease, payment, expense, maintenance, and settings workflows in one cohesive B2B interface.
@@ -31,8 +31,8 @@ The UI and server actions use a Prisma-shaped adapter in `lib/db.ts`. To keep th
 - `components/`: reusable UI, dashboard, and upload components
 - `lib/`: auth, hosted datastore adapter, validation, utilities
 - `services/`: financial rollups, search, AI damage estimation logic
-- `scripts/`: hosted datastore migration and seed scripts
-- `public/demo/`: bundled local demo visuals
+- `scripts/`: hosted datastore migration and operational scripts
+- `public/demo/`: bundled sample visuals used by the interface
 - `tests/`: critical unit tests for core local logic
 
 ## Data Model
@@ -74,13 +74,9 @@ The damage workflow is intentionally modular.
 - The result shape is production-style: summary, categories, severity, cost range, confidence, wear-and-tear flag, explanation, and next steps.
 - This service can later be replaced by a real multimodal provider without redesigning the rest of the app.
 
-## Demo Credentials
-
-Demo credentials are generated fresh each time you intentionally seed demo data. Run the seed command with `ALLOW_DEMO_SEED=true`, then use the passwords printed once in your terminal.
-
 System admin access is reserved for the email in `SYSTEM_ADMIN_EMAIL` and should be provisioned manually without storing a plaintext password.
 
-## Password Reset Demo
+## Password Reset
 
 - Configure Cloudflare Email Service, then request a reset from `/forgot-password`.
 - Reset tokens are stored only as hashes and are never printed to logs or returned in page URLs.
@@ -159,7 +155,6 @@ AI photo maintenance drafting uses OpenAI's Responses API with image inputs. Add
 npm install
 copy .env.example .env.local
 npm run db:migrate
-$env:ALLOW_DEMO_SEED="true"; npm run db:setup
 npm run dev
 ```
 
@@ -175,7 +170,6 @@ http://localhost:3000
 npm install
 copy .env.example .env.local
 npm run db:migrate
-$env:ALLOW_DEMO_SEED="true"; npm run db:setup
 npm run dev
 ```
 
@@ -188,8 +182,6 @@ http://localhost:3000
 ## Datastore Commands
 
 - Create the hosted Postgres table: `npm run db:migrate`
-- Initialize hosted demo data: `$env:ALLOW_DEMO_SEED="true"; npm run db:setup`
-- Reseed demo data: `$env:ALLOW_DEMO_SEED="true"; npm run db:seed`
 - `npm run db:push` runs the same lightweight hosted table migration as `npm run db:migrate`
 
 ## Vercel Deployment
@@ -259,7 +251,7 @@ Recommended setup:
 6. Configure Cloudflare Email Service and add the Cloudflare email environment variables so tenant invites and password resets can be delivered.
 7. Add `OPENAI_API_KEY` so AI photo maintenance drafting can analyze uploaded images.
 8. Run `npm run db:migrate` against the production database to create the table.
-9. Avoid seeding demo accounts in production. If you intentionally need demo data in a disposable environment, run `$env:ALLOW_DEMO_SEED="true"; npm run db:setup` and rotate the generated credentials afterward.
+9. Create the first organization through `/signup`, then provision any reserved system administrator separately.
 10. Deploy normally with Vercel. The project declares Node `22.x` in `package.json`.
 
 ## Key Pages
@@ -283,9 +275,9 @@ Recommended setup:
 - `/reports`
 - `/settings`
 
-## Critical Demo Flows
+## Critical Product Flows
 
-- Sign in with seeded credentials
+- Create an account and sign in
 - Review dashboard metrics and charts
 - Create a property and add a unit
 - Upload unit images

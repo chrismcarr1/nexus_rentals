@@ -15,9 +15,9 @@ export function StatTile({
 }) {
   return (
     <div className={cn("stat-tile", `stat-tile-${tone}`, className)}>
-      <p className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{label}</p>
-      <p className="mt-2 truncate text-2xl font-semibold tabular-nums text-[var(--text)]">{value}</p>
-      {detail ? <p className="mt-1 truncate text-xs text-[var(--muted)]">{detail}</p> : null}
+      <p className="stat-tile-label truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{label}</p>
+      <p className="stat-tile-value mt-2 truncate text-2xl font-semibold tabular-nums text-[var(--text)]">{value}</p>
+      {detail ? <p className="stat-tile-detail mt-1 truncate text-xs text-[var(--muted)]">{detail}</p> : null}
     </div>
   );
 }

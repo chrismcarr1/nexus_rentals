@@ -29,7 +29,7 @@ export function ReportExportMenu() {
         <div className="surface-panel absolute right-0 top-[calc(100%+8px)] z-20 w-56 p-2" role="menu">
           <a
             href="/api/export/financials?format=csv"
-            className="flex items-start gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100"
+            className="row-action-item flex items-start gap-3 text-sm"
             download
             role="menuitem"
             onClick={() => setOpen(false)}
@@ -42,7 +42,7 @@ export function ReportExportMenu() {
           </a>
           <a
             href="/api/export/financials?format=xlsx"
-            className="flex items-start gap-3 rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100"
+            className="row-action-item flex items-start gap-3 text-sm"
             download
             role="menuitem"
             onClick={() => setOpen(false)}

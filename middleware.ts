@@ -36,10 +36,16 @@ const protectedPaths = [
 ];
 
 function getSecret() {
-  if (!process.env.AUTH_SECRET && process.env.NODE_ENV === "production") {
-    throw new Error("Missing AUTH_SECRET. Set a long random secret in Vercel.");
+  const secret = process.env.AUTH_SECRET?.trim();
+  if (secret) {
+    return new TextEncoder().encode(secret);
   }
-  return new TextEncoder().encode(process.env.AUTH_SECRET ?? "dev-secret-change-me");
+  // Must match lib/auth.ts: the known fallback only signs/verifies sessions in
+  // genuine local development; any other environment requires a real secret.
+  if (process.env.NODE_ENV === "development") {
+    return new TextEncoder().encode("dev-secret-change-me");
+  }
+  throw new Error("Missing AUTH_SECRET. Set a long random secret in Vercel.");
 }
 
 export async function middleware(request: NextRequest) {

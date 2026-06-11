@@ -36,7 +36,7 @@ export default async function RenterGuidePage() {
     <div className="space-y-4">
       <PageHeader
         eyebrow="Renter guide"
-        title="Tips to being a good renter."
+        title="Renter Guide"
         description="Simple habits that help protect your home, your deposit, and your relationship with property management."
       />
       <div className="card-grid-3">
@@ -45,7 +45,7 @@ export default async function RenterGuidePage() {
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">{section.title}</p>
             <div className="mt-5 space-y-3">
               {section.tips.map((tip) => (
-                <div key={tip} className="rounded-2xl border border-[var(--line)] bg-white/70 p-4 text-sm leading-6 text-[var(--muted)]">
+                <div key={tip} className="guide-tip">
                   {tip}
                 </div>
               ))}

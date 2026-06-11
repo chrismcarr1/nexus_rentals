@@ -37,7 +37,6 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
   const data = await getDiscussionPageData(user, params.conversation);
   const selected = data.selectedConversation;
   const activeName = selected ? (user.role === "TENANT" ? selected.managerName : selected.tenantName) : "Select a thread";
-  const unreadCount = data.conversations.filter((conversation) => conversation.hasUnread).length;
 
   return (
     <div className="messages-page">
@@ -62,11 +61,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
             <div className="border-b border-[var(--line)] p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">Nexus Messages</p>
-                  <h2 className="mt-1 text-xl font-semibold text-[var(--text)]">Messages</h2>
-                  <p className="mt-1 truncate text-xs text-[var(--muted)]">
-                    {data.conversations.length} threads / {unreadCount ? `${unreadCount} unread` : "All caught up"}
-                  </p>
+                  <h1 className="page-title text-[var(--text)]">Messages</h1>
                 </div>
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--line-strong)] bg-[var(--surface-strong)] text-[var(--brand)]">
                   <MessageSquare className="h-4 w-4" />
@@ -80,7 +75,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
                 return (
                   <Link
                     key={conversation.key}
-                    href={`/api/discussions/read?conversation=${encodeURIComponent(conversation.key)}`}
+                    href={`/messages?conversation=${encodeURIComponent(conversation.key)}`}
                     className={cn(
                       "group relative mb-1 flex items-start gap-3 rounded-md border px-3 py-3 pr-5 transition",
                       active
