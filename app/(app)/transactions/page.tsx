@@ -52,6 +52,7 @@ import {
   monthKeyFromValue
 } from "@/lib/app-time";
 import { requireUser } from "@/lib/auth";
+import { hasAcceptedCurrentPaymentTerms } from "@/lib/legal";
 import { getStripeConnectState } from "@/lib/stripe-connect";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { badgeToneFromPayment, getPortalContext } from "@/services/portal";
@@ -68,6 +69,7 @@ function stripeStatusMessage(status?: string) {
   if (status === "manager-setup-required") return "Online checkout is not available yet because the property manager still needs to finish Stripe payout setup.";
   if (status === "invalid-amount") return "This rent charge has no payable balance.";
   if (status === "amount-below-platform-fee") return "Stripe checkout requires the rent balance to be greater than the $1 Nexus platform fee.";
+  if (status === "payment-terms-required") return "Before paying online, please check the payment processing acknowledgement next to the pay button.";
   if (status === "checkout-error") return "Stripe checkout could not be started. Please try again or contact management.";
   if (status === "missing-session-url") return "Stripe did not return a checkout link. Please try again.";
   if (status === "payment-linked") return "Rent charge saved and linked to the active lease for that unit.";
@@ -170,6 +172,21 @@ function withinYear(value: string | undefined, year: number) {
   return appDateKeyFromValue(value).startsWith(`${year}-`);
 }
 
+// One-time (per payment-terms version) acknowledgement required before online
+// checkout. The server action enforces this; the checkbox records consent.
+function PaymentTermsAcknowledgement() {
+  return (
+    <label className="flex items-start gap-2 text-xs leading-5 text-[var(--muted-strong)]">
+      <input type="checkbox" name="acceptPaymentTerms" required className="mt-0.5 shrink-0" />
+      <span>
+        I understand payments are processed by third-party processors and that Nexus is not an escrow service,
+        bank, or trust account. I agree to the{" "}
+        <Link href="/payment-terms" target="_blank" className="font-semibold underline">Payment Terms</Link>.
+      </span>
+    </label>
+  );
+}
+
 export default async function TransactionsPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireUser();
   const params = (await searchParams) ?? {};
@@ -200,6 +217,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
     const outstandingPayments = tenantPaymentHistory.filter((p) => p.status !== "PAID");
     const totalOutstanding = outstandingPayments.reduce((sum, p) => sum + (p.balanceDue || p.amount), 0);
     const canBundlePay = outstandingPayments.length > 1;
+    const needsPaymentTermsAcceptance = !hasAcceptedCurrentPaymentTerms(user);
 
     return (
       <div className="space-y-5">
@@ -249,14 +267,16 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                       </label>
                     ))}
                   </div>
+                  {needsPaymentTermsAcceptance ? <PaymentTermsAcknowledgement /> : null}
                   <SubmitButton className="w-full justify-center" pendingLabel="Opening Stripe…">
                     <CreditCard className="h-4 w-4" />
                     Pay selected with Stripe
                   </SubmitButton>
                 </form>
               ) : (
-                <form action={createStripeCheckoutAction}>
+                <form action={createStripeCheckoutAction} className="space-y-3">
                   <input type="hidden" name="paymentId" value={outstandingPayments[0].id} />
+                  {needsPaymentTermsAcceptance ? <PaymentTermsAcknowledgement /> : null}
                   <SubmitButton className="w-full justify-center" pendingLabel="Opening Stripe…">
                     <CreditCard className="h-4 w-4" />
                     Pay {formatCurrency(balanceFor(outstandingPayments[0]))} with Stripe

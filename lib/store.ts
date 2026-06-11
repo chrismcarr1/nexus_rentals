@@ -74,6 +74,21 @@ export type User = {
   stripePastDue?: string[];
   stripeUpdatedAt?: string;
   lastLoginAt?: string;
+  // Legal acceptance and age verification metadata. Stored on each individual
+  // user record (never on the organization). birthDate is sensitive: it must
+  // only ever be shown to the user themselves and must never be logged or sent
+  // to analytics. Versions are compared against lib/legal.ts constants;
+  // bumping a constant forces re-acceptance for everyone.
+  birthDate?: string;
+  ageVerifiedAt?: string;
+  termsAcceptedAt?: string;
+  termsVersionAccepted?: string;
+  privacyAcceptedAt?: string;
+  privacyVersionAccepted?: string;
+  paymentTermsAcceptedAt?: string;
+  paymentTermsVersionAccepted?: string;
+  legalAcceptanceIp?: string;
+  legalAcceptanceUserAgent?: string;
   // Monotonic counter embedded in issued session tokens. Bumping it invalidates
   // every previously-issued JWT for this user (logout, password reset, account
   // disable, role/email change). Absent/undefined is treated as 0.

@@ -13,6 +13,10 @@ export function PublicSiteFooter() {
           <Link href="/#mission">Mission</Link>
           <Link href="/#about">About us</Link>
           <Link href="/login">Login</Link>
+          <Link href="/terms">Terms</Link>
+          <Link href="/privacy">Privacy</Link>
+          <Link href="/payment-terms">Payment terms</Link>
+          <Link href="/privacy-request">Privacy requests</Link>
         </div>
       </div>
     </footer>

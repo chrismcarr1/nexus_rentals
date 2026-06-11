@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ExternalLink, RefreshCw } from "lucide-react";
 
 import { AddressFields, MAILING_ADDRESS_FORM_FIELDS } from "@/components/address-fields";
@@ -17,6 +18,7 @@ import {
 } from "@/lib/actions";
 import { formatAddress, parseAddressText } from "@/lib/address";
 import { requireUser } from "@/lib/auth";
+import { hasAcceptedCurrentPaymentTerms } from "@/lib/legal";
 import { getAppBaseUrl } from "@/lib/request-origin";
 import { getStripeAccountId, getStripeConnectRedirectStatus, getStripeConnectState, syncManagerConnectedAccount } from "@/lib/stripe-connect";
 import { getPortalContext } from "@/services/portal";
@@ -33,6 +35,7 @@ function stripeSettingsMessage(status?: string) {
   if (status === "connect-not-enabled") return "This Stripe account has not been enabled for Connect yet. Sign up for Connect in Stripe, then try payout setup again.";
   if (status === "connect-error") return "Stripe payout setup could not be opened or refreshed. Check your Stripe keys and try again.";
   if (status === "reconnect-required") return "Your previous Stripe account is no longer accessible (possibly a test/live mode mismatch). Click 'Set up Stripe payouts' to reconnect.";
+  if (status === "payment-terms-required") return "Please check the payment processing acknowledgement before starting Stripe payout setup.";
   return null;
 }
 
@@ -140,7 +143,17 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
             </div>
             <div className="grid content-start gap-2">
               {stripeReady && !managerConnect.ready ? (
-                <form action={connectStripeAccountAction}>
+                <form action={connectStripeAccountAction} className="space-y-2">
+                  {!hasAcceptedCurrentPaymentTerms(stripeUser) ? (
+                    <label className="flex items-start gap-2 text-xs leading-5 text-[var(--muted-strong)]">
+                      <input type="checkbox" name="acceptPaymentTerms" required className="mt-0.5 shrink-0" />
+                      <span>
+                        I understand payments are processed by third-party processors and that Nexus is not an
+                        escrow service, bank, or trust account. I agree to the{" "}
+                        <Link href="/payment-terms" target="_blank" className="font-semibold underline">Payment Terms</Link>.
+                      </span>
+                    </label>
+                  ) : null}
                   <SubmitButton className="w-full" pendingLabel="Opening Stripe...">
                     <ExternalLink className="h-4 w-4" />
                     {stripeConnectState.actionLabel}

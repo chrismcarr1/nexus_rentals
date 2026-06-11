@@ -17,6 +17,7 @@ const protectedPaths = [
   "/api/tenant-invites/send",
   "/api/upload",
   "/dashboard",
+  "/legal",
   "/properties",
   "/tenants",
   "/leases",
@@ -71,6 +72,13 @@ export async function middleware(request: NextRequest) {
     const { payload } = await jwtVerify(token, getSecret());
     const email = String(payload.email ?? "");
     const role = getEffectiveUserRole(String(payload.role ?? "") as any, email);
+
+    // The legal acceptance gate must stay reachable for every authenticated
+    // role (including system admins) or the requireUser() redirect to
+    // /legal/accept would loop against the role-based redirects below.
+    if (pathname.startsWith("/legal")) {
+      return NextResponse.next();
+    }
 
     if (isAdminPage || isAdminApi) {
       if (!isSystemAdminEmail(email)) {

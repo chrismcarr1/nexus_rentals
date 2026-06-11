@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getEffectiveUserRole, isSystemAdminEmail } from "@/lib/admin";
+import { LEGAL_ACCEPT_PATH, requiresLegalAcceptance } from "@/lib/legal";
 import { getOrganizationById, getUserById, type UserRole } from "@/lib/store";
 import { canAccessPath } from "@/lib/rbac";
 import { isRetiredAccountEmail } from "@/lib/retired-accounts";
@@ -100,10 +101,18 @@ export const getCurrentUser = cache(async () => {
   }
 });
 
+// Mandatory account-level legal gate: every protected page and server action
+// that calls requireUser() (directly or via requireRoles/requireSystemAdmin)
+// is blocked until the user has accepted the current Terms of Service and
+// Privacy Policy and verified they are 18+. The /legal/accept page and its
+// actions must use getCurrentUser() directly to avoid a redirect loop.
 export async function requireUser() {
   const user = await getCurrentUser();
   if (!user) {
     redirect("/login");
+  }
+  if (requiresLegalAcceptance(user)) {
+    redirect(LEGAL_ACCEPT_PATH);
   }
   return user;
 }

@@ -22,9 +22,17 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
         ? "We could not create the account right now. Please try again shortly."
         : params.error === "invalid-address"
           ? "Complete each required part of the mailing address."
-          : params.error
-            ? "Review the form and make sure both passwords match."
-            : null;
+          : params.error === "missing-birthdate"
+            ? "Enter your date of birth to continue."
+            : params.error === "invalid-birthdate"
+              ? "Enter a valid date of birth. Future or impossible dates cannot be accepted."
+              : params.error === "underage"
+                ? "You must be at least 18 years old to create a Nexus Rentals account."
+                : params.error === "terms-required"
+                  ? "You must agree to the Terms of Service and Privacy Policy to create an account."
+                  : params.error
+                    ? "Review the form and make sure both passwords match."
+                    : null;
 
   return (
     <AuthShell
@@ -100,6 +108,24 @@ export default async function SignupPage({ searchParams }: { searchParams?: Prom
         </label>
         <PasswordField name="password" required minLength={8} autoComplete="new-password" label="Password" />
         <PasswordField name="confirmPassword" required minLength={8} autoComplete="new-password" label="Confirm password" />
+
+        <label className="block auth-grid-full">
+          <span className="field-label">Date of birth</span>
+          <input name="birthDate" type="date" required autoComplete="bday" className="field" max={new Date().toISOString().slice(0, 10)} />
+          <span className="mt-1 block text-xs text-[var(--muted)]">
+            You must be at least 18 years old to create a Nexus Rentals account.
+          </span>
+        </label>
+
+        <label className="auth-grid-full flex items-start gap-2.5 text-sm leading-5">
+          <input type="checkbox" name="acceptLegal" required className="mt-0.5 shrink-0" />
+          <span>
+            I am at least 18 years old, and I agree to the{" "}
+            <Link href="/terms" target="_blank" className="font-semibold underline">Terms of Service</Link>{" "}
+            and{" "}
+            <Link href="/privacy" target="_blank" className="font-semibold underline">Privacy Policy</Link>.
+          </span>
+        </label>
 
         <fieldset className="auth-address-section auth-grid-full">
           <legend>Mailing address <span>Optional</span></legend>
