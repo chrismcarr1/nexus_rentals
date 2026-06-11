@@ -64,7 +64,12 @@ export function AuthShell({
 
       <footer className="auth-page-footer">
         <span>Nexus Rentals</span>
-        <span>Clear tools for everyday rental operations.</span>
+        <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <Link href="/terms" className="auth-home-link">Terms</Link>
+          <Link href="/privacy" className="auth-home-link">Privacy</Link>
+          <Link href="/payment-terms" className="auth-home-link">Payment terms</Link>
+          <Link href="/privacy-request" className="auth-home-link">Privacy requests</Link>
+        </span>
       </footer>
     </main>
   );

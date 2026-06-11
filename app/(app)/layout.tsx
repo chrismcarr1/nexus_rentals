@@ -62,7 +62,15 @@ export default async function ProtectedLayout({ children }: Readonly<{ children:
 
   return (
     <AppShell
-      user={user}
+      // Pass only the fields AppShell renders. The full record contains
+      // sensitive data (passwordHash, birthDate, legal metadata) that must
+      // never be serialized into the client component payload.
+      user={{
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        organization: { name: user.organization.name }
+      }}
       notifications={alerts}
       logoutAction={logoutAction}
     >

@@ -2,6 +2,7 @@
 
 import { createHash, randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getEffectiveUserRole, isSystemAdminEmail, normalizeEmail } from "@/lib/admin";
@@ -35,6 +36,16 @@ import {
 } from "@/lib/email";
 import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmittedAssetPath } from "@/lib/file-security";
 import { ensureLeaseConnectionIntegrity, generateInviteToken, getUnitAvailableStartDate, hashInviteToken, isActiveLeaseStatus, leaseBlocksNewMoveIn, leaseCanResumeMoveIn, leaseStartIsAvailable, normalizeLeaseLifecycleStatus } from "@/lib/lease-connections";
+import {
+  LEGAL_ACCEPT_PATH,
+  PAYMENT_TERMS_VERSION,
+  PRIVACY_VERSION,
+  TERMS_VERSION,
+  hasAcceptedCurrentPaymentTerms,
+  hasVerifiedAdultBirthDate,
+  requiresLegalAcceptance,
+  validateBirthDateInput
+} from "@/lib/legal";
 import { ensureScheduledLeasePayments, formatLateFeePolicy } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { formatPhoneNumber } from "@/lib/phone";
@@ -250,8 +261,27 @@ function isStripeNoSuchAccountError(error: unknown) {
   return e.statusCode === 404 || e.code === "resource_missing" || e.message.toLowerCase().includes("no such account");
 }
 
-export async function connectStripeAccountAction() {
+// Payment terms must be accepted (once per version) before any Stripe money
+// movement is set up: tenant checkout and manager Connect onboarding both run
+// through this. Acceptance is recorded on the acting user's own record.
+async function ensurePaymentTermsAccepted(
+  user: { id: string; paymentTermsAcceptedAt?: string; paymentTermsVersionAccepted?: string },
+  formData: FormData | undefined,
+  errorPath: string
+) {
+  if (hasAcceptedCurrentPaymentTerms(user)) return;
+  if (formData?.get("acceptPaymentTerms") !== "on") {
+    redirect(errorPath);
+  }
+  await db.user.update({
+    where: { id: user.id },
+    data: { paymentTermsAcceptedAt: nowIso(), paymentTermsVersionAccepted: PAYMENT_TERMS_VERSION }
+  });
+}
+
+export async function connectStripeAccountAction(formData?: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  await ensurePaymentTermsAccepted(user, formData, "/settings?stripe=payment-terms-required#payments-stripe");
   let accountId = getStripeAccountId(user);
   let redirectUrl: string | null = null;
 
@@ -366,10 +396,40 @@ export async function openStripeDashboardAction() {
 }
 
 
+// Best-effort capture of the accepting client's IP and user agent for the
+// legal acceptance audit trail. Never throws; returns undefined fields when
+// the headers are unavailable. Values are truncated, never logged.
+async function getLegalAcceptanceClientInfo(): Promise<{ ip?: string; userAgent?: string }> {
+  try {
+    const headerList = await headers();
+    const forwardedFor = headerList.get("x-forwarded-for");
+    const ip = (forwardedFor?.split(",")[0] ?? headerList.get("x-real-ip") ?? "").trim().slice(0, 64) || undefined;
+    const userAgent = headerList.get("user-agent")?.trim().slice(0, 256) || undefined;
+    return { ip, userAgent };
+  } catch {
+    return {};
+  }
+}
+
+function legalConsentChecked(formData: FormData) {
+  return formData.get("acceptLegal") === "on";
+}
+
 export async function signupAction(formData: FormData) {
   const mailingAddressResult = validateOptionalAddress(readAddressFormData(formData, MAILING_ADDRESS_FORM_FIELDS, "mailingAddress"));
   if (!mailingAddressResult.success) {
     redirect("/signup?error=invalid-address");
+  }
+
+  // Age verification and consent are validated server-side; the client-side
+  // required attributes are convenience only. The raw birthday value is never
+  // logged and is stored only on the new user's own record.
+  const birthDateResult = validateBirthDateInput(getString(formData, "birthDate"));
+  if (birthDateResult.ok === false) {
+    redirect(`/signup?error=${birthDateResult.error}`);
+  }
+  if (!legalConsentChecked(formData)) {
+    redirect("/signup?error=terms-required");
   }
 
   const result = signupSchema.safeParse({
@@ -417,6 +477,9 @@ export async function signupAction(formData: FormData) {
     }
   });
 
+  const clientInfo = await getLegalAcceptanceClientInfo();
+  const acceptedAt = nowIso();
+
   let user;
   try {
     user = await db.user.create({
@@ -428,7 +491,15 @@ export async function signupAction(formData: FormData) {
         lastName: parsed.lastName,
         role: parsed.role,
         phone: parsed.phone,
-        lastLoginAt: nowIso()
+        lastLoginAt: acceptedAt,
+        birthDate: birthDateResult.birthDate,
+        ageVerifiedAt: acceptedAt,
+        termsAcceptedAt: acceptedAt,
+        termsVersionAccepted: TERMS_VERSION,
+        privacyAcceptedAt: acceptedAt,
+        privacyVersionAccepted: PRIVACY_VERSION,
+        ...(clientInfo.ip ? { legalAcceptanceIp: clientInfo.ip } : {}),
+        ...(clientInfo.userAgent ? { legalAcceptanceUserAgent: clientInfo.userAgent } : {})
       }
     });
   } catch (error) {
@@ -538,6 +609,60 @@ export async function logoutAction() {
   }
   await clearSession();
   redirect("/login");
+}
+
+// Forced legal acceptance for existing users (the /legal/accept gate).
+// Deliberately uses getCurrentUser() instead of requireUser(): requireUser
+// redirects un-accepted users to /legal/accept, which would loop here. The
+// acting user always comes from the session; a userId is never accepted from
+// the client, so one user can never update another user's acceptance fields.
+export async function acceptLegalTermsAction(formData: FormData) {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login");
+  }
+
+  const destination = isSystemAdminEmail(user.email) ? "/admin" : "/dashboard";
+  if (!requiresLegalAcceptance(user)) {
+    redirect(destination);
+  }
+
+  if (!legalConsentChecked(formData)) {
+    redirect(`${LEGAL_ACCEPT_PATH}?error=terms-required`);
+  }
+
+  // Only ask for (and update) the birthday when the record does not already
+  // carry a verified adult birth date. The age check runs server-side here;
+  // the client never decides age status.
+  let birthDateUpdate: { birthDate: string; ageVerifiedAt: string } | null = null;
+  if (!hasVerifiedAdultBirthDate(user)) {
+    const birthDateResult = validateBirthDateInput(getString(formData, "birthDate"));
+    if (birthDateResult.ok === false) {
+      redirect(`${LEGAL_ACCEPT_PATH}?error=${birthDateResult.error}`);
+    }
+    birthDateUpdate = { birthDate: birthDateResult.birthDate, ageVerifiedAt: nowIso() };
+  }
+
+  const clientInfo = await getLegalAcceptanceClientInfo();
+  const acceptedAt = nowIso();
+
+  await db.user.update({
+    where: { id: user.id },
+    data: {
+      ...(birthDateUpdate ?? {}),
+      termsAcceptedAt: acceptedAt,
+      termsVersionAccepted: TERMS_VERSION,
+      privacyAcceptedAt: acceptedAt,
+      privacyVersionAccepted: PRIVACY_VERSION,
+      ...(clientInfo.ip ? { legalAcceptanceIp: clientInfo.ip } : {}),
+      ...(clientInfo.userAgent ? { legalAcceptanceUserAgent: clientInfo.userAgent } : {})
+    }
+  });
+
+  // Clear cached layouts/pages so the freshly unlocked app renders with the
+  // updated user record immediately.
+  revalidatePath("/", "layout");
+  redirect(destination);
 }
 
 export async function requestResetAction(formData: FormData) {
@@ -2642,6 +2767,7 @@ export async function updateProfileAction(formData: FormData) {
 
 export async function createStripeCheckoutAction(formData: FormData) {
   const user = await requireRoles([UserRole.TENANT]);
+  await ensurePaymentTermsAccepted(user, formData, "/transactions?stripe=payment-terms-required");
   const paymentId = getString(formData, "paymentId");
   const portal = await getPortalContext(user);
   const payment = portal.scope.payments.find((item) => item.id === paymentId);
@@ -2785,6 +2911,7 @@ export async function createStripeCheckoutAction(formData: FormData) {
 
 export async function createBundledStripeCheckoutAction(formData: FormData) {
   const user = await requireRoles([UserRole.TENANT]);
+  await ensurePaymentTermsAccepted(user, formData, "/transactions?stripe=payment-terms-required");
   const portal = await getPortalContext(user);
 
   const paymentIds = formData.getAll("paymentId").map(String).filter(Boolean);

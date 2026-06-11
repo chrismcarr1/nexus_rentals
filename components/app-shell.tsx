@@ -106,6 +106,13 @@ export function AppShell({
                       </Link>
                     ) : null}
                     <div className="my-1 h-px bg-[var(--line)]" />
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2.5 py-2 text-xs text-[var(--muted)]">
+                      <Link href="/terms" target="_blank" className="transition hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>Terms</Link>
+                      <Link href="/privacy" target="_blank" className="transition hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>Privacy</Link>
+                      <Link href="/payment-terms" target="_blank" className="transition hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>Payment terms</Link>
+                      <Link href="/privacy-request" target="_blank" className="transition hover:text-[var(--text)]" onClick={() => setAccountOpen(false)}>Support</Link>
+                    </div>
+                    <div className="my-1 h-px bg-[var(--line)]" />
                     <form action={logoutAction}>
                       <button type="submit" className="flex w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-sm font-semibold text-red-700 transition hover:bg-red-600/10">
                         <LogOut className="h-4 w-4 shrink-0" />
