@@ -21,6 +21,7 @@ import { requireUser } from "@/lib/auth";
 import { hasAcceptedCurrentPaymentTerms } from "@/lib/legal";
 import { getAppBaseUrl } from "@/lib/request-origin";
 import { getStripeAccountId, getStripeConnectRedirectStatus, getStripeConnectState, syncManagerConnectedAccount } from "@/lib/stripe-connect";
+import { getStripeKeyMode } from "@/lib/stripe-env";
 import { getPortalContext } from "@/services/portal";
 
 function stripeSettingsMessage(status?: string) {
@@ -57,8 +58,17 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
   }
 
   const appUrl = getAppBaseUrl();
+  const stripeKeyMode = getStripeKeyMode();
   const stripeSetup = {
     secretKey: Boolean(process.env.STRIPE_SECRET_KEY),
+    secretKeyLabel:
+      stripeKeyMode === "live"
+        ? "Configured — live mode"
+        : stripeKeyMode === "test"
+          ? "Configured — test mode"
+          : stripeKeyMode === "unrecognized"
+            ? "Configured — unrecognized key format"
+            : "Missing STRIPE_SECRET_KEY",
     webhookSecret: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
     appUrl: Boolean(appUrl),
     webhookUrl: `${appUrl}/api/stripe/webhook`
@@ -108,7 +118,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
               <div className="ops-grid">
                 <div className="panel-muted p-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Secret key</p>
-                  <p className="mt-2 text-sm font-semibold">{stripeSetup.secretKey ? "Configured" : "Missing STRIPE_SECRET_KEY"}</p>
+                  <p className="mt-2 text-sm font-semibold">{stripeSetup.secretKeyLabel}</p>
                 </div>
                 <div className="panel-muted p-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Webhook secret</p>

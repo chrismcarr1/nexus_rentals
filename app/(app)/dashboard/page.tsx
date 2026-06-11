@@ -32,6 +32,7 @@ import { createStripeCheckoutAction } from "@/lib/actions";
 import { managerOwnsApplication, primaryApplicant } from "@/lib/applications";
 import { appDateIsOnOrAfter, getAppDateKey, getAppMonthKey } from "@/lib/app-time";
 import { requireUser } from "@/lib/auth";
+import { hasAcceptedCurrentPaymentTerms } from "@/lib/legal";
 import { getRoleConfig } from "@/lib/rbac";
 import { readStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -332,10 +333,18 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           <Button variant="secondary"><Wrench className="h-4 w-4" /> Request service</Button>
         </Link>
         {portal.nextPayment ? (
-          <form action={createStripeCheckoutAction}>
-            <input type="hidden" name="paymentId" value={portal.nextPayment.id} />
-            <SubmitButton pendingLabel="Opening Stripe..."><CreditCard className="h-4 w-4" /> Pay rent</SubmitButton>
-          </form>
+          hasAcceptedCurrentPaymentTerms(user) ? (
+            <form action={createStripeCheckoutAction}>
+              <input type="hidden" name="paymentId" value={portal.nextPayment.id} />
+              <SubmitButton pendingLabel="Opening Stripe..."><CreditCard className="h-4 w-4" /> Pay rent</SubmitButton>
+            </form>
+          ) : (
+            // Checkout requires the one-time payment-terms acknowledgement, which
+            // lives on the transactions pay form — send the user there until then.
+            <Link href="/transactions#pay-now">
+              <Button><CreditCard className="h-4 w-4" /> Pay rent</Button>
+            </Link>
+          )
         ) : (
           <Button disabled><CreditCard className="h-4 w-4" /> Paid up</Button>
         )}
