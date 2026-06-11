@@ -34,15 +34,58 @@ export function isLocalDevelopment() {
   return process.env.NODE_ENV !== "production";
 }
 
+// Safe, secret-free description of where DATABASE_URL points: hostname only,
+// never the connection string (which embeds credentials).
+export function describeDatabaseTarget(): { label: string; remote: boolean } {
+  try {
+    const url = new URL(getDatabaseUrl());
+    const host = url.hostname.toLowerCase();
+    const remote = !(host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local"));
+    return { label: host, remote };
+  } catch {
+    return { label: "missing-or-invalid", remote: false };
+  }
+}
+
+let warnedRemoteDevDatabase = false;
+
+// Stops local development from silently writing into the production database.
+// Set NEXUS_PRODUCTION_DB_HOST to the production Neon hostname to make the
+// check a hard block; without it, a remote host in dev gets a loud warning
+// (this project intentionally supports hosted Postgres during development).
+function assertDatabaseAllowedForEnvironment() {
+  if (!isLocalDevelopment()) return;
+  const target = describeDatabaseTarget();
+  const productionHost = process.env.NEXUS_PRODUCTION_DB_HOST?.trim().toLowerCase();
+  if (productionHost && target.label === productionHost) {
+    throw new Error(
+      `Refusing to connect: DATABASE_URL points at the production database host (${target.label}) while ` +
+        "NODE_ENV is not production. Point DATABASE_URL at a development branch/database, or unset " +
+        "NEXUS_PRODUCTION_DB_HOST if this is intentional."
+    );
+  }
+  if (target.remote && !warnedRemoteDevDatabase) {
+    warnedRemoteDevDatabase = true;
+    console.warn(
+      `[database] WARNING: development is connected to the remote database host "${target.label}". ` +
+        "If that is the production database, local actions will modify real data. Set " +
+        "NEXUS_PRODUCTION_DB_HOST to the production hostname to hard-block this."
+    );
+  }
+}
+
 export function getSql() {
-  sqlClient ??= postgres(getDatabaseUrl(), {
-    max: 1,
-    idle_timeout: 20,
-    // Fail fast locally so an unreachable hosted database does not hang every page render.
-    connect_timeout: isLocalDevelopment() ? 5 : 10,
-    prepare: false,
-    ssl: "require"
-  });
+  if (!sqlClient) {
+    assertDatabaseAllowedForEnvironment();
+    sqlClient = postgres(getDatabaseUrl(), {
+      max: 1,
+      idle_timeout: 20,
+      // Fail fast locally so an unreachable hosted database does not hang every page render.
+      connect_timeout: isLocalDevelopment() ? 5 : 10,
+      prepare: false,
+      ssl: "require"
+    });
+  }
   return sqlClient;
 }
 

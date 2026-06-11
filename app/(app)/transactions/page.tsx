@@ -23,6 +23,7 @@ import {
 
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
+import { PaymentTermsAcknowledgement } from "@/components/payment-terms-acknowledgement";
 import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "@/components/filter-bar";
 import { PageHeader } from "@/components/page-header";
@@ -172,21 +173,6 @@ function withinYear(value: string | undefined, year: number) {
   return appDateKeyFromValue(value).startsWith(`${year}-`);
 }
 
-// One-time (per payment-terms version) acknowledgement required before online
-// checkout. The server action enforces this; the checkbox records consent.
-function PaymentTermsAcknowledgement() {
-  return (
-    <label className="flex items-start gap-2 text-xs leading-5 text-[var(--muted-strong)]">
-      <input type="checkbox" name="acceptPaymentTerms" required className="mt-0.5 shrink-0" />
-      <span>
-        I understand payments are processed by third-party processors and that Nexus is not an escrow service,
-        bank, or trust account. I agree to the{" "}
-        <Link href="/payment-terms" target="_blank" className="font-semibold underline">Payment Terms</Link>.
-      </span>
-    </label>
-  );
-}
-
 export default async function TransactionsPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireUser();
   const params = (await searchParams) ?? {};
@@ -233,7 +219,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
 
         {/* Balance hero — dark gradient top / light form bottom */}
         {outstandingPayments.length > 0 ? (
-          <Card className="pay-hero">
+          <Card className="pay-hero" id="pay-now">
             <div className="pay-hero-balance">
               <div className="pay-hero-top">
                 <div className="min-w-0">
@@ -330,13 +316,25 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                     <td className="table-cell font-mono text-xs text-[var(--muted)]">{referenceFor(payment)}</td>
                     <td className="table-cell text-right">
                       {payment.status !== "PAID" ? (
-                        <form action={createStripeCheckoutAction}>
-                          <input type="hidden" name="paymentId" value={payment.id} />
-                          <SubmitButton pendingLabel="Opening…" className="button-compact gap-1.5 px-3">
-                            <CreditCard className="h-3.5 w-3.5" />
-                            Pay
-                          </SubmitButton>
-                        </form>
+                        needsPaymentTermsAcceptance ? (
+                          // The server rejects checkout without the payment-terms
+                          // acknowledgement; that checkbox lives in the pay hero
+                          // above, so route there until the user accepts once.
+                          <Link href="#pay-now">
+                            <Button className="button-compact gap-1.5 px-3">
+                              <CreditCard className="h-3.5 w-3.5" />
+                              Pay
+                            </Button>
+                          </Link>
+                        ) : (
+                          <form action={createStripeCheckoutAction}>
+                            <input type="hidden" name="paymentId" value={payment.id} />
+                            <SubmitButton pendingLabel="Opening…" className="button-compact gap-1.5 px-3">
+                              <CreditCard className="h-3.5 w-3.5" />
+                              Pay
+                            </SubmitButton>
+                          </form>
+                        )
                       ) : (
                         <span className="text-xs font-semibold text-emerald-700">Paid</span>
                       )}

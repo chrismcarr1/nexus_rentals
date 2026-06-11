@@ -5,8 +5,10 @@ import packageJson from "@/package.json";
 import { getEffectiveUserRole, normalizeEmail } from "@/lib/admin";
 import { formatAddress } from "@/lib/address";
 import { appDateIsBefore, getAppDateKey } from "@/lib/app-time";
+import { describeDatabaseTarget } from "@/lib/database";
 import { getEmailDiagnostics } from "@/lib/email";
 import { getAppUrlDiagnostics } from "@/lib/request-origin";
+import { getRuntimeEnvironment, getStripeKeyMode } from "@/lib/stripe-env";
 import { getStripeAccountId, getStripeConnectState } from "@/lib/stripe-connect";
 import { readStore, type AppStore, type User } from "@/lib/store";
 
@@ -974,6 +976,11 @@ export async function getAdminAnalytics(range: AdminTimeRange = "30d") {
     recentActivity,
     system: {
       environment: process.env.NODE_ENV ?? "development",
+      // Derived facts only — key mode from the prefix and the database
+      // hostname. Secret values are never included in this snapshot.
+      runtimeEnvironment: getRuntimeEnvironment(),
+      stripeMode: getStripeKeyMode(),
+      databaseTarget: describeDatabaseTarget().label,
       version: packageJson.version,
       databaseConfigured: Boolean(process.env.DATABASE_URL),
       authSecretConfigured: Boolean(process.env.AUTH_SECRET),

@@ -82,6 +82,20 @@ describe("middleware API handling", () => {
     await expect(response.json()).resolves.toEqual({ error: "Forbidden" });
   });
 
+  it("never blocks the Stripe webhook, which carries no session cookie", async () => {
+    const response = await middleware(new NextRequest("https://app.nexusrentals.co/api/stripe/webhook"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("lets authenticated requests reach the Stripe Connect return route", async () => {
+    const response = await middleware(request("/api/stripe/connect/return"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
   it("allows the reserved system admin through admin routes", async () => {
     mocks.isSystemAdminEmail.mockReturnValue(true);
 
