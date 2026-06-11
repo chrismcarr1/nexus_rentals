@@ -1,20 +1,33 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Landmark, Send, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CalendarCheck2, Landmark, Send, ShieldCheck } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Textarea } from "@/components/ui/textarea";
 import { sendApplicationInviteAction } from "@/lib/actions";
+import { formatAppDate } from "@/lib/app-time";
 import { formatPhoneNumber } from "@/lib/phone";
+
+export type InviteUnitOption = {
+  id: string;
+  label: string;
+  leaseStatusLabel: string;
+  tenantName: string | null;
+  leaseEndDate: string | null;
+  availableFrom: string | null;
+  availableNow: boolean;
+};
 
 export type InvitePropertyOption = {
   id: string;
   name: string;
-  units: Array<{ id: string; label: string }>;
+  address: string;
+  units: InviteUnitOption[];
 };
 
 export type InvitePrefill = {
@@ -51,10 +64,26 @@ export function ApplicationInviteForm({
   plaidConfigured: boolean;
 }) {
   const [propertyId, setPropertyId] = useState(prefill.propertyId ?? "");
+  const [propertySearch, setPropertySearch] = useState("");
+  const [unitId, setUnitId] = useState(prefill.unitId ?? "");
+  const [moveInDate, setMoveInDate] = useState(prefill.desiredMoveInDate ?? "");
   const [phone, setPhone] = useState(prefill.phone ?? "");
-  const units = useMemo(
-    () => properties.find((property) => property.id === propertyId)?.units ?? [],
-    [properties, propertyId]
+  const selectedProperty = properties.find((property) => property.id === propertyId) ?? null;
+  const visibleProperties = useMemo(() => {
+    const term = propertySearch.trim().toLowerCase();
+    if (!term) return properties;
+    return properties.filter(
+      (property) =>
+        property.id === propertyId ||
+        property.name.toLowerCase().includes(term) ||
+        property.address.toLowerCase().includes(term)
+    );
+  }, [properties, propertySearch, propertyId]);
+  const units = selectedProperty?.units ?? [];
+  const selectedUnit = units.find((unit) => unit.id === unitId) ?? null;
+  const propertyHasNoUnits = Boolean(propertyId) && units.length === 0;
+  const moveInConflict = Boolean(
+    selectedUnit && moveInDate && selectedUnit.availableFrom && moveInDate < selectedUnit.availableFrom
   );
 
   return (
@@ -76,19 +105,43 @@ export function ApplicationInviteForm({
       <Card className="p-5 lg:p-6">
         <p className="section-kicker">Rental context</p>
         <h2 className="mt-2 text-xl font-semibold text-[var(--text)]">Property and unit</h2>
+        {properties.length > 1 ? (
+          <label className="mt-4 block">
+            <FieldLabel label="Search properties" hint={`${visibleProperties.length} of ${properties.length} shown`} />
+            <Input
+              type="search"
+              value={propertySearch}
+              onChange={(event) => setPropertySearch(event.target.value)}
+              placeholder="Search by property name or address"
+            />
+          </label>
+        ) : null}
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="block">
             <FieldLabel label="Property" />
-            <Select name="propertyId" required value={propertyId} onChange={(event) => setPropertyId(event.target.value)}>
+            <Select
+              name="propertyId"
+              required
+              value={propertyId}
+              onChange={(event) => {
+                setPropertyId(event.target.value);
+                setUnitId("");
+              }}
+            >
               <option value="">Select a property</option>
-              {properties.map((property) => (
-                <option key={property.id} value={property.id}>{property.name}</option>
+              {visibleProperties.map((property) => (
+                <option key={property.id} value={property.id}>
+                  {property.name}{property.address ? ` - ${property.address}` : ""}
+                </option>
               ))}
             </Select>
+            {selectedProperty?.address ? (
+              <span className="mt-2 block text-xs text-[var(--muted)]">{selectedProperty.address}</span>
+            ) : null}
           </label>
           <label className="block">
             <FieldLabel label="Unit" hint="Optional" />
-            <Select name="unitId" defaultValue={prefill.unitId ?? ""} disabled={!units.length}>
+            <Select name="unitId" value={unitId} onChange={(event) => setUnitId(event.target.value)} disabled={!units.length}>
               <option value="">{units.length ? "Whole property / unassigned" : "Select a property first"}</option>
               {units.map((unit) => (
                 <option key={unit.id} value={unit.id}>{unit.label}</option>
@@ -97,9 +150,56 @@ export function ApplicationInviteForm({
           </label>
           <label className="block sm:col-span-2">
             <FieldLabel label="Desired move-in date" hint="Optional" />
-            <Input name="desiredMoveInDate" type="date" defaultValue={prefill.desiredMoveInDate} />
+            <Input
+              name="desiredMoveInDate"
+              type="date"
+              value={moveInDate}
+              min={selectedUnit?.availableFrom ?? undefined}
+              onChange={(event) => setMoveInDate(event.target.value)}
+            />
           </label>
         </div>
+
+        {propertyHasNoUnits ? (
+          <div className="mt-4 flex items-start gap-3 rounded-md border border-amber-600/18 bg-amber-500/12 px-4 py-3 text-sm text-amber-800">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>Create a unit before sending application invites. This property has no units yet.</span>
+          </div>
+        ) : null}
+
+        {selectedUnit ? (
+          <div className="mt-4 rounded-md border border-[var(--line)] bg-[var(--surface)] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="flex items-center gap-2 text-sm font-semibold text-[var(--text)]">
+                <CalendarCheck2 className="h-4 w-4 text-[var(--brand)]" />
+                {selectedUnit.label} availability
+              </p>
+              <Badge tone={selectedUnit.availableNow ? "success" : selectedUnit.availableFrom ? "warning" : "danger"}>
+                {selectedUnit.leaseStatusLabel}
+              </Badge>
+            </div>
+            <div className="mt-3 space-y-1 text-sm text-[var(--muted)]">
+              {selectedUnit.tenantName ? <p>Current tenant: {selectedUnit.tenantName}</p> : null}
+              {selectedUnit.leaseEndDate ? <p>Lease ends {formatAppDate(selectedUnit.leaseEndDate)}</p> : null}
+              {selectedUnit.availableFrom ? (
+                selectedUnit.availableNow ? (
+                  <p className="font-semibold text-emerald-700">Earliest available move-in date: {formatAppDate(selectedUnit.availableFrom)}</p>
+                ) : (
+                  <p className="font-semibold text-amber-800">Unit unavailable until {formatAppDate(selectedUnit.availableFrom)}</p>
+                )
+              ) : (
+                <p className="font-semibold text-red-700">Unit unavailable - an existing lease has no end date. Update that lease before inviting an applicant.</p>
+              )}
+            </div>
+            {moveInConflict && selectedUnit.availableFrom ? (
+              <p className="mt-3 rounded-md border border-amber-600/18 bg-amber-500/12 px-3 py-2 text-sm text-amber-800">
+                {selectedUnit.label} is unavailable on {formatAppDate(moveInDate)}
+                {selectedUnit.leaseEndDate ? ` because an existing lease runs through ${formatAppDate(selectedUnit.leaseEndDate)}` : ""}.
+                Earliest available move-in date is {formatAppDate(selectedUnit.availableFrom)}.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </Card>
 
       <Card className="p-5 lg:p-6">
@@ -143,7 +243,11 @@ export function ApplicationInviteForm({
         </label>
       </Card>
 
-      <SubmitButton className="w-full sm:w-auto" pendingLabel="Sending invite...">
+      <SubmitButton
+        className="w-full sm:w-auto"
+        pendingLabel="Sending invite..."
+        disabled={propertyHasNoUnits || moveInConflict || Boolean(selectedUnit && !selectedUnit.availableFrom)}
+      >
         <Send className="h-4 w-4" />
         Send application invite
       </SubmitButton>

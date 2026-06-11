@@ -57,9 +57,13 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
                 <div className="mb-5 rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--text)]" role="alert">
                   {params.error === "invalid-credentials"
                     ? "Invalid email or password."
-                    : params.error === "server"
-                      ? "Login could not reach the hosted database. Check the deployment database configuration."
-                      : "Password reset complete. Sign in with the new password."}
+                    : params.error === "rate-limited"
+                      ? "Too many sign-in attempts. Wait a few minutes and try again."
+                      : params.error === "server"
+                        ? "Login could not reach the hosted database. Check the deployment database configuration."
+                        : params.error
+                          ? "Sign-in failed. Check your details and try again."
+                          : "Password reset complete. Sign in with the new password."}
                 </div>
               ) : null}
 

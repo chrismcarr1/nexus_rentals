@@ -34,10 +34,11 @@ import {
   sendPasswordResetEmail
 } from "@/lib/email";
 import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmittedAssetPath } from "@/lib/file-security";
-import { ensureLeaseConnectionIntegrity, generateInviteToken, getUnitAvailableStartDate, hashInviteToken, isActiveLeaseStatus, leaseBlocksNewMoveIn, leaseCanResumeMoveIn } from "@/lib/lease-connections";
+import { ensureLeaseConnectionIntegrity, generateInviteToken, getUnitAvailableStartDate, hashInviteToken, isActiveLeaseStatus, leaseBlocksNewMoveIn, leaseCanResumeMoveIn, leaseStartIsAvailable, normalizeLeaseLifecycleStatus } from "@/lib/lease-connections";
 import { ensureScheduledLeasePayments, formatLateFeePolicy } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { formatPhoneNumber } from "@/lib/phone";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { recordPlatformEvent } from "@/lib/platform-events";
 import { buildAppUrl, getAppBaseUrl } from "@/lib/request-origin";
 import { ensureApplicantPortalAccess, startCheckrScreening, startPlaidScreening } from "@/lib/screening/service";
@@ -411,18 +412,27 @@ export async function signupAction(formData: FormData) {
     }
   });
 
-  const user = await db.user.create({
-    data: {
-      organizationId: organization.id,
-      email: parsed.email,
-      passwordHash: await hashPassword(parsed.password),
-      firstName: parsed.firstName,
-      lastName: parsed.lastName,
-      role: parsed.role,
-      phone: parsed.phone,
-      lastLoginAt: nowIso()
+  let user;
+  try {
+    user = await db.user.create({
+      data: {
+        organizationId: organization.id,
+        email: parsed.email,
+        passwordHash: await hashPassword(parsed.password),
+        firstName: parsed.firstName,
+        lastName: parsed.lastName,
+        role: parsed.role,
+        phone: parsed.phone,
+        lastLoginAt: nowIso()
+      }
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "account-exists") {
+      redirect("/signup?error=account-exists");
     }
-  });
+    console.error("[auth] Signup user creation failed", error);
+    redirect("/signup?error=server");
+  }
 
   if (parsed.role === UserRole.TENANT) {
     await db.tenant.create({
@@ -461,6 +471,15 @@ export async function loginAction(formData: FormData) {
   }
 
   const parsed = result.data;
+
+  const rateLimit = checkRateLimit({
+    key: `login:${normalizeEmail(parsed.email)}`,
+    limit: 10,
+    windowMs: 15 * 60 * 1000
+  });
+  if (!rateLimit.allowed) {
+    redirect("/login?error=rate-limited");
+  }
 
   let user;
   try {
@@ -514,6 +533,18 @@ export async function requestResetAction(formData: FormData) {
   }
 
   const email = result.data.email;
+
+  // Cap reset requests per email so the action cannot be used to flood an inbox.
+  // Redirect to the generic success page so account existence is never revealed.
+  const rateLimit = checkRateLimit({
+    key: `password-reset:${normalizeEmail(email)}`,
+    limit: 3,
+    windowMs: 15 * 60 * 1000
+  });
+  if (!rateLimit.allowed) {
+    redirect("/forgot-password?success=1");
+  }
+
   const user = await db.user.findUnique({ where: { email } });
   if (!user) {
     redirect("/forgot-password?success=1");
@@ -788,7 +819,7 @@ export async function deletePropertyAction(formData: FormData) {
 export async function createUnitAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
-  const parsed = unitSchema.parse({
+  const unitResult = unitSchema.safeParse({
     propertyId: getString(formData, "propertyId"),
     unitNumber: getString(formData, "unitNumber"),
     nickname: getOptionalString(formData, "nickname"),
@@ -803,6 +834,11 @@ export async function createUnitAction(formData: FormData) {
     amenities: getOptionalString(formData, "amenities"),
     notes: getOptionalString(formData, "notes")
   });
+  if (!unitResult.success) {
+    const propertyId = getOptionalString(formData, "propertyId");
+    redirect(propertyId ? `/properties/${encodeURIComponent(propertyId)}?error=invalid-unit#add-unit` : "/properties");
+  }
+  const parsed = unitResult.data;
   const imagePath = requireOptionalSubmittedAssetPath(getOptionalString(formData, "imagePath"), user, "/properties?error=invalid-upload");
 
   if (!hasId(portal.scope.properties, parsed.propertyId)) {
@@ -842,7 +878,7 @@ export async function createUnitAction(formData: FormData) {
 
 export async function createTenantAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
-  const parsed = tenantSchema.parse({
+  const tenantResult = tenantSchema.safeParse({
     firstName: getString(formData, "firstName"),
     lastName: getString(formData, "lastName"),
     email: getOptionalString(formData, "email"),
@@ -852,6 +888,10 @@ export async function createTenantAction(formData: FormData) {
     emergencyPhone: getOptionalString(formData, "emergencyPhone"),
     notes: getOptionalString(formData, "notes")
   });
+  if (!tenantResult.success) {
+    redirect("/tenants?error=invalid-tenant");
+  }
+  const parsed = tenantResult.data;
 
   await db.tenant.create({
     data: {
@@ -1046,6 +1086,34 @@ export async function sendApplicationInviteAction(formData: FormData) {
       const unit = parsed.unitId ? store.units.find((item) => item.id === parsed.unitId && item.propertyId === property.id) : null;
       if (parsed.unitId && !unit) throw new Error("Unit not found for this property.");
 
+      if (unit && parsed.desiredMoveInDate) {
+        const requestedKey = appDateKeyFromValue(parsed.desiredMoveInDate);
+        if (!requestedKey) throw new Error("The desired move-in date is invalid.");
+        const todayKey = getAppDateKey();
+        const unitLeases = store.leases
+          .filter((lease) => lease.unitId === unit.id)
+          .map((lease) => ({ id: lease.id, status: normalizeLeaseLifecycleStatus(lease, todayKey), endDate: lease.endDate }));
+        if (!leaseStartIsAvailable(unitLeases, parsed.desiredMoveInDate)) {
+          const availableFrom = getUnitAvailableStartDate(unitLeases);
+          const latestBlockingEnd = unitLeases
+            .filter((lease) => leaseBlocksNewMoveIn(lease.status) && lease.endDate)
+            .map((lease) => appDateKeyFromValue(lease.endDate))
+            .filter(Boolean)
+            .sort()
+            .at(-1);
+          if (!availableFrom) {
+            throw new Error(
+              `Unit ${unit.unitNumber} is unavailable on ${formatDate(requestedKey)} because an existing lease has no end date. Update that lease before sending this invite.`
+            );
+          }
+          throw new Error(
+            latestBlockingEnd
+              ? `Unit ${unit.unitNumber} is unavailable on ${formatDate(requestedKey)} because an existing lease runs through ${formatDate(latestBlockingEnd)}. Earliest available move-in date is ${formatDate(availableFrom)}.`
+              : `Unit ${unit.unitNumber} is unavailable on ${formatDate(requestedKey)}. Earliest available move-in date is ${formatDate(availableFrom)}.`
+          );
+        }
+      }
+
       const propertyLabel = [property.name, unit?.unitNumber ? `Unit ${unit.unitNumber}` : null, formatUnitAddress(property, unit ?? null)]
         .filter(Boolean)
         .join(", ");
@@ -1135,6 +1203,7 @@ export async function sendApplicationInviteAction(formData: FormData) {
       inviteUrl: buildAppUrl(`/apply/invite/${encodeURIComponent(rawToken)}`),
       requestBackgroundCheck: parsed.requestBackgroundCheck,
       requestIncomeVerification: parsed.requestIncomeVerification,
+      desiredMoveInDate: invite.desiredMoveInDate ? formatDate(invite.desiredMoveInDate) : undefined,
       note: parsed.note,
       expiresAt: formatDate(invite.expiresAt),
       organizationId: user.organizationId,
@@ -1160,6 +1229,24 @@ export async function sendApplicationInviteAction(formData: FormData) {
 export async function submitRentalApplicationAction(formData: FormData) {
   const publicSlug = getString(formData, "publicSlug");
   const inviteToken = getOptionalString(formData, "inviteToken");
+
+  // This action is reachable without authentication; cap repeat submissions
+  // per applicant per listing so the public form cannot be used for spam.
+  const applicantKey = normalizeEmail(getString(formData, "email")) || "anonymous";
+  const rateLimit = checkRateLimit({
+    key: `apply:${publicSlug}:${applicantKey}`,
+    limit: 5,
+    windowMs: 10 * 60 * 1000
+  });
+  if (!rateLimit.allowed) {
+    const message = "Too many submission attempts. Wait a few minutes and try again.";
+    redirect(
+      inviteToken
+        ? `/apply/invite/${encodeURIComponent(inviteToken)}?error=${encodeURIComponent(message)}`
+        : `/apply/${encodeURIComponent(publicSlug)}?error=${encodeURIComponent(message)}`
+    );
+  }
+
   let redirectSlug = publicSlug;
   let submittedId = "";
   let inviteScreening: { background: boolean; income: boolean } | null = null;
@@ -2203,7 +2290,7 @@ export async function deleteLeaseAction(formData: FormData) {
 export async function createPaymentAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
-  const parsed = paymentSchema.parse({
+  const paymentResult = paymentSchema.safeParse({
     unitId: getString(formData, "unitId"),
     leaseId: getOptionalString(formData, "leaseId"),
     tenantId: getOptionalString(formData, "tenantId"),
@@ -2216,6 +2303,10 @@ export async function createPaymentAction(formData: FormData) {
     balanceDue: getOptionalString(formData, "balanceDue"),
     categoryTag: getOptionalString(formData, "categoryTag")
   });
+  if (!paymentResult.success) {
+    redirect("/transactions?error=invalid-payment");
+  }
+  const parsed = paymentResult.data;
 
   const selectedLease = parsed.leaseId ? portal.scope.leases.find((lease) => lease.id === parsed.leaseId) : null;
   const selectedTenant = parsed.tenantId ? portal.scope.tenants.find((tenant) => tenant.id === parsed.tenantId) : null;
@@ -2289,11 +2380,15 @@ export async function updatePaymentAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
   const returnTo = getTransactionsReturnPath(formData);
-  const parsed = paymentEditSchema.parse({
+  const paymentEditResult = paymentEditSchema.safeParse({
     paymentId: getString(formData, "paymentId"),
     amount: getString(formData, "amount"),
     returnTo
   });
+  if (!paymentEditResult.success) {
+    redirect(returnTo);
+  }
+  const parsed = paymentEditResult.data;
   const payment = portal.scope.payments.find((item) => item.id === parsed.paymentId);
 
   if (!payment) {
@@ -2373,7 +2468,7 @@ export async function linkRentPaymentsToLeasesAction() {
 export async function createExpenseAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
-  const parsed = expenseSchema.parse({
+  const expenseResult = expenseSchema.safeParse({
     propertyId: getString(formData, "propertyId"),
     unitId: getOptionalString(formData, "unitId"),
     title: getString(formData, "title"),
@@ -2384,6 +2479,10 @@ export async function createExpenseAction(formData: FormData) {
     tags: getOptionalString(formData, "tags"),
     vendor: getOptionalString(formData, "vendor")
   });
+  if (!expenseResult.success) {
+    redirect("/expenses?error=invalid-expense");
+  }
+  const parsed = expenseResult.data;
 
   if (!hasId(portal.scope.properties, parsed.propertyId) || (parsed.unitId && !hasId(portal.scope.units, parsed.unitId))) {
     redirect("/expenses");
@@ -2707,6 +2806,22 @@ export async function createBundledStripeCheckoutAction(formData: FormData) {
     redirect(`/transactions?stripe=manager-setup-required`);
   }
 
+  // Every payment in the bundle must pay out to the same manager. Otherwise the
+  // single transfer destination would route another manager's rent to this one.
+  const hasMismatchedDestination = selectedPayments.some((p) => {
+    const pLease =
+      p.leaseId
+        ? portal.scope.leases.find((l) => l.id === p.leaseId)
+        : portal.scope.leases.find((l) =>
+            l.unitId === p.unitId && ["ACTIVE", "UPCOMING", "active", "invited"].includes(l.status)
+          );
+    const pManager = getLeaseManager(portal, pLease, p);
+    return !pManager || pManager.id !== manager.id;
+  });
+  if (hasMismatchedDestination) {
+    redirect("/transactions?stripe=invalid-payment");
+  }
+
   let connectedManager = manager;
   try {
     connectedManager = await syncManagerConnectedAccount(manager);
@@ -2845,7 +2960,7 @@ export async function createDamageAssessmentAction(formData: FormData) {
   const portal = await getPortalContext(user);
   const imagePaths = requireSubmittedAssetPaths(formData, "imagePaths", user, "/ai-assessments?error=invalid-upload", 12);
   const baselinePaths = requireSubmittedAssetPaths(formData, "baselinePaths", user, "/ai-assessments?error=invalid-upload", 12);
-  const parsed = damageAssessmentSchema.parse({
+  const assessmentResult = damageAssessmentSchema.safeParse({
     unitId: getString(formData, "unitId"),
     leaseId: getOptionalString(formData, "leaseId"),
     inspectionDate: getString(formData, "inspectionDate"),
@@ -2853,6 +2968,10 @@ export async function createDamageAssessmentAction(formData: FormData) {
     imagePaths,
     baselinePaths
   });
+  if (!assessmentResult.success) {
+    redirect("/ai-assessments?error=invalid-assessment");
+  }
+  const parsed = assessmentResult.data;
 
   if (!hasId(portal.scope.units, parsed.unitId) || (parsed.leaseId && !hasId(portal.scope.leases, parsed.leaseId))) {
     redirect("/ai-assessments");

@@ -514,15 +514,57 @@ export async function writeStore(store: AppStore) {
   }
 }
 
+async function updateLocalStore(updater: (store: AppStore) => AppStore | Promise<AppStore>) {
+  const store = await readLocalStore();
+  const next = await updater(store);
+  if (next !== store) {
+    await writeLocalStore(next);
+  }
+  return next;
+}
+
 export async function updateStore(updater: (store: AppStore) => AppStore | Promise<AppStore>) {
+  if (shouldUseLocalFallback()) {
+    return updateLocalStore(updater);
+  }
+
+  // Business-rule errors thrown by the updater must propagate as-is and must not
+  // trip the local-development Postgres fallback (which is only for connectivity).
+  let updaterError: unknown = null;
+
   try {
-    const store = await readStore();
-    const next = await updater(store);
-    if (next !== store) {
-      await writeStore(next);
-    }
-    return next;
+    await ensureAppStoreTable();
+    const sql = getSql();
+    // Row-level lock serializes concurrent read-modify-write cycles so parallel
+    // requests (e.g. a Stripe webhook and a manager action) cannot lose updates.
+    const result = await sql.begin(async (tx) => {
+      const rows = await tx`select data from app_store where id = ${STORE_ID} for update`;
+      const store = normalizeStore((rows[0]?.data as AppStore | undefined) ?? emptyStore());
+      let next: AppStore;
+      try {
+        next = await updater(store);
+      } catch (error) {
+        updaterError = error;
+        throw error;
+      }
+      if (next !== store) {
+        await tx`
+          insert into app_store (id, data, updated_at)
+          values (${STORE_ID}, ${sql.json(next)}::jsonb, now())
+          on conflict (id) do update set data = excluded.data, updated_at = now()
+        `;
+      }
+      return next;
+    });
+    return result as AppStore;
   } catch (error) {
+    if (updaterError) {
+      throw updaterError;
+    }
+    if (isLocalDevelopment()) {
+      enterLocalFallback(error);
+      return updateLocalStore(updater);
+    }
     console.error("[store] Failed to update hosted Postgres datastore", error);
     throw error;
   }

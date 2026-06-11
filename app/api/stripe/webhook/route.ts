@@ -56,6 +56,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCr
     }
 
     const amountPaidCents = session.amount_total ?? 0;
+    // amount_total includes the platform fee charged on top of rent; the ledger
+    // should record the rent portion that the payment actually settles.
+    const rentPaidCents = Math.max(0, amountPaidCents - applicationFeeAmountCents);
 
     await db.payment.update({
       where: { id: paymentId },
@@ -64,7 +67,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCr
         ...(!payment.tenantId && tenantId ? { tenantId } : {}),
         paidDate: paidAt,
         balanceDue: 0,
-        amountPaid: amountPaidCents > 0 ? amountPaidCents / 100 : payment.amount,
+        amountPaid: rentPaidCents > 0 ? rentPaidCents / 100 : payment.amount,
         stripeCheckoutSessionId: sessionId,
         stripePaymentIntentId: paymentIntentId,
         stripeDestinationAccountId: destinationAccountId,

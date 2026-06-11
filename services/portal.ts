@@ -25,9 +25,29 @@ type AppUser = {
   organizationId: string;
 };
 
+// Background-maintenance throttle: lease integrity checks and rent scheduling
+// are idempotent catch-up jobs, so they do not need to run on every page render.
+// Mutating actions (move-ins, lease edits) still invoke the schedulers directly.
+const MAINTENANCE_INTERVAL_MS = 60_000;
+const lastMaintenanceRunByOrg = new Map<string, number>();
+
+async function runScheduledMaintenance(organizationId: string) {
+  const now = Date.now();
+  const lastRun = lastMaintenanceRunByOrg.get(organizationId) ?? 0;
+  if (now - lastRun < MAINTENANCE_INTERVAL_MS) return;
+  lastMaintenanceRunByOrg.set(organizationId, now);
+  try {
+    await ensureLeaseConnectionIntegrity(organizationId);
+    await ensureScheduledLeasePayments(organizationId);
+  } catch (error) {
+    // Allow the next request to retry instead of waiting out the interval.
+    lastMaintenanceRunByOrg.set(organizationId, lastRun);
+    throw error;
+  }
+}
+
 export const getPortalContext = cache(async (user: AppUser) => {
-  await ensureLeaseConnectionIntegrity(user.organizationId);
-  await ensureScheduledLeasePayments(user.organizationId);
+  await runScheduledMaintenance(user.organizationId);
   const snapshot = await getOrganizationSnapshot(user.organizationId);
   const effectiveUsers = snapshot.users.map((candidate) => ({
     ...candidate,
