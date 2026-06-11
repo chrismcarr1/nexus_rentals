@@ -174,8 +174,12 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const user = await requireUser();
   const params = (await searchParams) ?? {};
   const portal = await getPortalContext(user);
-  const stripeMessage = stripeStatusMessage(params.stripe);
-  const alertTone = stripeAlertTone(params.stripe);
+  const stripeMessage =
+    stripeStatusMessage(params.stripe) ??
+    (params.error === "invalid-payment"
+      ? "Review the charge details. Unit, description, amount, due date, and status are required."
+      : null);
+  const alertTone = stripeAlertTone(params.stripe) ?? (params.error === "invalid-payment" ? "warning" : null);
 
   /* ── TENANT VIEW ──────────────────────────────────────────── */
   if (user.role === "TENANT") {

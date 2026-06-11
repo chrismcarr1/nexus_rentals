@@ -12,9 +12,10 @@ import { UserRole } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
-export default async function AiAssessmentsPage() {
+export default async function AiAssessmentsPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
+  const params = (await searchParams) ?? {};
   const assessments = [...portal.scope.assessments].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   return (
@@ -24,6 +25,13 @@ export default async function AiAssessmentsPage() {
         title="AI Damage Assessments"
         description="Upload move-out photos, optionally add baseline images, and generate a structured estimate with severity, confidence, categories, cost range, and recommended next steps."
       />
+      {params.error ? (
+        <div className="page-alert page-alert-warning">
+          {params.error === "invalid-upload"
+            ? "One or more uploaded photos could not be accepted. Upload them again and retry."
+            : "Review the assessment details. Unit, inspection date, and at least one photo are required."}
+        </div>
+      ) : null}
       <div className="content-split">
         <div className="space-y-4">
           <Card className="p-6">

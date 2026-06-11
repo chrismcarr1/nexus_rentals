@@ -282,6 +282,55 @@ function buildXlsx(rows: ExportCell[][]) {
   ]);
 }
 
+function leaseIsCurrentForRentRoll(status: string) {
+  return ["ACTIVE", "UPCOMING", "active", "invited"].includes(status);
+}
+
+async function getRentRollExportRows(user: {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: UserRole;
+  organizationId: string;
+}) {
+  const portal = await getPortalContext(user);
+
+  return portal.scope.leases
+    .filter((lease) => leaseIsCurrentForRentRoll(lease.status))
+    .map((lease) => {
+      const unit = lease.unitId ? portal.scope.units.find((item) => item.id === lease.unitId) : null;
+      const property = portal.scope.properties.find((item) => item.id === (lease.propertyId ?? unit?.propertyId));
+      const tenant = lease.tenantIds?.[0] ? portal.scope.tenants.find((item) => item.id === lease.tenantIds[0]) : null;
+      const outstanding = portal.scope.payments
+        .filter((payment) => payment.leaseId === lease.id && payment.status !== "PAID")
+        .reduce((sum, payment) => sum + (payment.balanceDue || payment.amount), 0);
+
+      return {
+        sortDate: dateLabel(lease.startDate) || "0000-00-00",
+        cells: [
+          "Rent Roll",
+          dateLabel(lease.startDate),
+          property?.name ?? "",
+          unit?.unitNumber ?? "",
+          tenant ? `${tenant.firstName} ${tenant.lastName}` : lease.tenantEmail ?? "",
+          `Monthly rent — ${lease.nexusLeaseId ?? lease.id}`,
+          lease.status,
+          "Rent Roll",
+          lease.monthlyRent,
+          lease.monthlyRent,
+          outstanding,
+          dateLabel(lease.endDate),
+          "",
+          `Due day ${lease.dueDay ?? 1}`,
+          lease.id
+        ] as ExportCell[]
+      };
+    })
+    .sort((a, b) => b.sortDate.localeCompare(a.sortDate))
+    .map((row) => row.cells);
+}
+
 async function getFinancialExportRows(
   user: {
     id: string;
@@ -376,15 +425,20 @@ export async function GET(request: Request) {
   const searchParams = new URL(request.url).searchParams;
   const format = searchParams.get("format")?.toLowerCase();
   const year = Number(searchParams.get("year"));
-  const taxReport = searchParams.get("report") === "tax";
-  const rows = await getFinancialExportRows(user, Number.isFinite(year) && year > 0 ? year : undefined, taxReport);
+  const report = searchParams.get("report");
+  const taxReport = report === "tax";
+  const rentRollReport = report === "rent-roll";
+  const rows = rentRollReport
+    ? await getRentRollExportRows(user)
+    : await getFinancialExportRows(user, Number.isFinite(year) && year > 0 ? year : undefined, taxReport);
   const filenameDate = getAppDateKey();
+  const filenameBase = rentRollReport ? "rent-roll" : taxReport ? "tax-transactions-and-expenses" : "transactions-and-expenses";
 
   if (format === "excel" || format === "xlsx") {
     return new Response(buildXlsx(rows), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="transactions-and-expenses-${filenameDate}.xlsx"`
+        "Content-Disposition": `attachment; filename="${filenameBase}-${filenameDate}.xlsx"`
       }
     });
   }
@@ -392,7 +446,7 @@ export async function GET(request: Request) {
   return new Response(buildCsv(rows), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="transactions-and-expenses-${filenameDate}.csv"`
+      "Content-Disposition": `attachment; filename="${filenameBase}-${filenameDate}.csv"`
     }
   });
 }

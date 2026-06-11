@@ -381,6 +381,10 @@ export default async function PropertyDetailPage({
               <div className="page-alert page-alert-warning mb-4">
                 A unit with that number already exists in this property. Use a different unit number.
               </div>
+            ) : query.error === "invalid-unit" ? (
+              <div className="page-alert page-alert-warning mb-4">
+                Review the unit details. Unit number, type, bedrooms, bathrooms, rent, and deposit are required.
+              </div>
             ) : null}
             <form action={createUnitAction} className="space-y-4">
               <input type="hidden" name="propertyId" value={property.id} />

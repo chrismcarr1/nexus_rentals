@@ -10,9 +10,10 @@ import { UserRole } from "@/lib/store";
 import { formatCurrency, formatDate, parseTags } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
-export default async function ExpensesPage() {
+export default async function ExpensesPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
+  const params = (await searchParams) ?? {};
   const expenses = [...portal.scope.expenses].sort((a, b) => b.incurredAt.localeCompare(a.incurredAt));
 
   return (
@@ -60,6 +61,11 @@ export default async function ExpensesPage() {
         </Card>
         <Card className="p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Record expense</p>
+          {params.error === "invalid-expense" ? (
+            <div className="page-alert page-alert-warning mt-4">
+              Review the expense details. Property, title, amount, date, and category are required.
+            </div>
+          ) : null}
           <form action={createExpenseAction} className="mt-6 space-y-4">
             <select name="propertyId" className="field">
               {portal.scope.properties.map((property) => (

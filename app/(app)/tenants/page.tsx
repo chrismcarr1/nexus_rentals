@@ -194,6 +194,11 @@ export default async function TenantsPage({ searchParams }: { searchParams?: Pro
 
       {showCreate ? (
         <DetailSection id="create" title="Create tenant" description="Add a resident profile, then connect them to a lease from the lease board or move-in flow.">
+          {params.error === "invalid-tenant" ? (
+            <div className="page-alert page-alert-warning mb-4">
+              Review the tenant details. First and last name need at least 2 characters, and the email must be valid.
+            </div>
+          ) : null}
           <form action={createTenantAction} className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-4">
               <div className="form-grid-2">

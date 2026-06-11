@@ -172,7 +172,10 @@ export const db: any = {
     },
     async findUnique({ where, include }: any) {
       const store = await readStore();
-      const user = where.id ? store.users.find((item) => item.id === where.id) : store.users.find((item) => item.email === where.email);
+      const emailNeedle = typeof where.email === "string" ? where.email.trim().toLowerCase() : undefined;
+      const user = where.id
+        ? store.users.find((item) => item.id === where.id)
+        : store.users.find((item) => item.email.toLowerCase() === emailNeedle);
       if (!user) return null;
       const effectiveUser = withEffectiveUserRole(user);
       return include?.organization
@@ -180,15 +183,24 @@ export const db: any = {
         : toDateFields(effectiveUser, ["createdAt", "updatedAt"]);
     },
     async create({ data }: any) {
+      const email = typeof data.email === "string" ? data.email.trim().toLowerCase() : data.email;
       const user = {
         id: createId("user"),
         isActive: true,
         createdAt: nowIso(),
         updatedAt: nowIso(),
         ...data,
-        role: getEffectiveUserRole(data.role ?? "MANAGER", data.email)
+        email,
+        role: getEffectiveUserRole(data.role ?? "MANAGER", email)
       };
-      await updateStore((store) => ({ ...store, users: [...store.users, user] }));
+      await updateStore((store) => {
+        // Re-check inside the locked update so two concurrent signups cannot
+        // both pass the pre-create existence check and create duplicate accounts.
+        if (typeof email === "string" && store.users.some((item) => item.email.toLowerCase() === email)) {
+          throw new Error("account-exists");
+        }
+        return { ...store, users: [...store.users, user] };
+      });
       return toDateFields(user, ["createdAt", "updatedAt"]);
     },
     async update({ where, data }: any) {
@@ -423,7 +435,14 @@ export const db: any = {
     },
     async findFirst({ where, include }: any) {
       const store = await readStore();
-      const item = store.payments.find((payment) => !where?.id || payment.id === where.id);
+      const item = store.payments.find((payment) => {
+        if (where?.id && payment.id !== where.id) return false;
+        if (where?.unit?.property?.organizationId) {
+          const property = findPropertyForUnit(store, payment.unitId);
+          if (property?.organizationId !== where.unit.property.organizationId) return false;
+        }
+        return true;
+      });
       if (!item) return null;
       return include ? hydratePayment(store, item) : toDateFields(item, ["dueDate", "paidDate", "stripePaidAt", "createdAt", "updatedAt"]);
     },
