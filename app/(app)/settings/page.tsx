@@ -35,6 +35,8 @@ function stripeSettingsMessage(status?: string) {
   if (status === "connect-refreshed") return "Stripe payout status was refreshed.";
   if (status === "connect-not-enabled") return "This Stripe account has not been enabled for Connect yet. Sign up for Connect in Stripe, then try payout setup again.";
   if (status === "connect-error") return "Stripe payout setup could not be opened or refreshed. Check your Stripe keys and try again.";
+  if (status === "stripe-dashboard-unavailable") return "This connected account cannot open an Express Dashboard link. Continue onboarding if Stripe requests more information, or contact support to reconnect a compatible account.";
+  if (status === "stripe-account-mismatch") return "That Stripe account is not connected to your Nexus organization. It was disconnected so you can set up the correct payout account.";
   if (status === "reconnect-required") return "Your previous Stripe account is no longer accessible (possibly a test/live mode mismatch). Click 'Set up Stripe payouts' to reconnect.";
   if (status === "payment-terms-required") return "Please check the payment processing acknowledgement before starting Stripe payout setup.";
   return null;

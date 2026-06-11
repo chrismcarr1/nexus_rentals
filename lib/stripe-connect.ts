@@ -7,6 +7,7 @@ import { getStripe } from "@/lib/stripe";
 import type { User } from "@/lib/store";
 
 type StripeManagerUser = Pick<User, "id" | "organizationId" | "email" | "firstName" | "lastName" | "stripeAccountId" | "stripeConnectedAccountId">;
+type StripeAccountOwner = Pick<User, "id" | "organizationId" | "stripeAccountId" | "stripeConnectedAccountId">;
 type StripeConnectUser = Pick<
   User,
   | "id"
@@ -21,6 +22,35 @@ type StripeConnectUser = Pick<
   | "stripeEventuallyDue"
   | "stripePastDue"
 >;
+
+export type ManagerStripeAccessStatus =
+  | "stripe-dashboard-unavailable"
+  | "stripe-account-mismatch"
+  | "reconnect-required"
+  | "connect-error";
+
+export type ManagerStripeAccessResult =
+  | { ok: true; url: string; mode: "dashboard" | "onboarding" }
+  | {
+      ok: false;
+      status: ManagerStripeAccessStatus;
+      clearConnection: boolean;
+      diagnostic: {
+        name?: string;
+        type?: string;
+        code?: string;
+        statusCode?: number;
+      };
+    };
+
+type ManagerStripeAccessErrorCode = "account_missing" | "account_ownership_mismatch" | "dashboard_unavailable";
+
+export class ManagerStripeAccessError extends Error {
+  constructor(public readonly code: ManagerStripeAccessErrorCode, message: string) {
+    super(message);
+    this.name = "ManagerStripeAccessError";
+  }
+}
 
 export function getStripeAccountId(user?: Pick<User, "stripeAccountId" | "stripeConnectedAccountId"> | null) {
   return user?.stripeConnectedAccountId ?? user?.stripeAccountId;
@@ -131,7 +161,69 @@ export async function clearManagerStripeConnection(managerId: string) {
   });
 }
 
-export async function syncManagerConnectedAccount(user: Pick<User, "id" | "stripeAccountId" | "stripeConnectedAccountId">) {
+function assertManagerOwnsStripeAccount(user: StripeAccountOwner, account: Stripe.Account) {
+  const metadataUserId = account.metadata?.userId;
+  const metadataOrganizationId = account.metadata?.organizationId;
+  if (
+    (metadataUserId && metadataUserId !== user.id) ||
+    (metadataOrganizationId && metadataOrganizationId !== user.organizationId)
+  ) {
+    throw new ManagerStripeAccessError(
+      "account_ownership_mismatch",
+      "The connected Stripe account does not belong to this manager organization."
+    );
+  }
+}
+
+function hasExpressDashboardAccess(account: Stripe.Account) {
+  const dashboardType = account.controller?.stripe_dashboard?.type;
+  return dashboardType ? dashboardType === "express" : account.type === "express";
+}
+
+function safeStripeErrorDiagnostic(error: unknown) {
+  if (!error || typeof error !== "object") return {};
+  const stripeError = error as {
+    name?: unknown;
+    type?: unknown;
+    code?: unknown;
+    statusCode?: unknown;
+  };
+  return {
+    ...(typeof stripeError.name === "string" ? { name: stripeError.name } : {}),
+    ...(typeof stripeError.type === "string" ? { type: stripeError.type } : {}),
+    ...(typeof stripeError.code === "string" ? { code: stripeError.code } : {}),
+    ...(typeof stripeError.statusCode === "number" ? { statusCode: stripeError.statusCode } : {})
+  };
+}
+
+function isStripeMissingAccountError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const stripeError = error as { code?: unknown; statusCode?: unknown; message?: unknown };
+  return (
+    stripeError.statusCode === 404 ||
+    stripeError.code === "resource_missing" ||
+    (typeof stripeError.message === "string" && stripeError.message.toLowerCase().includes("no such account"))
+  );
+}
+
+export function getManagerStripeAccessStatus(error: unknown): ManagerStripeAccessStatus {
+  if (error instanceof ManagerStripeAccessError) {
+    if (error.code === "account_missing") return "reconnect-required";
+    if (error.code === "account_ownership_mismatch") return "stripe-account-mismatch";
+    return "stripe-dashboard-unavailable";
+  }
+  if (isStripeMissingAccountError(error)) return "reconnect-required";
+  if (
+    error &&
+    typeof error === "object" &&
+    (error as { statusCode?: unknown }).statusCode === 400
+  ) {
+    return "stripe-dashboard-unavailable";
+  }
+  return "connect-error";
+}
+
+export async function syncManagerConnectedAccount(user: StripeAccountOwner) {
   const accountId = getStripeAccountId(user);
   if (!accountId) return null;
 
@@ -145,6 +237,7 @@ export async function syncManagerConnectedAccount(user: Pick<User, "id" | "strip
   }
 
   const stripeAccount = account as Stripe.Account;
+  assertManagerOwnsStripeAccount(user, stripeAccount);
   console.log("[stripe-connect] Account retrieved", {
     userId: user.id,
     accountId: stripeAccount.id,
@@ -181,18 +274,12 @@ export async function createManagerConnectedAccount(manager: StripeManagerUser) 
   return account;
 }
 
-// account_onboarding: for accounts where details_submitted is false.
-// account_update: for accounts where details_submitted is true but requirements are still outstanding.
-export async function createManagerOnboardingLink(
-  accountId: string,
-  appUrl: string,
-  type: "account_onboarding" | "account_update" = "account_onboarding"
-) {
+export async function createManagerOnboardingLink(accountId: string, appUrl: string) {
   const link = await getStripe().accountLinks.create({
     account: accountId,
     refresh_url: `${appUrl}/settings?stripe=connect-refresh#payments-stripe`,
     return_url: `${appUrl}/api/stripe/connect/return`,
-    type
+    type: "account_onboarding"
   });
   return link.url;
 }
@@ -201,4 +288,63 @@ export async function createManagerOnboardingLink(
 export async function createManagerDashboardLoginLink(accountId: string) {
   const link = await getStripe().accounts.createLoginLink(accountId);
   return link.url;
+}
+
+export async function createManagerStripeAccessLink(
+  manager: StripeAccountOwner,
+  appUrl: string
+): Promise<{ url: string; mode: "dashboard" | "onboarding" }> {
+  const accountId = getStripeAccountId(manager);
+  if (!accountId) {
+    throw new ManagerStripeAccessError("account_missing", "No connected Stripe account is available.");
+  }
+
+  const retrieved = await getStripe().accounts.retrieve(accountId);
+  if ((retrieved as unknown as { deleted?: boolean }).deleted === true) {
+    throw new ManagerStripeAccessError("account_missing", "The connected Stripe account is no longer available.");
+  }
+
+  const account = retrieved as Stripe.Account;
+  assertManagerOwnsStripeAccount(manager, account);
+  await saveStripeAccountStatus(manager.id, account);
+
+  const needsOnboarding =
+    !account.details_submitted ||
+    (account.requirements?.currently_due?.length ?? 0) > 0;
+  if (needsOnboarding) {
+    return {
+      url: await createManagerOnboardingLink(accountId, appUrl),
+      mode: "onboarding"
+    };
+  }
+
+  if (!hasExpressDashboardAccess(account)) {
+    throw new ManagerStripeAccessError(
+      "dashboard_unavailable",
+      "This connected account does not support Express Dashboard login links."
+    );
+  }
+
+  return {
+    url: await createManagerDashboardLoginLink(accountId),
+    mode: "dashboard"
+  };
+}
+
+export async function getManagerStripeAccessResult(
+  manager: StripeAccountOwner,
+  appUrl: string
+): Promise<ManagerStripeAccessResult> {
+  try {
+    const link = await createManagerStripeAccessLink(manager, appUrl);
+    return { ok: true, ...link };
+  } catch (error) {
+    const status = getManagerStripeAccessStatus(error);
+    return {
+      ok: false,
+      status,
+      clearConnection: status === "reconnect-required" || status === "stripe-account-mismatch",
+      diagnostic: safeStripeErrorDiagnostic(error)
+    };
+  }
 }
