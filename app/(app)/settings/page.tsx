@@ -17,12 +17,38 @@ import {
   updateSettingsAction
 } from "@/lib/actions";
 import { formatAddress, parseAddressText } from "@/lib/address";
+import { formatAppDateTime } from "@/lib/app-time";
 import { requireUser } from "@/lib/auth";
 import { hasAcceptedCurrentPaymentTerms } from "@/lib/legal";
 import { getAppBaseUrl } from "@/lib/request-origin";
 import { getStripeAccountId, getStripeConnectRedirectStatus, getStripeConnectState, syncManagerConnectedAccount } from "@/lib/stripe-connect";
 import { getStripeKeyMode } from "@/lib/stripe-env";
+import {
+  attachStripeAccountAction,
+  reconnectStripeAccountAction,
+  resyncStripeAccountAction
+} from "@/lib/stripe-repair-actions";
 import { getPortalContext } from "@/services/portal";
+
+function stripeOwnershipReasonLabel(reason?: string) {
+  if (reason === "metadata-user-mismatch") return "the Stripe account's metadata belongs to a different Nexus user";
+  if (reason === "metadata-organization-mismatch") return "the Stripe account's metadata belongs to a different Nexus organization";
+  if (reason === "metadata-missing") return "the Stripe account has no Nexus ownership metadata";
+  if (reason === "account-not-found") return "the Stripe account could not be found (possibly a test/live mode mismatch)";
+  if (reason === "account-deleted") return "the Stripe account was deleted in Stripe";
+  return "the account's ownership could not be verified";
+}
+
+function stripeRepairMessage(status?: string, reason?: string) {
+  if (status === "resync-ok") return "Stripe account re-synced. Ownership metadata matches your Nexus account and payout status was refreshed.";
+  if (status === "resync-metadata-repaired") return "Stripe account re-synced. Missing ownership metadata was restored from your Nexus account.";
+  if (status === "resync-blocked") return `Re-sync refused: ${stripeOwnershipReasonLabel(reason)}. Payments stay blocked until this is repaired.`;
+  if (status === "attach-invalid-id") return "Enter a Stripe account ID starting with acct_.";
+  if (status === "attach-success") return "Stripe account verified and attached. Payout status was synced.";
+  if (status === "attach-blocked") return `That account cannot be attached: ${stripeOwnershipReasonLabel(reason)}.`;
+  if (status === "reconnect-confirm-required") return "Check the confirmation box before starting a fresh Stripe connection.";
+  return null;
+}
 
 function stripeSettingsMessage(status?: string) {
   if (status === "connect-return") return "Stripe onboarding returned to Nexus. Refreshing payout status...";
@@ -87,7 +113,15 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
     eventuallyDue: stripeUser.stripeEventuallyDue ?? [],
     ready: stripeConnectState.ready
   };
-  const stripeMessage = stripeSettingsMessage(stripeStatus);
+  // Ownership mismatch: either a verification already recorded a mismatch, or
+  // the metadata IDs captured at last sync no longer match this user/org.
+  const stripeOwnershipMismatch = Boolean(
+    managerConnect.accountId &&
+      (stripeUser.stripeMetadataMismatchReason ||
+        (stripeUser.stripeMetadataUserId && stripeUser.stripeMetadataUserId !== stripeUser.id) ||
+        (stripeUser.stripeMetadataOrganizationId && stripeUser.stripeMetadataOrganizationId !== stripeUser.organizationId))
+  );
+  const stripeMessage = stripeRepairMessage(stripeStatus, params.reason) ?? stripeSettingsMessage(stripeStatus);
 
   return (
     <div className="space-y-4">
@@ -117,6 +151,12 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
                   {stripeMessage}
                 </div>
               ) : null}
+              {stripeOwnershipMismatch ? (
+                <div className="page-alert page-alert-warning">
+                  Stripe account mismatch detected. This account may belong to a different Nexus user or organization.
+                  Payments should not be routed until this is repaired. Use the repair options below.
+                </div>
+              ) : null}
               <div className="ops-grid">
                 <div className="panel-muted p-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Secret key</p>
@@ -127,8 +167,8 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
                   <p className="mt-2 text-sm font-semibold">{stripeSetup.webhookSecret ? "Configured" : "Missing STRIPE_WEBHOOK_SECRET"}</p>
                 </div>
                 <div className="panel-muted p-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Connected account</p>
-                  <p className="mt-2 truncate text-sm font-semibold">{managerConnect.accountId ?? "Not connected"}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Stored account ID</p>
+                  <p className="mt-2 truncate font-mono text-sm font-semibold">{managerConnect.accountId ?? "Not connected"}</p>
                 </div>
                 <div className="panel-muted p-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Payout status</p>
@@ -136,6 +176,69 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
                   <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{stripeConnectState.detail}</p>
                 </div>
               </div>
+              {managerConnect.accountId ? (
+                <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Connection diagnostics</p>
+                  <dl className="mt-2 grid gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--muted)]">Stored Nexus account ID</dt>
+                      <dd className="truncate font-mono font-semibold text-[var(--text)]">{managerConnect.accountId}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--muted)]">Stripe metadata userId</dt>
+                      <dd className={`truncate font-mono font-semibold ${stripeUser.stripeMetadataUserId && stripeUser.stripeMetadataUserId !== stripeUser.id ? "text-amber-700" : "text-[var(--text)]"}`}>
+                        {stripeUser.stripeMetadataUserId ?? "Not synced"}
+                        {stripeUser.stripeMetadataUserId
+                          ? stripeUser.stripeMetadataUserId === stripeUser.id
+                            ? " (matches you)"
+                            : " (different user)"
+                          : ""}
+                      </dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--muted)]">Stripe metadata organizationId</dt>
+                      <dd className={`truncate font-mono font-semibold ${stripeUser.stripeMetadataOrganizationId && stripeUser.stripeMetadataOrganizationId !== stripeUser.organizationId ? "text-amber-700" : "text-[var(--text)]"}`}>
+                        {stripeUser.stripeMetadataOrganizationId ?? "Not synced"}
+                        {stripeUser.stripeMetadataOrganizationId
+                          ? stripeUser.stripeMetadataOrganizationId === stripeUser.organizationId
+                            ? " (matches your organization)"
+                            : " (different organization)"
+                          : ""}
+                      </dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--muted)]">Account status</dt>
+                      <dd className="font-semibold text-[var(--text)]">{stripeConnectState.label}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--muted)]">Payments enabled</dt>
+                      <dd className="font-semibold text-[var(--text)]">{managerConnect.charges ? "Yes" : "No"}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--muted)]">Payouts enabled</dt>
+                      <dd className="font-semibold text-[var(--text)]">{managerConnect.payouts ? "Yes" : "No"}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--muted)]">Dashboard access type</dt>
+                      <dd className="font-semibold text-[var(--text)]">{stripeUser.stripeDashboardType ?? "Unknown"}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--muted)]">Last synced</dt>
+                      <dd className="font-semibold text-[var(--text)]">{stripeUser.stripeUpdatedAt ? formatAppDateTime(stripeUser.stripeUpdatedAt) : "Never"}</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--muted)]">Ownership verified</dt>
+                      <dd className="font-semibold text-[var(--text)]">
+                        {stripeUser.stripeMetadataVerifiedAt
+                          ? formatAppDateTime(stripeUser.stripeMetadataVerifiedAt)
+                          : stripeUser.stripeMetadataMismatchReason
+                            ? `No — ${stripeOwnershipReasonLabel(stripeUser.stripeMetadataMismatchReason)}`
+                            : "Not verified yet"}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              ) : null}
               {managerConnect.disabledReason || managerConnect.currentlyDue.length || managerConnect.eventuallyDue.length ? (
                 <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-3">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Stripe requirements</p>
@@ -196,6 +299,72 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
               ) : null}
             </div>
           </div>
+          {stripeReady ? (
+            <div className="mt-4 rounded-md border border-[var(--line)] bg-[var(--surface)] p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Repair Stripe connection</p>
+              <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+                Use these tools if your payout account is missing, stale, or shows an ownership mismatch. Every option
+                verifies the Stripe account&apos;s ownership metadata before anything changes; accounts that belong to a
+                different Nexus user or organization are always refused.
+              </p>
+              <div className="mt-3 grid gap-4 lg:grid-cols-3">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[var(--text)]">Re-sync current account</p>
+                  <p className="text-xs leading-5 text-[var(--muted)]">
+                    Re-verifies the stored account against Stripe and refreshes payout status. Refuses if ownership
+                    metadata does not match you.
+                  </p>
+                  {managerConnect.accountId ? (
+                    <form action={resyncStripeAccountAction}>
+                      <SubmitButton className="w-full" variant="secondary" pendingLabel="Re-syncing...">
+                        <RefreshCw className="h-4 w-4" />
+                        Re-sync stored account
+                      </SubmitButton>
+                    </form>
+                  ) : (
+                    <p className="text-xs text-[var(--muted)]">No stored account to re-sync.</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[var(--text)]">Attach account by ID</p>
+                  <p className="text-xs leading-5 text-[var(--muted)]">
+                    The account is retrieved from Stripe and attached only if its metadata maps to your Nexus user and
+                    organization.
+                  </p>
+                  <form action={attachStripeAccountAction} className="space-y-2">
+                    <input
+                      name="accountId"
+                      required
+                      pattern="acct_[A-Za-z0-9]+"
+                      placeholder="acct_..."
+                      className="field font-mono text-xs"
+                      aria-label="Stripe account ID"
+                    />
+                    <SubmitButton className="w-full" variant="secondary" pendingLabel="Verifying...">
+                      Verify and attach
+                    </SubmitButton>
+                  </form>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[var(--text)]">Start fresh</p>
+                  <p className="text-xs leading-5 text-[var(--muted)]">
+                    Disconnects the stored account ID and starts new Stripe onboarding. The old Stripe account is not
+                    deleted and past payment records are unchanged.
+                  </p>
+                  <form action={reconnectStripeAccountAction} className="space-y-2">
+                    <label className="flex items-start gap-2 text-xs leading-5 text-[var(--muted-strong)]">
+                      <input type="checkbox" name="confirmReconnect" required className="mt-0.5 shrink-0" />
+                      <span>I understand this replaces my current Stripe payout connection.</span>
+                    </label>
+                    <SubmitButton className="w-full" variant="secondary" pendingLabel="Starting...">
+                      <ExternalLink className="h-4 w-4" />
+                      Reconnect Stripe
+                    </SubmitButton>
+                  </form>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </DetailSection>
       ) : null}
 

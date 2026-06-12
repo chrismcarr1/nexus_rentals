@@ -65,7 +65,8 @@ import {
   getStripeAccountId,
   getStripeConnectRedirectStatus,
   isStripeConnectReady,
-  syncManagerConnectedAccount
+  syncManagerConnectedAccount,
+  verifyManagerPayoutDestination
 } from "@/lib/stripe-connect";
 import { sendLeaseTenantInvite } from "@/lib/tenant-invite-delivery";
 import { formatDate } from "@/lib/utils";
@@ -2813,12 +2814,37 @@ export async function createStripeCheckoutAction(formData: FormData) {
     redirect(`/transactions?stripe=manager-setup-required&payment=${encodeURIComponent(payment.id)}`);
   }
 
-  try {
-    connectedManager = await syncManagerConnectedAccount(manager);
-  } catch (error) {
-    console.error("[stripe] Failed to verify manager Connect account before checkout", error);
+  // Payout safety: the destination account is retrieved fresh from Stripe and
+  // its metadata must map to this manager and organization. Mismatched or
+  // unverifiable ownership fails closed so rent can never route to a connected
+  // account that belongs to a different Nexus user or organization.
+  const destinationCheck = await verifyManagerPayoutDestination(manager);
+  if (!destinationCheck.ok) {
+    if (destinationCheck.blocked) {
+      await recordPlatformEvent({
+        type: "STRIPE_CHECKOUT_BLOCKED",
+        category: "checkout_single",
+        status: "blocked",
+        organizationId: user.organizationId,
+        userId: user.id,
+        relatedId: payment.id,
+        message: "Checkout blocked: manager Stripe payout account ownership mismatch.",
+        metadata: {
+          paymentId: payment.id,
+          managerUserId: manager.id,
+          accountId: getStripeAccountId(manager) ?? null,
+          reason: destinationCheck.reason
+        }
+      });
+      redirect(`/transactions?stripe=manager-account-mismatch&payment=${encodeURIComponent(payment.id)}`);
+    }
+    console.error("[stripe] Manager Connect account unavailable before checkout", {
+      managerUserId: manager.id,
+      reason: destinationCheck.reason
+    });
     redirect(`/transactions?stripe=manager-setup-required&payment=${encodeURIComponent(payment.id)}`);
   }
+  connectedManager = destinationCheck.user;
 
   const connectedAccountId = getStripeAccountId(connectedManager);
   if (!isStripeConnectReady(connectedManager) || !connectedAccountId) {
@@ -2983,11 +3009,32 @@ export async function createBundledStripeCheckoutAction(formData: FormData) {
   }
 
   let connectedManager = manager;
-  try {
-    connectedManager = await syncManagerConnectedAccount(manager);
-  } catch {
+  // Payout safety: same fail-closed ownership verification as the single
+  // payment checkout — the bundled transfer destination must belong to this
+  // manager and organization.
+  const destinationCheck = await verifyManagerPayoutDestination(manager);
+  if (!destinationCheck.ok) {
+    if (destinationCheck.blocked) {
+      await recordPlatformEvent({
+        type: "STRIPE_CHECKOUT_BLOCKED",
+        category: "checkout_bundled",
+        status: "blocked",
+        organizationId: user.organizationId,
+        userId: user.id,
+        relatedId: firstPayment.id,
+        message: "Bundled checkout blocked: manager Stripe payout account ownership mismatch.",
+        metadata: {
+          paymentIds: paymentIds.join(","),
+          managerUserId: manager.id,
+          accountId: getStripeAccountId(manager) ?? null,
+          reason: destinationCheck.reason
+        }
+      });
+      redirect(`/transactions?stripe=manager-account-mismatch`);
+    }
     redirect(`/transactions?stripe=manager-setup-required`);
   }
+  connectedManager = destinationCheck.user;
 
   const connectedAccountId = getStripeAccountId(connectedManager);
   if (!isStripeConnectReady(connectedManager) || !connectedAccountId) {

@@ -112,9 +112,108 @@ export function getStripeConnectRedirectStatus(user?: StripeConnectUser | null) 
   return "connect-required";
 }
 
-function buildAccountStatus(account: Stripe.Account) {
-  const req = account.requirements;
+export type StripeOwnershipReason =
+  | "verified"
+  | "account-not-found"
+  | "account-deleted"
+  | "metadata-missing"
+  | "metadata-user-mismatch"
+  | "metadata-organization-mismatch"
+  | "stripe-error";
+
+// Safe, loggable summary of a connected account's ownership check. Never put
+// the full Stripe account object (bank/external account details) in here.
+export type StripeOwnershipVerification = {
+  valid: boolean;
+  reason: StripeOwnershipReason;
+  accountId: string;
+  stripeUserIdMetadata?: string;
+  stripeOrganizationIdMetadata?: string;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  dashboardType?: string;
+  disabledReason?: string;
+};
+
+type OwnershipExpectation = {
+  expectedUserId: string;
+  expectedOrganizationId: string;
+  // System-admin override: a different metadata userId is tolerated as long as
+  // the organization matches. Never set for normal manager flows.
+  allowUserMismatch?: boolean;
+};
+
+function getAccountDashboardType(account: Stripe.Account) {
+  return account.controller?.stripe_dashboard?.type ?? account.type ?? undefined;
+}
+
+function classifyAccountOwnership(account: Stripe.Account, expectation: OwnershipExpectation): StripeOwnershipReason {
+  const metadataUserId = account.metadata?.userId;
+  const metadataOrganizationId = account.metadata?.organizationId;
+  if (!metadataUserId || !metadataOrganizationId) return "metadata-missing";
+  if (metadataOrganizationId !== expectation.expectedOrganizationId) return "metadata-organization-mismatch";
+  if (metadataUserId !== expectation.expectedUserId && !expectation.allowUserMismatch) return "metadata-user-mismatch";
+  return "verified";
+}
+
+function buildOwnershipVerification(
+  accountId: string,
+  account: Stripe.Account | null,
+  reason: StripeOwnershipReason
+): StripeOwnershipVerification {
   return {
+    valid: reason === "verified",
+    reason,
+    accountId,
+    stripeUserIdMetadata: account?.metadata?.userId ?? undefined,
+    stripeOrganizationIdMetadata: account?.metadata?.organizationId ?? undefined,
+    chargesEnabled: Boolean(account?.charges_enabled),
+    payoutsEnabled: Boolean(account?.payouts_enabled),
+    detailsSubmitted: Boolean(account?.details_submitted),
+    dashboardType: account ? getAccountDashboardType(account) : undefined,
+    disabledReason: account?.requirements?.disabled_reason ?? undefined
+  };
+}
+
+async function retrieveAccountForOwnership(accountId: string): Promise<
+  { account: Stripe.Account; failure?: never } | { account: null; failure: StripeOwnershipReason }
+> {
+  try {
+    const retrieved = await getStripe().accounts.retrieve(accountId);
+    if ((retrieved as unknown as { deleted?: boolean }).deleted === true) {
+      return { account: null, failure: "account-deleted" };
+    }
+    return { account: retrieved as Stripe.Account };
+  } catch (error) {
+    console.error("[stripe-connect] Could not retrieve account for ownership check", {
+      accountId,
+      ...safeStripeErrorDiagnostic(error)
+    });
+    return { account: null, failure: isStripeMissingAccountError(error) ? "account-not-found" : "stripe-error" };
+  }
+}
+
+// Retrieves the connected account with the platform key and checks that its
+// metadata maps to the expected Nexus user and organization. Returns a safe
+// summary only; never the raw account.
+export async function verifyStripeConnectedAccountOwnership(params: {
+  accountId: string;
+  expectedUserId: string;
+  expectedOrganizationId: string;
+  allowUserMismatch?: boolean;
+}): Promise<StripeOwnershipVerification> {
+  const { account, failure } = await retrieveAccountForOwnership(params.accountId);
+  if (!account) {
+    return buildOwnershipVerification(params.accountId, null, failure);
+  }
+  return buildOwnershipVerification(params.accountId, account, classifyAccountOwnership(account, params));
+}
+
+function buildAccountStatus(account: Stripe.Account, ownership?: OwnershipExpectation) {
+  const req = account.requirements;
+  const ownershipReason = ownership ? classifyAccountOwnership(account, ownership) : null;
+  const data: Partial<User> = {
     stripeAccountId: account.id,
     stripeConnectedAccountId: account.id,
     stripeChargesEnabled: Boolean(account.charges_enabled),
@@ -125,21 +224,39 @@ function buildAccountStatus(account: Stripe.Account) {
     stripeCurrentlyDue: req?.currently_due ?? [],
     stripeEventuallyDue: req?.eventually_due ?? [],
     stripePastDue: req?.past_due ?? [],
-    stripeUpdatedAt: new Date().toISOString()
+    stripeUpdatedAt: new Date().toISOString(),
+    stripeDashboardType: getAccountDashboardType(account),
+    stripeMetadataUserId: account.metadata?.userId ?? undefined,
+    stripeMetadataOrganizationId: account.metadata?.organizationId ?? undefined
   };
+  if (ownershipReason) {
+    data.stripeMetadataVerifiedAt = ownershipReason === "verified" ? new Date().toISOString() : undefined;
+    data.stripeMetadataMismatchReason = ownershipReason === "verified" ? undefined : ownershipReason;
+  }
+  return data;
 }
 
-export async function saveStripeAccountStatus(userId: string, account: Stripe.Account) {
-  const data = buildAccountStatus(account);
+export async function saveStripeAccountStatus(userId: string, account: Stripe.Account, ownership?: OwnershipExpectation) {
+  const data = buildAccountStatus(account, ownership);
   console.log("[stripe-connect] Saving account status", {
     userId,
     accountId: account.id,
     chargesEnabled: data.stripeChargesEnabled,
     payoutsEnabled: data.stripePayoutsEnabled,
     detailsSubmitted: data.stripeDetailsSubmitted,
-    disabledReason: data.stripeDisabledReason
+    disabledReason: data.stripeDisabledReason,
+    metadataMismatchReason: data.stripeMetadataMismatchReason
   });
   return db.user.update({ where: { id: userId }, data });
+}
+
+// Records a detected ownership mismatch on the manager record without touching
+// the stored account ID, so the problem stays visible until it is repaired.
+export async function markManagerStripeMismatch(managerId: string, reason: StripeOwnershipReason) {
+  return db.user.update({
+    where: { id: managerId },
+    data: { stripeMetadataVerifiedAt: undefined, stripeMetadataMismatchReason: reason }
+  });
 }
 
 export async function clearManagerStripeConnection(managerId: string) {
@@ -156,7 +273,12 @@ export async function clearManagerStripeConnection(managerId: string) {
       stripeCurrentlyDue: [],
       stripeEventuallyDue: [],
       stripePastDue: [],
-      stripeUpdatedAt: undefined
+      stripeUpdatedAt: undefined,
+      stripeDashboardType: undefined,
+      stripeMetadataUserId: undefined,
+      stripeMetadataOrganizationId: undefined,
+      stripeMetadataVerifiedAt: undefined,
+      stripeMetadataMismatchReason: undefined
     }
   });
 }
@@ -237,7 +359,17 @@ export async function syncManagerConnectedAccount(user: StripeAccountOwner) {
   }
 
   const stripeAccount = account as Stripe.Account;
-  assertManagerOwnsStripeAccount(user, stripeAccount);
+  try {
+    assertManagerOwnsStripeAccount(user, stripeAccount);
+  } catch (error) {
+    // Persist the mismatch so settings/admin views keep showing it after the
+    // failed sync, then rethrow so callers still fail closed.
+    await markManagerStripeMismatch(
+      user.id,
+      classifyAccountOwnership(stripeAccount, { expectedUserId: user.id, expectedOrganizationId: user.organizationId })
+    );
+    throw error;
+  }
   console.log("[stripe-connect] Account retrieved", {
     userId: user.id,
     accountId: stripeAccount.id,
@@ -246,7 +378,10 @@ export async function syncManagerConnectedAccount(user: StripeAccountOwner) {
     detailsSubmitted: stripeAccount.details_submitted,
     disabledReason: stripeAccount.requirements?.disabled_reason
   });
-  return saveStripeAccountStatus(user.id, stripeAccount);
+  return saveStripeAccountStatus(user.id, stripeAccount, {
+    expectedUserId: user.id,
+    expectedOrganizationId: user.organizationId
+  });
 }
 
 export async function createManagerConnectedAccount(manager: StripeManagerUser) {
@@ -270,7 +405,10 @@ export async function createManagerConnectedAccount(manager: StripeManagerUser) 
   });
 
   console.log("[stripe-connect] Express account created", { userId: manager.id, accountId: account.id });
-  await saveStripeAccountStatus(manager.id, account);
+  await saveStripeAccountStatus(manager.id, account, {
+    expectedUserId: manager.id,
+    expectedOrganizationId: manager.organizationId
+  });
   return account;
 }
 
@@ -306,7 +444,10 @@ export async function createManagerStripeAccessLink(
 
   const account = retrieved as Stripe.Account;
   assertManagerOwnsStripeAccount(manager, account);
-  await saveStripeAccountStatus(manager.id, account);
+  await saveStripeAccountStatus(manager.id, account, {
+    expectedUserId: manager.id,
+    expectedOrganizationId: manager.organizationId
+  });
 
   const needsOnboarding =
     !account.details_submitted ||
@@ -329,6 +470,156 @@ export async function createManagerStripeAccessLink(
     url: await createManagerDashboardLoginLink(accountId),
     mode: "dashboard"
   };
+}
+
+// Safe metadata backfill is only allowed when nothing about the account
+// conflicts with the local record it is already attached to: every metadata
+// field that IS present must already match the manager. A fully foreign or
+// conflicting account can never be claimed this way.
+function canSafelyBackfillMetadata(user: Pick<User, "id" | "organizationId">, account: Stripe.Account) {
+  const metadataUserId = account.metadata?.userId;
+  const metadataOrganizationId = account.metadata?.organizationId;
+  if (metadataUserId && metadataOrganizationId) return false; // nothing missing
+  if (metadataUserId && metadataUserId !== user.id) return false;
+  if (metadataOrganizationId && metadataOrganizationId !== user.organizationId) return false;
+  return true;
+}
+
+async function writeAccountOwnershipMetadata(accountId: string, user: Pick<User, "id" | "organizationId">) {
+  return getStripe().accounts.update(accountId, {
+    metadata: {
+      source: "nexus_manager_payouts",
+      userId: user.id,
+      organizationId: user.organizationId
+    }
+  });
+}
+
+export type StoredAccountSyncResult = {
+  verification: StripeOwnershipVerification;
+  metadataBackfilled: boolean;
+};
+
+// Repair option A: re-verify the currently stored account. If the metadata is
+// valid for this manager, local status fields are refreshed. If metadata is
+// entirely absent but the account is already attached to this manager locally
+// (i.e. it was created through Nexus before metadata stamping), the metadata is
+// backfilled from local state. Any conflicting metadata refuses and records the
+// mismatch; the stored account ID is left in place so the problem stays visible.
+export async function verifyAndSyncStoredStripeAccount(user: StripeAccountOwner): Promise<StoredAccountSyncResult | null> {
+  const accountId = getStripeAccountId(user);
+  if (!accountId) return null;
+
+  const expectation = { expectedUserId: user.id, expectedOrganizationId: user.organizationId };
+  const { account, failure } = await retrieveAccountForOwnership(accountId);
+  if (!account) {
+    if (failure !== "stripe-error") await markManagerStripeMismatch(user.id, failure);
+    return { verification: buildOwnershipVerification(accountId, null, failure), metadataBackfilled: false };
+  }
+
+  let reason = classifyAccountOwnership(account, expectation);
+  let syncedAccount = account;
+  let metadataBackfilled = false;
+
+  if (reason === "metadata-missing" && canSafelyBackfillMetadata(user, account)) {
+    console.log("[stripe-connect] Backfilling missing ownership metadata on stored account", {
+      userId: user.id,
+      accountId
+    });
+    syncedAccount = await writeAccountOwnershipMetadata(accountId, user);
+    reason = classifyAccountOwnership(syncedAccount, expectation);
+    metadataBackfilled = true;
+  }
+
+  if (reason === "verified") {
+    await saveStripeAccountStatus(user.id, syncedAccount, expectation);
+  } else {
+    await markManagerStripeMismatch(user.id, reason);
+  }
+
+  return { verification: buildOwnershipVerification(accountId, syncedAccount, reason), metadataBackfilled };
+}
+
+// Repair option B (and the system-admin override): attach a manually entered
+// account ID after retrieving it from Stripe and verifying its metadata.
+// Normal managers require an exact user + organization metadata match; the
+// admin override tolerates a different userId within the same organization and
+// rewrites the metadata userId so ownership is consistent afterwards.
+export async function attachVerifiedStripeAccount(
+  user: Pick<User, "id" | "organizationId">,
+  accountId: string,
+  options?: { allowUserMismatch?: boolean }
+): Promise<StripeOwnershipVerification> {
+  const expectation = {
+    expectedUserId: user.id,
+    expectedOrganizationId: user.organizationId,
+    allowUserMismatch: options?.allowUserMismatch
+  };
+  const { account, failure } = await retrieveAccountForOwnership(accountId);
+  if (!account) {
+    return buildOwnershipVerification(accountId, null, failure);
+  }
+
+  const reason = classifyAccountOwnership(account, expectation);
+  if (reason !== "verified") {
+    return buildOwnershipVerification(accountId, account, reason);
+  }
+
+  let attachedAccount = account;
+  if (options?.allowUserMismatch && account.metadata?.userId !== user.id) {
+    // Same-organization admin repair: re-stamp the metadata userId so the
+    // account maps to its new manager and strict checkout checks pass.
+    attachedAccount = await writeAccountOwnershipMetadata(accountId, user);
+  }
+
+  await saveStripeAccountStatus(user.id, attachedAccount, {
+    expectedUserId: user.id,
+    expectedOrganizationId: user.organizationId
+  });
+  return buildOwnershipVerification(accountId, attachedAccount, "verified");
+}
+
+export type PayoutDestinationCheck = {
+  ok: boolean;
+  // blocked=true means "ownership mismatch — repair required"; blocked=false
+  // with ok=false means "no usable account — normal setup-required handling".
+  blocked: boolean;
+  reason: StripeOwnershipReason | "account-missing" | null;
+  user: User | null;
+  accountId: string | null;
+};
+
+// Payout safety gate: called immediately before any checkout session is
+// created. The stored account is retrieved fresh from Stripe and its metadata
+// must map exactly to this manager and organization, otherwise checkout must
+// fail closed (blocked=true means "ownership mismatch — repair required",
+// blocked=false means "no usable account — normal setup-required handling").
+export async function verifyManagerPayoutDestination(manager: StripeAccountOwner): Promise<PayoutDestinationCheck> {
+  const accountId = getStripeAccountId(manager);
+  if (!accountId) {
+    return { ok: false, blocked: false, reason: "account-missing", user: null, accountId: null };
+  }
+
+  const expectation = { expectedUserId: manager.id, expectedOrganizationId: manager.organizationId };
+  const { account, failure } = await retrieveAccountForOwnership(accountId);
+  if (!account) {
+    return { ok: false, blocked: false, reason: failure, user: null, accountId };
+  }
+
+  const reason = classifyAccountOwnership(account, expectation);
+  if (reason !== "verified") {
+    console.error("[stripe-connect] Payout destination ownership mismatch; blocking checkout", {
+      managerId: manager.id,
+      organizationId: manager.organizationId,
+      accountId,
+      reason
+    });
+    await markManagerStripeMismatch(manager.id, reason);
+    return { ok: false, blocked: true, reason, user: null, accountId };
+  }
+
+  const updatedUser = await saveStripeAccountStatus(manager.id, account, expectation);
+  return { ok: true, blocked: false, reason: null, user: updatedUser, accountId };
 }
 
 export async function getManagerStripeAccessResult(

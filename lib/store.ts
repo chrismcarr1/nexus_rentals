@@ -31,7 +31,13 @@ export type PlatformEventType =
   | "STRIPE_WEBHOOK_RECEIVED"
   | "STRIPE_WEBHOOK_FAILED"
   | "STRIPE_SETUP_STARTED"
-  | "STRIPE_SETUP_COMPLETED";
+  | "STRIPE_SETUP_COMPLETED"
+  | "STRIPE_ACCOUNT_MISMATCH_DETECTED"
+  | "STRIPE_ACCOUNT_RESYNCED"
+  | "STRIPE_ACCOUNT_REPAIRED"
+  | "STRIPE_ACCOUNT_RECONNECT_STARTED"
+  | "STRIPE_CHECKOUT_BLOCKED"
+  | "STRIPE_ADMIN_OVERRIDE_USED";
 
 export const UserRole = {
   ADMIN: "ADMIN",
@@ -73,6 +79,16 @@ export type User = {
   stripeEventuallyDue?: string[];
   stripePastDue?: string[];
   stripeUpdatedAt?: string;
+  // Connected-account ownership diagnostics. Metadata user/org IDs are copied
+  // from the Stripe account's metadata at last sync so the UI can surface
+  // ownership mismatches without a live Stripe call. mismatchReason is set
+  // whenever the stored account's metadata does not match this user/org;
+  // payments must fail closed while it is set.
+  stripeDashboardType?: string;
+  stripeMetadataUserId?: string;
+  stripeMetadataOrganizationId?: string;
+  stripeMetadataVerifiedAt?: string;
+  stripeMetadataMismatchReason?: string;
   lastLoginAt?: string;
   // Legal acceptance and age verification metadata. Stored on each individual
   // user record (never on the organization). birthDate is sensitive: it must

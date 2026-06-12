@@ -19,7 +19,7 @@ import { AdminStatGrid } from "@/components/admin/admin-stat-grid";
 import { AdminStatusBadge } from "@/components/admin/admin-status-badge";
 import { CopyRecordIdButton } from "@/components/admin/copy-record-id-button";
 import { EmptyState } from "@/components/empty-state";
-import { sendAdminTestEmailAction, refreshManagerStripeAction, resetManagerStripeConnectAction } from "@/lib/admin-actions";
+import { adminRepairStripeAccountAction, sendAdminTestEmailAction, refreshManagerStripeAction, resetManagerStripeConnectAction } from "@/lib/admin-actions";
 import type { AdminAnalytics } from "@/lib/admin-analytics";
 import { formatAppDate, formatAppDateTime } from "@/lib/app-time";
 import type { EmailWorkerProbeResult } from "@/lib/email";
@@ -415,6 +415,12 @@ export function AdminSectionView({
     const refreshMessage = typeof params.message === "string" ? params.message : null;
     const resetStatus = typeof params.reset === "string" ? params.reset : null;
     const resetManagerEmail = typeof params.resetManager === "string" ? params.resetManager : null;
+    const repairStatus = typeof params.repair === "string" ? params.repair : null;
+    const repairReason = typeof params.reason === "string" ? params.reason : null;
+    const repairManagerId = typeof params.manager === "string" ? params.manager : null;
+    const repairAccountId = typeof params.account === "string" ? params.account : null;
+    const repairStoredUser = typeof params.storedUser === "string" ? params.storedUser : null;
+    const repairMetadataUser = typeof params.metadataUser === "string" ? params.metadataUser : null;
     return (
       <div className="space-y-5">
         <AdminPageHeader
@@ -434,6 +440,34 @@ export function AdminSectionView({
               : "Could not reset Stripe Connect. Manager not found or account type is invalid."}
           </div>
         ) : null}
+        {repairStatus === "success" ? (
+          <div className="border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            Connected account {repairAccountId} was verified and attached to manager {repairManagerId}. The override was
+            recorded as a sensitive admin event.
+          </div>
+        ) : null}
+        {repairStatus === "confirm" ? (
+          <div className="border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <p className="font-semibold">Confirm Stripe account reassignment</p>
+            <p className="mt-1">
+              Account <span className="font-mono">{repairAccountId}</span> belongs to this manager&apos;s organization, but its
+              metadata userId is <span className="font-mono">{repairMetadataUser}</span> while you are attaching it to user{" "}
+              <span className="font-mono">{repairStoredUser}</span>. Re-submit the repair form below with the confirmation
+              checkbox checked to proceed.
+            </p>
+          </div>
+        ) : null}
+        {repairStatus && repairStatus !== "success" && repairStatus !== "confirm" ? (
+          <div className="border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            {repairStatus === "blocked"
+              ? `Repair refused: ${repairReason ?? "ownership mismatch"}. Cross-organization accounts can never be attached.`
+              : repairStatus === "invalid-id"
+                ? "Enter a Stripe account ID starting with acct_."
+                : repairStatus === "manager-missing"
+                  ? "Manager not found or the user is a tenant."
+                  : "Stripe repair failed. Check the account ID and try again."}
+          </div>
+        ) : null}
         <AdminStatGrid>
           <AdminMetricCard label="Connected accounts" value={data.stripe.connected} detail={`${data.overview.managers} manager accounts`} tone="brand" />
           <AdminMetricCard label="Fully onboarded" value={data.stripe.fullyOnboarded} detail="Charges and payouts enabled" tone="success" />
@@ -445,15 +479,35 @@ export function AdminSectionView({
           <AdminMetricCard label="Last webhook" value={data.stripe.lastWebhookAt ? formatAppDate(data.stripe.lastWebhookAt) : "Not recorded"} detail={formatDateTime(data.stripe.lastWebhookAt)} />
         </AdminStatGrid>
         <AdminSection title="Manager connected accounts" description="Refresh reads status from Stripe; it cannot initiate charges, transfers, payouts, or refunds.">
-          <AdminDataTable columns={["Manager", "Account", "Status", "Charges", "Payouts", "Details", "Disabled reason", "Last refresh", "Action"]} minWidth="76rem">
+          <AdminDataTable columns={["Manager", "Account", "Status", "Ownership", "Charges", "Payouts", "Details", "Disabled reason", "Last refresh", "Action"]} minWidth="86rem">
             {data.stripe.rows.map((row) => (
               <tr key={row.id} className="table-row">
                 <td className="table-cell">
                   <Link href={`/admin/managers/${row.id}`} className="font-semibold hover:text-[var(--brand)]">{row.manager}</Link>
                   <p className="mt-0.5 text-xs text-[var(--muted)]">{row.email}</p>
+                  <p className="mt-0.5 font-mono text-[11px] text-[var(--muted)]">{row.id}</p>
                 </td>
                 <td className="table-cell font-mono text-xs text-[var(--muted)]">{row.accountId ?? "Not created"}</td>
                 <td className="table-cell"><AdminStatusBadge status={row.status} /></td>
+                <td className="table-cell">
+                  {!row.accountId ? (
+                    <span className="text-xs text-[var(--muted)]">No account</span>
+                  ) : row.metadataMismatch ? (
+                    <>
+                      <AdminStatusBadge status="Mismatch" />
+                      <p className="mt-0.5 font-mono text-[11px] text-[var(--muted)]">
+                        meta user: {row.metadataUserId ?? "missing"}
+                      </p>
+                      <p className="font-mono text-[11px] text-[var(--muted)]">
+                        meta org: {row.metadataOrganizationId ?? "missing"}
+                      </p>
+                    </>
+                  ) : row.metadataUserId ? (
+                    <AdminStatusBadge status="Verified" />
+                  ) : (
+                    <span className="text-xs text-[var(--muted)]">Not synced</span>
+                  )}
+                </td>
                 <td className="table-cell"><AdminStatusBadge status={row.chargesEnabled ? "Enabled" : "Missing"} /></td>
                 <td className="table-cell"><AdminStatusBadge status={row.payoutsEnabled ? "Enabled" : "Missing"} /></td>
                 <td className="table-cell"><AdminStatusBadge status={row.detailsSubmitted ? "Submitted" : "Incomplete"} /></td>
@@ -482,6 +536,48 @@ export function AdminSectionView({
               </tr>
             ))}
           </AdminDataTable>
+        </AdminSection>
+        <AdminSection
+          title="Repair connected account (system admin override)"
+          description="Reassign a connected account whose Stripe metadata maps to the manager's organization but a different Nexus user. The account is always retrieved from Stripe and verified first; cross-organization accounts are always refused, and the override is logged as a sensitive admin event."
+        >
+          <form action={adminRepairStripeAccountAction} className="grid max-w-xl gap-3">
+            <div>
+              <label className="field-label" htmlFor="repair-manager-id">Manager user ID</label>
+              <input
+                id="repair-manager-id"
+                name="managerId"
+                required
+                defaultValue={repairManagerId ?? ""}
+                placeholder="user_..."
+                className="field font-mono text-xs"
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="repair-account-id">Stripe account ID</label>
+              <input
+                id="repair-account-id"
+                name="accountId"
+                required
+                pattern="acct_[A-Za-z0-9]+"
+                defaultValue={repairAccountId ?? ""}
+                placeholder="acct_..."
+                className="field font-mono text-xs"
+              />
+            </div>
+            <label className="flex items-start gap-2 text-xs leading-5 text-[var(--muted)]">
+              <input type="checkbox" name="confirmRepair" className="mt-0.5 shrink-0" />
+              <span>I understand this changes payout routing for this organization.</span>
+            </label>
+            <p className="text-xs leading-5 text-[var(--muted)]">
+              Submitting without the confirmation runs a verification preview that shows the stored userId next to the
+              Stripe metadata userId before anything changes.
+            </p>
+            <button type="submit" className="button-compact w-fit border border-[var(--line-strong)] bg-white px-3 text-sm font-semibold hover:bg-[var(--surface-hover)]">
+              <ShieldAlert className="h-4 w-4" />
+              Verify and repair
+            </button>
+          </form>
         </AdminSection>
         <AdminSection title="Recent verified webhook events" description="Only verified Stripe events are stored. Secret signatures and payload contents are never retained.">
           {data.stripe.recentEvents.length ? (

@@ -68,6 +68,7 @@ function stripeStatusMessage(status?: string) {
   if (status === "missing-lease") return "This rent charge is not connected to an active lease. Ask your manager to link the charge to your lease or unit.";
   if (status === "manager-missing") return "This charge is not connected to a manager payout account. Ask management to assign the property manager before paying online.";
   if (status === "manager-setup-required") return "Online checkout is not available yet because the property manager still needs to finish Stripe payout setup.";
+  if (status === "manager-account-mismatch") return "Stripe payout account mismatch. The property manager must reconnect or repair their Stripe account before accepting payments.";
   if (status === "invalid-amount") return "This rent charge has no payable balance.";
   if (status === "amount-below-platform-fee") return "Stripe checkout requires the rent balance to be greater than the $1 Nexus platform fee.";
   if (status === "payment-terms-required") return "Before paying online, please check the payment processing acknowledgement next to the pay button.";

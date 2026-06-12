@@ -13,6 +13,23 @@ function getPaymentIntentId(session: Stripe.Checkout.Session) {
   return typeof paymentIntent === "string" ? paymentIntent : paymentIntent?.id;
 }
 
+// Ownership guard: Stripe metadata is not trusted on its own. Each payment is
+// loaded locally (with its unit -> property -> organization chain) and must
+// belong to the organization and manager named in the session metadata before
+// it can be marked paid. Mismatches throw, so the event is recorded as failed
+// and nothing is written.
+async function loadVerifiedPayment(paymentId: string, sessionId: string, sessionOrganizationId?: string) {
+  const payment = await db.payment.findFirst({ where: { id: paymentId }, include: true });
+  if (!payment) {
+    throw new Error(`Payment ${paymentId} was not found for Stripe session ${sessionId}.`);
+  }
+  const paymentOrganizationId = payment.unit?.property?.organizationId;
+  if (sessionOrganizationId && paymentOrganizationId && sessionOrganizationId !== paymentOrganizationId) {
+    throw new Error(`Stripe session ${sessionId} organization metadata does not match payment ${paymentId}.`);
+  }
+  return payment;
+}
+
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCreated: number) {
   if (session.payment_status !== "paid") {
     return { ignored: "checkout session is not paid" };
@@ -43,16 +60,37 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCr
   const sessionId = session.id;
   const destinationAccountId = session.metadata?.stripeDestinationAccountId || undefined;
   const tenantId = session.metadata?.tenantId || undefined;
+  const sessionOrganizationId = session.metadata?.organizationId || undefined;
+  const managerUserId = session.metadata?.managerUserId || undefined;
+
+  if (managerUserId) {
+    const manager = await db.user.findUnique({ where: { id: managerUserId } });
+    if (!manager) {
+      throw new Error(`Stripe session ${sessionId} references manager ${managerUserId} that does not exist.`);
+    }
+    if (sessionOrganizationId && manager.organizationId !== sessionOrganizationId) {
+      throw new Error(`Stripe session ${sessionId} manager does not belong to the session organization.`);
+    }
+  }
 
   if (paymentIds.length === 1) {
     const paymentId = paymentIds[0];
-    const payment = await db.payment.findFirst({ where: { id: paymentId } });
-    if (!payment) {
-      throw new Error(`Payment ${paymentId} was not found for Stripe session ${sessionId}.`);
-    }
+    const payment = await loadVerifiedPayment(paymentId, sessionId, sessionOrganizationId);
 
     if (session.metadata?.unitId && payment.unitId !== session.metadata.unitId) {
       throw new Error(`Stripe session ${sessionId} unit metadata does not match payment ${paymentId}.`);
+    }
+
+    // Idempotency: never double-write a paid record. A repeat delivery of the
+    // same session is a no-op; a different session for an already-paid record
+    // must not overwrite the original settlement details.
+    if (payment.status === "PAID") {
+      return {
+        ignored:
+          payment.stripeCheckoutSessionId === sessionId
+            ? `payment ${paymentId} already marked paid for this session`
+            : `payment ${paymentId} already paid via a different session; not overwritten`
+      };
     }
 
     const amountPaidCents = session.amount_total ?? 0;
@@ -77,10 +115,24 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session, eventCr
       }
     });
   } else {
+    // Verify ownership of every payment in the bundle before writing anything,
+    // and skip records that are already paid so retries cannot double-write.
+    const eligiblePaymentIds: string[] = [];
+    for (const paymentId of paymentIds) {
+      const payment = await loadVerifiedPayment(paymentId, sessionId, sessionOrganizationId);
+      if (payment.status !== "PAID") {
+        eligiblePaymentIds.push(paymentId);
+      }
+    }
+
+    if (!eligiblePaymentIds.length) {
+      return { ignored: "all payments in this session are already marked paid" };
+    }
+
     await updateStore((store) => ({
       ...store,
       payments: store.payments.map((p) => {
-        if (!paymentIds.includes(p.id)) return p;
+        if (!eligiblePaymentIds.includes(p.id)) return p;
         return {
           ...p,
           status: "PAID" as const,
