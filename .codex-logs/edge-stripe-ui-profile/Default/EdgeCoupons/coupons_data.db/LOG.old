@@ -1,0 +1,5 @@
+2026/06/11-21:34:00.284 8454 Creating DB C:\Users\Chris\OneDrive\Desktop\ai-rental-platform\.codex-logs\edge-stripe-ui-profile\Default\EdgeCoupons/coupons_data.db since it was missing.
+2026/06/11-21:34:00.289 8454 Reusing MANIFEST C:\Users\Chris\OneDrive\Desktop\ai-rental-platform\.codex-logs\edge-stripe-ui-profile\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/06/11-21:34:02.902 3b74 Level-0 table #5: started
+2026/06/11-21:34:02.904 3b74 Level-0 table #5: 682680 bytes OK
+2026/06/11-21:34:02.904 3b74 Delete type=0 #3

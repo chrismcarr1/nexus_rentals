@@ -21,22 +21,25 @@ async function read(relative: string) {
 describe("Stripe repair flow wiring", () => {
   it("settings forms post to the repair actions with the exact field names the actions read", async () => {
     const page = await read("app/(app)/settings/page.tsx");
+    const stripePanel = await read("components/stripe-settings-panel.tsx");
     const actions = await read("lib/stripe-repair-actions.ts");
 
+    expect(page).toContain("<StripeSettingsPanel");
+
     // Attach form → attachStripeAccountAction reads formData.get("accountId").
-    expect(page).toContain("action={attachStripeAccountAction}");
-    expect(page).toContain('name="accountId"');
+    expect(stripePanel).toContain("action={attachStripeAccountAction}");
+    expect(stripePanel).toContain('name="accountId"');
     expect(actions).toContain('formData.get("accountId")');
 
     // Re-sync button → resyncStripeAccountAction.
-    expect(page).toContain("action={resyncStripeAccountAction}");
+    expect(stripePanel).toContain("action={resyncStripeAccountAction}");
 
     // Reconnect form → reconnectStripeAccountAction reads confirmReconnect and
     // the inline payment-terms acknowledgement.
-    expect(page).toContain("action={reconnectStripeAccountAction}");
-    expect(page).toContain('name="confirmReconnect"');
+    expect(stripePanel).toContain("action={reconnectStripeAccountAction}");
+    expect(stripePanel).toContain('name="confirmReconnect"');
     expect(actions).toContain('formData.get("confirmReconnect")');
-    expect(page).toContain('name="acceptPaymentTerms"');
+    expect(stripePanel).toContain('name="acceptPaymentTerms"');
     expect(actions).toContain('formData.get("acceptPaymentTerms")');
   });
 

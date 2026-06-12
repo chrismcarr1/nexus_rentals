@@ -5,7 +5,15 @@ import path from "node:path";
 
 import { DEFAULT_COUNTRY, type StoredAddress } from "@/lib/address";
 import { normalizeRentDueTime } from "@/lib/app-time";
-import { ensureAppStoreTable, getSql, isLocalDevelopment } from "@/lib/database";
+import { ensureAppStoreTable, getAppStoreBackend, getSql, isLocalDevelopment } from "@/lib/database";
+import type {
+  NormalizedCheckrResult,
+  NormalizedPlaidResult,
+  ScreeningApplicationRecord,
+  ScreeningProvider,
+  ScreeningRequestRecord,
+  ScreeningRequestStatus
+} from "@/lib/screening/types";
 
 export type UserRole = "ADMIN" | "MANAGER" | "TENANT";
 export type PropertyStatus = "ACTIVE" | "ARCHIVED";
@@ -335,6 +343,26 @@ export type PlatformEvent = {
   createdAt: string;
 };
 
+export type StoredScreeningApplication = ScreeningApplicationRecord & {
+  screeningAccessTokenHash?: string | null;
+};
+export type StoredScreeningResult = {
+  id: string;
+  applicationId: string;
+  requestId: string;
+  provider: ScreeningProvider;
+  status: ScreeningRequestStatus;
+  providerResultId?: string | null;
+  rawResponse: Record<string, unknown>;
+  normalizedResult: NormalizedCheckrResult | NormalizedPlaidResult;
+  riskScore?: number | null;
+  recommendation?: string | null;
+  riskFlags: unknown[];
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+};
+
 export type AppStore = {
   organizations: Organization[];
   users: User[];
@@ -362,6 +390,13 @@ export type AppStore = {
   applicationInvites: ApplicationInvite[];
   applicationStatusHistory: ApplicationStatusHistoryEntry[];
   platformEvents: PlatformEvent[];
+  screeningApplications: StoredScreeningApplication[];
+  screeningRequests: ScreeningRequestRecord[];
+  screeningResults: StoredScreeningResult[];
+  checkrCandidates: Array<Record<string, any>>;
+  checkrReports: Array<Record<string, any>>;
+  plaidVerifications: Array<Record<string, any>>;
+  screeningWebhookEvents: Array<Record<string, any>>;
 };
 
 const STORE_ID = "default";
@@ -393,7 +428,14 @@ function emptyStore(): AppStore {
     applicationNotes: [],
     applicationInvites: [],
     applicationStatusHistory: [],
-    platformEvents: []
+    platformEvents: [],
+    screeningApplications: [],
+    screeningRequests: [],
+    screeningResults: [],
+    checkrCandidates: [],
+    checkrReports: [],
+    plaidVerifications: [],
+    screeningWebhookEvents: []
   };
 }
 
@@ -414,6 +456,10 @@ let postgresUnavailableUntil = 0;
 
 function shouldUseLocalFallback() {
   return isLocalDevelopment() && Date.now() < postgresUnavailableUntil;
+}
+
+function shouldUseLocalStore() {
+  return getAppStoreBackend() === "local-json" || shouldUseLocalFallback();
 }
 
 function enterLocalFallback(error: unknown) {
@@ -485,7 +531,7 @@ async function fetchHostedStore(): Promise<AppStore> {
 }
 
 export async function readStore(): Promise<AppStore> {
-  if (shouldUseLocalFallback()) {
+  if (shouldUseLocalStore()) {
     return readLocalStore();
   }
 
@@ -584,7 +630,7 @@ function normalizeStore(store: AppStore): AppStore {
 }
 
 export async function writeStore(store: AppStore) {
-  if (shouldUseLocalFallback()) {
+  if (shouldUseLocalStore()) {
     await writeLocalStore(store);
     invalidateStoreReadCache();
     return;
@@ -594,7 +640,7 @@ export async function writeStore(store: AppStore) {
     await ensureAppStoreTable();
     await getSql()`
       insert into app_store (id, data, updated_at)
-      values (${STORE_ID}, ${getSql().json(store)}::jsonb, now())
+      values (${STORE_ID}, ${getSql().json(store as any)}::jsonb, now())
       on conflict (id) do update set data = excluded.data, updated_at = now()
     `;
     logStoreTiming("write", startedAt, SLOW_WRITE_MS, storeSizeSummary(store));
@@ -622,7 +668,7 @@ async function updateLocalStore(updater: (store: AppStore) => AppStore | Promise
 }
 
 export async function updateStore(updater: (store: AppStore) => AppStore | Promise<AppStore>) {
-  if (shouldUseLocalFallback()) {
+  if (shouldUseLocalStore()) {
     return updateLocalStore(updater);
   }
 
@@ -650,7 +696,7 @@ export async function updateStore(updater: (store: AppStore) => AppStore | Promi
       if (next !== store) {
         await tx`
           insert into app_store (id, data, updated_at)
-          values (${STORE_ID}, ${sql.json(next)}::jsonb, now())
+          values (${STORE_ID}, ${sql.json(next as any)}::jsonb, now())
           on conflict (id) do update set data = excluded.data, updated_at = now()
         `;
         wrote = true;
@@ -706,7 +752,7 @@ export async function getUserById(id: string) {
 // Stripe repair action redirected back). Use sparingly: every call is a full
 // uncached store fetch.
 export async function readStoreFresh(): Promise<AppStore> {
-  if (shouldUseLocalFallback()) {
+  if (shouldUseLocalStore()) {
     return readLocalStore();
   }
   try {

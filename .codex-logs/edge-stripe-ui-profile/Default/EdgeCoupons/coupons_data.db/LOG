@@ -1,0 +1,6 @@
+2026/06/11-21:35:08.931 1ffc Reusing MANIFEST C:\Users\Chris\OneDrive\Desktop\ai-rental-platform\.codex-logs\edge-stripe-ui-profile\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/06/11-21:35:08.932 1ffc Recovering log #4
+2026/06/11-21:35:08.932 1ffc Reusing old log C:\Users\Chris\OneDrive\Desktop\ai-rental-platform\.codex-logs\edge-stripe-ui-profile\Default\EdgeCoupons/coupons_data.db/000004.log 
+2026/06/11-21:35:09.040 2728 Level-0 table #8: started
+2026/06/11-21:35:09.043 2728 Level-0 table #8: 682840 bytes OK
+2026/06/11-21:35:09.044 2728 Delete type=0 #4

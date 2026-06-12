@@ -207,7 +207,7 @@ export function AdminOverview({ data }: { data: AdminAnalytics }) {
         <AdminSection title="System readiness" description="Safe configuration checks without exposing secret values.">
           <div className="divide-y divide-[var(--line)]">
             {[
-              ["Database", data.system.databaseConnected, data.system.databaseConfigured ? "Connected and configured" : "Connection loaded, environment key missing"],
+              ["Database", data.system.databaseConnected, data.system.databaseTarget === "local-json" ? "Local JSON development store" : data.system.databaseConfigured ? "Connected and configured" : "Connection loaded, environment key missing"],
               ["Application URL", data.system.appUrl.valid, data.system.appUrl.host ?? "APP_URL missing"],
               ["Email", data.system.emailConfigured, data.email.diagnostics.transport],
               ["Stripe API", data.system.stripeApiConfigured, data.system.stripeApiConfigured ? "Configured" : "Missing"],

@@ -2,8 +2,9 @@ import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
 
-import { getSql } from "@/lib/database";
+import { getAppStoreBackend, getSql } from "@/lib/database";
 import { createScreeningAccessToken, hashScreeningAccessToken } from "@/lib/screening/crypto";
+import { readStore, updateStore } from "@/lib/store";
 import type {
   NormalizedCheckrResult,
   NormalizedPlaidResult,
@@ -14,6 +15,14 @@ import type {
 } from "@/lib/screening/types";
 
 let schemaReady: Promise<void> | null = null;
+
+function usesLocalJsonStore() {
+  return getAppStoreBackend() === "local-json";
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
 
 function json(value: unknown) {
   return value ?? {};
@@ -64,6 +73,7 @@ function mapRequest(row: any): ScreeningRequestRecord {
 }
 
 export async function ensureScreeningTables() {
+  if (usesLocalJsonStore()) return;
   schemaReady ??= (async () => {
     const sql = getSql();
     await sql`
@@ -218,6 +228,32 @@ export async function upsertScreeningApplication(input: {
   status: string;
   metadata?: Record<string, unknown>;
 }) {
+  if (usesLocalJsonStore()) {
+    let saved: ScreeningApplicationRecord | null = null;
+    await updateStore((store) => {
+      const existing = store.screeningApplications.find((item) => item.submissionId === input.submissionId);
+      const timestamp = nowIso();
+      const next = {
+        ...existing,
+        ...input,
+        id: existing?.id ?? input.id,
+        consentStatus: existing?.consentStatus ?? "PENDING",
+        accessExpiresAt: existing?.accessExpiresAt ?? null,
+        metadata: { ...(existing?.metadata ?? {}), ...(input.metadata ?? {}) },
+        createdAt: existing?.createdAt ?? timestamp,
+        updatedAt: timestamp
+      };
+      saved = next;
+      return {
+        ...store,
+        screeningApplications: existing
+          ? store.screeningApplications.map((item) => item.submissionId === input.submissionId ? next : item)
+          : [...store.screeningApplications, next]
+      };
+    });
+    return saved!;
+  }
+
   await ensureScreeningTables();
   const sql = getSql();
   const rows = await sql`
@@ -252,6 +288,13 @@ export async function upsertScreeningApplication(input: {
 }
 
 export async function getScreeningApplication(id: string) {
+  if (usesLocalJsonStore()) {
+    const store = await readStore();
+    return store.screeningApplications
+      .filter((item) => item.id === id || item.submissionId === id)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] ?? null;
+  }
+
   await ensureScreeningTables();
   const rows = await getSql()`
     select * from rental_applications
@@ -263,6 +306,28 @@ export async function getScreeningApplication(id: string) {
 }
 
 export async function rotateApplicantAccess(applicationId: string) {
+  if (usesLocalJsonStore()) {
+    const { token, hash } = createScreeningAccessToken();
+    let application: ScreeningApplicationRecord | null = null;
+    await updateStore((store) => {
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      const screeningApplications = store.screeningApplications.map((item) => {
+        if (item.id !== applicationId) return item;
+        const next = {
+          ...item,
+          screeningAccessTokenHash: hash,
+          accessExpiresAt: expiresAt,
+          updatedAt: nowIso()
+        };
+        application = next;
+        return next;
+      });
+      if (!application) throw new Error("Screening application not found.");
+      return { ...store, screeningApplications };
+    });
+    return { application: application!, token };
+  }
+
   await ensureScreeningTables();
   const { token, hash } = createScreeningAccessToken();
   const rows = await getSql()`
@@ -278,6 +343,17 @@ export async function rotateApplicantAccess(applicationId: string) {
 }
 
 export async function findApplicationByAccessToken(token: string) {
+  if (usesLocalJsonStore()) {
+    const hash = hashScreeningAccessToken(token);
+    const now = Date.now();
+    const store = await readStore();
+    return store.screeningApplications.find((item) =>
+      item.screeningAccessTokenHash === hash &&
+      Boolean(item.accessExpiresAt) &&
+      new Date(item.accessExpiresAt!).getTime() > now
+    ) ?? null;
+  }
+
   await ensureScreeningTables();
   const hash = hashScreeningAccessToken(token);
   const rows = await getSql()`
@@ -290,6 +366,18 @@ export async function findApplicationByAccessToken(token: string) {
 }
 
 export async function markApplicantConsent(applicationId: string) {
+  if (usesLocalJsonStore()) {
+    await updateStore((store) => ({
+      ...store,
+      screeningApplications: store.screeningApplications.map((item) =>
+        item.id === applicationId
+          ? { ...item, consentStatus: "ACCEPTED", updatedAt: nowIso() }
+          : item
+      )
+    }));
+    return;
+  }
+
   await ensureScreeningTables();
   await getSql()`
     update rental_applications
@@ -305,6 +393,32 @@ export async function createScreeningRequest(input: {
   status?: ScreeningRequestStatus;
   metadata?: Record<string, unknown>;
 }) {
+  if (usesLocalJsonStore()) {
+    const timestamp = nowIso();
+    const request: ScreeningRequestRecord = {
+      id: randomUUID(),
+      applicationId: input.application.id,
+      applicantUserId: input.application.applicantUserId ?? null,
+      propertyId: input.application.propertyId,
+      unitId: input.application.unitId ?? null,
+      landlordUserId: input.application.landlordUserId,
+      provider: input.provider,
+      screeningKind: input.screeningKind,
+      status: input.status ?? "PENDING",
+      providerRequestId: null,
+      errorMessage: null,
+      metadata: input.metadata ?? {},
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      completedAt: null
+    };
+    await updateStore((store) => ({
+      ...store,
+      screeningRequests: [...store.screeningRequests, request]
+    }));
+    return request;
+  }
+
   await ensureScreeningTables();
   const sql = getSql();
   const rows = await sql`
@@ -323,6 +437,13 @@ export async function createScreeningRequest(input: {
 }
 
 export async function getLatestRequest(applicationId: string, provider: ScreeningProvider) {
+  if (usesLocalJsonStore()) {
+    const store = await readStore();
+    return store.screeningRequests
+      .filter((item) => item.applicationId === applicationId && item.provider === provider)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+  }
+
   await ensureScreeningTables();
   const rows = await getSql()`
     select * from tenant_screening_requests
@@ -334,6 +455,13 @@ export async function getLatestRequest(applicationId: string, provider: Screenin
 }
 
 export async function listScreeningRequests(applicationId: string) {
+  if (usesLocalJsonStore()) {
+    const store = await readStore();
+    return store.screeningRequests
+      .filter((item) => item.applicationId === applicationId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
   await ensureScreeningTables();
   const rows = await getSql()`
     select * from tenant_screening_requests
@@ -352,6 +480,30 @@ export async function updateScreeningRequest(
     metadata?: Record<string, unknown>;
   }
 ) {
+  if (usesLocalJsonStore()) {
+    let updated: ScreeningRequestRecord | null = null;
+    await updateStore((store) => ({
+      ...store,
+      screeningRequests: store.screeningRequests.map((item) => {
+        if (item.id !== requestId) return item;
+        const next: ScreeningRequestRecord = {
+          ...item,
+          status: input.status,
+          providerRequestId: input.providerRequestId ?? item.providerRequestId,
+          errorMessage: input.errorMessage ?? null,
+          metadata: { ...item.metadata, ...(input.metadata ?? {}) },
+          completedAt: ["COMPLETED", "FAILED"].includes(input.status)
+            ? nowIso()
+            : item.completedAt,
+          updatedAt: nowIso()
+        };
+        updated = next;
+        return next;
+      })
+    }));
+    return updated;
+  }
+
   await ensureScreeningTables();
   const sql = getSql();
   const rows = await sql`
@@ -380,6 +532,38 @@ export async function saveScreeningResult(input: {
   recommendation?: string | null;
   riskFlags?: unknown[];
 }) {
+  if (usesLocalJsonStore()) {
+    let saved: Record<string, unknown> | null = null;
+    await updateStore((store) => {
+      const existing = store.screeningResults.find((item) => item.requestId === input.requestId);
+      const timestamp = nowIso();
+      const next = {
+        id: existing?.id ?? randomUUID(),
+        applicationId: input.applicationId,
+        requestId: input.requestId,
+        provider: input.provider,
+        status: input.status,
+        providerResultId: input.providerResultId ?? existing?.providerResultId ?? null,
+        rawResponse: input.rawResponse,
+        normalizedResult: input.normalizedResult,
+        riskScore: input.riskScore ?? null,
+        recommendation: input.recommendation ?? null,
+        riskFlags: input.riskFlags ?? [],
+        completedAt: input.status === "COMPLETED" ? timestamp : null,
+        createdAt: existing?.createdAt ?? timestamp,
+        updatedAt: timestamp
+      };
+      saved = next;
+      return {
+        ...store,
+        screeningResults: existing
+          ? store.screeningResults.map((item) => item.requestId === input.requestId ? next : item)
+          : [...store.screeningResults, next]
+      };
+    });
+    return saved!;
+  }
+
   await ensureScreeningTables();
   const sql = getSql();
   const rows = await sql`
@@ -408,6 +592,28 @@ export async function saveScreeningResult(input: {
 }
 
 export async function getNormalizedResults(applicationId: string) {
+  if (usesLocalJsonStore()) {
+    const store = await readStore();
+    const rows = store.screeningResults
+      .filter((item) => item.applicationId === applicationId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const result: {
+      checkr: NormalizedCheckrResult | null;
+      plaid: NormalizedPlaidResult | null;
+      raw: any[];
+    } = { checkr: null, plaid: null, raw: [] };
+    for (const row of rows) {
+      if (row.provider === "CHECKR" && !result.checkr) {
+        result.checkr = row.normalizedResult as NormalizedCheckrResult;
+      }
+      if (row.provider === "PLAID" && !result.plaid) {
+        result.plaid = row.normalizedResult as NormalizedPlaidResult;
+      }
+      result.raw.push(row);
+    }
+    return result;
+  }
+
   await ensureScreeningTables();
   const rows = await getSql()`
     select distinct on (provider) provider, normalized_result, raw_response, request_id, status
@@ -437,6 +643,33 @@ export async function saveCheckrCandidate(input: {
   invitationUrl?: string | null;
   metadata?: Record<string, unknown>;
 }) {
+  if (usesLocalJsonStore()) {
+    await updateStore((store) => {
+      const existing = store.checkrCandidates.find((item) => item.request_id === input.requestId);
+      const timestamp = nowIso();
+      const next = {
+        ...existing,
+        id: existing?.id ?? randomUUID(),
+        application_id: input.applicationId,
+        request_id: input.requestId,
+        provider_candidate_id: input.candidateId,
+        invitation_id: input.invitationId ?? null,
+        invitation_status: input.invitationStatus ?? null,
+        invitation_url: input.invitationUrl ?? existing?.invitation_url ?? null,
+        metadata: { ...(existing?.metadata ?? {}), ...(input.metadata ?? {}) },
+        created_at: existing?.created_at ?? timestamp,
+        updated_at: timestamp
+      };
+      return {
+        ...store,
+        checkrCandidates: existing
+          ? store.checkrCandidates.map((item) => item.request_id === input.requestId ? next : item)
+          : [...store.checkrCandidates, next]
+      };
+    });
+    return;
+  }
+
   await ensureScreeningTables();
   const sql = getSql();
   await sql`
@@ -458,6 +691,13 @@ export async function saveCheckrCandidate(input: {
 }
 
 export async function getCheckrCandidate(applicationId: string) {
+  if (usesLocalJsonStore()) {
+    const store = await readStore();
+    return store.checkrCandidates
+      .filter((item) => item.application_id === applicationId)
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] ?? null;
+  }
+
   await ensureScreeningTables();
   const rows = await getSql()`
     select * from checkr_candidates
@@ -481,6 +721,37 @@ export async function saveCheckrReport(input: {
   rawResponse: Record<string, unknown>;
   normalizedResult: NormalizedCheckrResult;
 }) {
+  if (usesLocalJsonStore()) {
+    await updateStore((store) => {
+      const existing = store.checkrReports.find((item) => item.provider_report_id === input.reportId);
+      const timestamp = nowIso();
+      const next = {
+        ...existing,
+        id: existing?.id ?? randomUUID(),
+        application_id: input.applicationId,
+        request_id: input.requestId,
+        candidate_id: input.candidateId ?? null,
+        provider_report_id: input.reportId,
+        status: input.status,
+        result: input.result ?? null,
+        adjudication: input.adjudication ?? null,
+        assessment: input.assessment ?? null,
+        completed_at: input.completedAt ?? null,
+        raw_response: input.rawResponse,
+        normalized_result: input.normalizedResult,
+        created_at: existing?.created_at ?? timestamp,
+        updated_at: timestamp
+      };
+      return {
+        ...store,
+        checkrReports: existing
+          ? store.checkrReports.map((item) => item.provider_report_id === input.reportId ? next : item)
+          : [...store.checkrReports, next]
+      };
+    });
+    return;
+  }
+
   await ensureScreeningTables();
   const sql = getSql();
   await sql`
@@ -518,6 +789,37 @@ export async function savePlaidVerification(input: {
   incomeStatus?: string | null;
   metadata?: Record<string, unknown>;
 }) {
+  if (usesLocalJsonStore()) {
+    await updateStore((store) => {
+      const existing = store.plaidVerifications.find((item) => item.request_id === input.requestId);
+      const timestamp = nowIso();
+      const next = {
+        ...existing,
+        id: existing?.id ?? randomUUID(),
+        application_id: input.applicationId,
+        request_id: input.requestId,
+        provider_user_id: input.providerUserId ?? existing?.provider_user_id ?? null,
+        provider_user_token_encrypted: input.providerUserTokenEncrypted ?? existing?.provider_user_token_encrypted ?? null,
+        item_id: input.itemId ?? existing?.item_id ?? null,
+        access_token_encrypted: input.accessTokenEncrypted ?? existing?.access_token_encrypted ?? null,
+        status: input.status,
+        consented_at: input.consented ? timestamp : existing?.consented_at ?? null,
+        identity_status: input.identityStatus ?? existing?.identity_status ?? null,
+        income_status: input.incomeStatus ?? existing?.income_status ?? null,
+        metadata: { ...(existing?.metadata ?? {}), ...(input.metadata ?? {}) },
+        created_at: existing?.created_at ?? timestamp,
+        updated_at: timestamp
+      };
+      return {
+        ...store,
+        plaidVerifications: existing
+          ? store.plaidVerifications.map((item) => item.request_id === input.requestId ? next : item)
+          : [...store.plaidVerifications, next]
+      };
+    });
+    return;
+  }
+
   await ensureScreeningTables();
   const sql = getSql();
   await sql`
@@ -546,12 +848,34 @@ export async function savePlaidVerification(input: {
 }
 
 export async function getPlaidVerification(requestId: string) {
+  if (usesLocalJsonStore()) {
+    const store = await readStore();
+    return store.plaidVerifications.find((item) => item.request_id === requestId) ?? null;
+  }
+
   await ensureScreeningTables();
   const rows = await getSql()`select * from plaid_verifications where request_id = ${requestId} limit 1`;
   return rows[0] ?? null;
 }
 
 export async function findCheckrRequestByProviderId(providerId: string) {
+  if (usesLocalJsonStore()) {
+    const store = await readStore();
+    const matchingRequestIds = new Set(
+      [
+        ...store.checkrCandidates
+          .filter((item) => item.provider_candidate_id === providerId || item.invitation_id === providerId)
+          .map((item) => item.request_id),
+        ...store.checkrReports
+          .filter((item) => item.provider_report_id === providerId)
+          .map((item) => item.request_id)
+      ].filter(Boolean)
+    );
+    return store.screeningRequests
+      .filter((item) => item.providerRequestId === providerId || matchingRequestIds.has(item.id))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+  }
+
   await ensureScreeningTables();
   const rows = await getSql()`
     select r.*
@@ -569,6 +893,19 @@ export async function findCheckrRequestByProviderId(providerId: string) {
 }
 
 export async function findPlaidRequest(input: { providerUserId?: string; itemId?: string }) {
+  if (usesLocalJsonStore()) {
+    const store = await readStore();
+    const verification = store.plaidVerifications
+      .filter((item) =>
+        (input.providerUserId && item.provider_user_id === input.providerUserId) ||
+        (input.itemId && item.item_id === input.itemId)
+      )
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+    return verification
+      ? store.screeningRequests.find((item) => item.id === verification.request_id) ?? null
+      : null;
+  }
+
   await ensureScreeningTables();
   const rows = await getSql()`
     select r.*
@@ -589,6 +926,37 @@ export async function recordWebhookEvent(input: {
   rawBody: string;
   payload: Record<string, unknown>;
 }) {
+  if (usesLocalJsonStore()) {
+    const payloadHash = createHash("sha256").update(input.rawBody).digest("hex");
+    let isNew = false;
+    await updateStore((store) => {
+      const exists = store.screeningWebhookEvents.some((item) =>
+        item.provider === input.provider && item.provider_event_id === input.providerEventId
+      );
+      if (exists) return store;
+      isNew = true;
+      return {
+        ...store,
+        screeningWebhookEvents: [
+          ...store.screeningWebhookEvents,
+          {
+            id: randomUUID(),
+            provider: input.provider,
+            provider_event_id: input.providerEventId,
+            event_type: input.eventType,
+            payload_hash: payloadHash,
+            payload: input.payload,
+            status: "RECEIVED",
+            error_message: null,
+            processed_at: null,
+            created_at: nowIso()
+          }
+        ]
+      };
+    });
+    return { isNew, payloadHash };
+  }
+
   await ensureScreeningTables();
   const sql = getSql();
   const payloadHash = createHash("sha256").update(input.rawBody).digest("hex");
@@ -606,6 +974,23 @@ export async function recordWebhookEvent(input: {
 }
 
 export async function completeWebhookEvent(provider: ScreeningProvider, providerEventId: string, errorMessage?: string) {
+  if (usesLocalJsonStore()) {
+    await updateStore((store) => ({
+      ...store,
+      screeningWebhookEvents: store.screeningWebhookEvents.map((item) =>
+        item.provider === provider && item.provider_event_id === providerEventId
+          ? {
+              ...item,
+              status: errorMessage ? "FAILED" : "PROCESSED",
+              error_message: errorMessage ?? null,
+              processed_at: nowIso()
+            }
+          : item
+      )
+    }));
+    return;
+  }
+
   await ensureScreeningTables();
   await getSql()`
     update screening_webhook_events
