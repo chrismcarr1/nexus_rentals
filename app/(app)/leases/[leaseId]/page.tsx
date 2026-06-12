@@ -14,6 +14,7 @@ import { requireRoles } from "@/lib/auth";
 import { documentDownloadHref, documentTypeLabel, getFileDisplayName } from "@/lib/document-metadata";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { parseLateFeePolicy } from "@/lib/lease-payment-scheduler";
+import { getLeaseBilling } from "@/lib/payment-charge";
 import { UserRole } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
@@ -51,6 +52,7 @@ export default async function ManageLeasePage({
   );
   const leaseCanBeReleased = Boolean(unit && blockingStatuses.has(lease.status));
   const existingLateFeePolicy = parseLateFeePolicy(lease.lateFeePolicy);
+  const leaseBilling = getLeaseBilling(lease);
   const leaseFiles = portal.scope.files
     .filter((file) => file.leaseId === lease.id && isAllowedStoredAssetPath(file.path, { allowDemo: true }))
     .sort((a, b) => (b.uploadedAt ?? b.createdAt).localeCompare(a.uploadedAt ?? a.createdAt));
@@ -110,8 +112,24 @@ export default async function ManageLeasePage({
               <p className="mt-2 font-semibold">{formatDateOrUnset(lease.startDate)} to {formatDateOrUnset(lease.endDate)}</p>
             </div>
             <div className="panel-muted p-4">
-              <p className="text-sm text-[var(--muted)]">Monthly rent</p>
+              <p className="text-sm text-[var(--muted)]">Base monthly rent</p>
               <p className="mt-2 font-semibold">{formatCurrency(lease.monthlyRent)}</p>
+            </div>
+            <div className="panel-muted p-4">
+              <p className="text-sm text-[var(--muted)]">Tenant-facing rent</p>
+              <p className="mt-2 font-semibold">{formatCurrency(leaseBilling.tenantFacingRent)}</p>
+              {leaseBilling.managerAbsorbsPaymentCharge ? (
+                <p className="mt-1 text-xs text-[var(--muted)]">Manager absorbs $1/month</p>
+              ) : null}
+            </div>
+            <div className="panel-muted p-4">
+              <p className="text-sm text-[var(--muted)]">Payment charge</p>
+              <p className="mt-2 font-semibold">
+                {leaseBilling.managerAbsorbsPaymentCharge ? "Manager absorbed" : "Tenant responsibility"}
+              </p>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                {leaseBilling.managerAbsorbsPaymentCharge ? "$1/month manager-absorbed" : "$0 manager-absorbed"}
+              </p>
             </div>
             <div className="panel-muted p-4">
               <p className="text-sm text-[var(--muted)]">Security deposit</p>

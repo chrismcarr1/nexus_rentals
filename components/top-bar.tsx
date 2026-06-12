@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bell, Search } from "lucide-react";
+import { Bell, Menu, Search } from "lucide-react";
 
 import { QuickActionMenu } from "@/components/quick-action-menu";
 import { useClickOutside } from "@/components/use-click-outside";
@@ -13,7 +13,9 @@ export function TopBar({
   organizationName,
   notifications,
   searchQuery,
-  searchResults
+  searchResults,
+  onMenuToggle,
+  mobileNavOpen = false
 }: {
   role: "ADMIN" | "MANAGER" | "TENANT";
   organizationName: string;
@@ -24,6 +26,8 @@ export function TopBar({
     units: Array<{ id: string; unitNumber: string; property: { name: string } }>;
     tenants: Array<{ id: string; firstName: string; lastName: string }>;
   };
+  onMenuToggle?: () => void;
+  mobileNavOpen?: boolean;
 }) {
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [locallyReadHrefs, setLocallyReadHrefs] = useState<string[]>([]);
@@ -49,6 +53,18 @@ export function TopBar({
   return (
     <header className="app-topbar">
       <div className="app-topbar-inner flex min-w-0 items-center gap-2">
+        {onMenuToggle ? (
+          <button
+            type="button"
+            onClick={onMenuToggle}
+            aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"}
+            aria-expanded={mobileNavOpen}
+            aria-controls="app-sidebar"
+            className="mobile-nav-trigger topbar-icon-button"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+        ) : null}
         <form action="/dashboard" className="topbar-search relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
           <input

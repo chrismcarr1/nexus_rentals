@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { appDateKeyFromValue, DEFAULT_RENT_DUE_TIME } from "@/lib/app-time";
+import { canManagerAbsorbPaymentCharge, MANAGER_ABSORB_MIN_RENT_MESSAGE } from "@/lib/payment-charge";
 import { formatPhoneNumber } from "@/lib/phone";
 
 const optionalMoney = z.preprocess(
@@ -128,6 +129,7 @@ export const newMoveInSchema = z
     rentDueTime: rentDueTimeSchema,
     firstRentDueDate: z.string().optional(),
     securityDepositDueDate: z.string().optional(),
+    managerAbsorbsPaymentCharge: z.boolean(),
     createFirstRentCharge: z.boolean(),
     createSecurityDepositCharge: z.boolean(),
     additionalChargeDescription: z.string().optional(),
@@ -161,6 +163,9 @@ export const newMoveInSchema = z
     }
     if (value.createFirstRentCharge && !firstRentDue) {
       context.addIssue({ code: "custom", path: ["firstRentDueDate"], message: "First rent due date is required." });
+    }
+    if (value.managerAbsorbsPaymentCharge && !canManagerAbsorbPaymentCharge(value.monthlyRent)) {
+      context.addIssue({ code: "custom", path: ["managerAbsorbsPaymentCharge"], message: MANAGER_ABSORB_MIN_RENT_MESSAGE });
     }
     if (value.createSecurityDepositCharge && value.securityDeposit > 0 && !depositDue) {
       context.addIssue({ code: "custom", path: ["securityDepositDueDate"], message: "Deposit due date is required." });

@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useRef, useState } from "react";
-import { BookOpen, ChevronDown, Gauge, LogOut, Settings } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { BookOpen, ChevronDown, Gauge, LogOut, PanelLeftClose, PanelLeftOpen, Settings, X } from "lucide-react";
 
 import { DropdownDismissListener } from "@/components/dropdown-dismiss-listener";
 import { SidebarNav } from "@/components/sidebar-nav";
@@ -39,6 +39,8 @@ export function AppShell({
   const role = getRoleConfig(user.role);
   const pathname = usePathname();
   const [accountOpen, setAccountOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   useClickOutside(accountMenuRef, () => setAccountOpen(false), accountOpen);
   const guideLink =
@@ -48,20 +50,71 @@ export function AppShell({
         ? { href: "/renter-guide", label: "Tips to Being a Good Renter", description: "Practical ways to protect your home and record." }
         : null;
 
+  useEffect(() => {
+    setSidebarCollapsed(window.localStorage.getItem("nexus-sidebar-collapsed") === "true");
+  }, []);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileNavOpen]);
+
+  function toggleSidebar() {
+    setSidebarCollapsed((collapsed) => {
+      const next = !collapsed;
+      window.localStorage.setItem("nexus-sidebar-collapsed", String(next));
+      return next;
+    });
+  }
+
   return (
     <div className="app-frame">
       <DropdownDismissListener />
-      <div className="app-shell-layout">
-        <aside className="app-sidebar">
-          <Link href="/dashboard" className="app-sidebar-brand">
+      <div className={cn("app-shell-layout", sidebarCollapsed && "app-shell-layout-collapsed")}>
+        <aside
+          id="app-sidebar"
+          className={cn(
+            "app-sidebar",
+            sidebarCollapsed && "app-sidebar-collapsed",
+            mobileNavOpen && "app-sidebar-mobile-open"
+          )}
+        >
+          <div className="app-sidebar-brand">
+            <Link href="/dashboard" className="app-sidebar-brand-link" aria-label="Nexus dashboard">
             <div className="app-brand-mark flex h-8 w-8 items-center justify-center text-xs font-bold">NR</div>
-            <div className="min-w-0">
+            <div className="app-sidebar-brand-copy min-w-0">
               <p className="truncate text-sm font-semibold text-white">Nexus</p>
               <p className="truncate text-[11px] text-[var(--sidebar-muted)]">{user.organization.name}</p>
             </div>
-          </Link>
+            </Link>
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!sidebarCollapsed}
+              className="sidebar-collapse-trigger"
+            >
+              {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(false)}
+              aria-label="Close navigation"
+              className="sidebar-mobile-close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
           <div className="app-sidebar-scroll">
-            <SidebarNav items={role.nav} />
+            <SidebarNav items={role.nav} collapsed={sidebarCollapsed} />
           </div>
           <div className="app-sidebar-footer">
             {guideLink ? (
@@ -77,7 +130,7 @@ export function AppShell({
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center text-[var(--sidebar-muted)] group-hover:text-white">
                   <BookOpen className="h-4 w-4" />
                 </span>
-                <span className="min-w-0">
+                <span className="sidebar-footer-label min-w-0">
                   <span className="block truncate text-xs font-medium">{user.role === "MANAGER" ? "Manager guide" : "Renter guide"}</span>
                 </span>
               </Link>
@@ -134,15 +187,21 @@ export function AppShell({
                 <div className="avatar-mark flex h-9 w-9 shrink-0 items-center justify-center text-xs font-bold">
                   {initials(user.firstName, user.lastName)}
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="sidebar-account-copy min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-white">{user.firstName} {user.lastName}</p>
                   <p className="mt-0.5 truncate text-[11px] text-[var(--sidebar-muted)]">{role.label}</p>
                 </div>
-                <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--sidebar-muted)] transition", accountOpen && "rotate-180")} />
+                <ChevronDown className={cn("sidebar-account-chevron h-4 w-4 shrink-0 text-[var(--sidebar-muted)] transition", accountOpen && "rotate-180")} />
               </button>
             </div>
           </div>
         </aside>
+        <button
+          type="button"
+          className={cn("app-sidebar-backdrop", mobileNavOpen && "app-sidebar-backdrop-visible")}
+          aria-label="Close navigation"
+          onClick={() => setMobileNavOpen(false)}
+        />
         <main className="app-main">
           <TopBar
             role={user.role}
@@ -150,6 +209,8 @@ export function AppShell({
             notifications={notifications}
             searchQuery={searchQuery}
             searchResults={searchResults}
+            onMenuToggle={() => setMobileNavOpen((open) => !open)}
+            mobileNavOpen={mobileNavOpen}
           />
           <div className="app-content"><div className="app-content-inner">{children}</div></div>
         </main>

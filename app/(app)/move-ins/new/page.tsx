@@ -84,7 +84,8 @@ export default async function NewMoveInPage({
               securityDeposit: resumableLease.securityDeposit,
               dueDay: resumableLease.dueDay,
               rentDueTime: resumableLease.rentDueTime,
-              documentPath: resumableLease.documentPath
+              documentPath: resumableLease.documentPath,
+              managerAbsorbsPaymentCharge: resumableLease.managerAbsorbsPaymentCharge
             }
           : null
       };

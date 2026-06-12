@@ -49,6 +49,11 @@ import {
 } from "@/lib/legal";
 import { ensureScheduledLeasePayments, formatLateFeePolicy } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
+import {
+  canManagerAbsorbPaymentCharge,
+  computePaymentChargeBilling,
+  MANAGER_ABSORB_MIN_RENT_MESSAGE
+} from "@/lib/payment-charge";
 import { formatPhoneNumber } from "@/lib/phone";
 import { applyOwnProfileUpdate, ProfileUpdateError } from "@/lib/profile";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -2157,6 +2162,7 @@ export async function createMoveInAction(formData: FormData) {
     rentDueTime: getOptionalString(formData, "rentDueTime") ?? DEFAULT_RENT_DUE_TIME,
     firstRentDueDate: getString(formData, "firstRentDueDate"),
     securityDepositDueDate: getString(formData, "securityDepositDueDate"),
+    managerAbsorbsPaymentCharge: getBoolean(formData, "managerAbsorbsPaymentCharge"),
     createFirstRentCharge: getBoolean(formData, "createFirstRentCharge"),
     createSecurityDepositCharge: getBoolean(formData, "createSecurityDepositCharge"),
     additionalChargeDescription: getOptionalString(formData, "additionalChargeDescription"),
@@ -2181,6 +2187,13 @@ export async function createMoveInAction(formData: FormData) {
   }
 
   const parsed = result.data;
+  // Server-derived billing: the tenant-facing rent is never read from the
+  // client. The schema already rejects absorption on rent <= $1; this guard
+  // re-checks so the redirect happens even if the schema rule ever changes.
+  if (parsed.managerAbsorbsPaymentCharge && !canManagerAbsorbPaymentCharge(parsed.monthlyRent)) {
+    redirect(`/move-ins/new?error=${encodeURIComponent(MANAGER_ABSORB_MIN_RENT_MESSAGE)}`);
+  }
+  const billing = computePaymentChargeBilling(parsed.monthlyRent, parsed.managerAbsorbsPaymentCharge);
   const tenantEmail = normalizeEmail(parsed.tenantEmail);
   let createdLeaseId = "";
   let inviteStatus = parsed.sendInvite ? "pending" : "skipped";
@@ -2284,6 +2297,10 @@ export async function createMoveInAction(formData: FormData) {
         endDate: toIsoDate(parsed.endDate),
         moveInDate: toIsoDate(parsed.moveInDate),
         monthlyRent: parsed.monthlyRent,
+        managerAbsorbsPaymentCharge: billing.managerAbsorbsPaymentCharge,
+        paymentChargeResponsibility: billing.paymentChargeResponsibility,
+        managerAbsorbedPaymentChargeCents: billing.managerAbsorbedPaymentChargeCents,
+        tenantFacingRentCents: billing.tenantFacingRentCents,
         dueDay: parsed.dueDay,
         rentDueTime: normalizeRentDueTime(parsed.rentDueTime),
         securityDeposit: parsed.securityDeposit,
@@ -2304,11 +2321,15 @@ export async function createMoveInAction(formData: FormData) {
           leaseId,
           tenantId,
           description: "First month's rent",
-          amount: parsed.monthlyRent,
+          amount: billing.tenantFacingRent,
           dueDate: toIsoDate(parsed.firstRentDueDate!),
           status: "PENDING" as const,
           lateFeeAmount: 0,
-          balanceDue: parsed.monthlyRent,
+          balanceDue: billing.tenantFacingRent,
+          baseRentAmount: billing.baseMonthlyRent,
+          tenantFacingRentCents: billing.tenantFacingRentCents,
+          managerAbsorbedPaymentChargeCents: billing.managerAbsorbedPaymentChargeCents,
+          paymentChargeResponsibility: billing.paymentChargeResponsibility,
           categoryTag: "Rent",
           createdAt: now,
           updatedAt: now
@@ -2678,6 +2699,10 @@ export async function updateLeaseAction(formData: FormData) {
   }
 
   const parsed = result.data;
+  const updatedBilling = computePaymentChargeBilling(
+    parsed.monthlyRent,
+    Boolean(existingLease.managerAbsorbsPaymentCharge && canManagerAbsorbPaymentCharge(parsed.monthlyRent))
+  );
 
   if (!hasId(portal.scope.units, parsed.unitId) || !hasId(portal.scope.tenants, parsed.tenantId)) {
     redirect(invalidLeasePath(returnTo));
@@ -2708,6 +2733,10 @@ export async function updateLeaseAction(formData: FormData) {
             startDate: toIsoDate(parsed.startDate),
             endDate: toIsoDate(parsed.endDate),
             monthlyRent: parsed.monthlyRent,
+            managerAbsorbsPaymentCharge: updatedBilling.managerAbsorbsPaymentCharge,
+            paymentChargeResponsibility: updatedBilling.paymentChargeResponsibility,
+            managerAbsorbedPaymentChargeCents: updatedBilling.managerAbsorbedPaymentChargeCents,
+            tenantFacingRentCents: updatedBilling.tenantFacingRentCents,
             dueDay: parsed.dueDay,
             rentDueTime: normalizeRentDueTime(parsed.rentDueTime),
             securityDeposit: parsed.securityDeposit,
@@ -3336,8 +3365,10 @@ export async function createStripeCheckoutAction(formData: FormData) {
     });
   }
 
-  // Tenant is charged rent + platform fee. Landlord receives the full rent amount.
-  // application_fee_amount is collected by Nexus; transfer_data.destination receives (total - fee) = rent.
+  // Tenant is charged the ledger amount plus the platform fee. When the
+  // manager absorbs the charge, the ledger rent is already $1 below base rent,
+  // so the tenant checkout total equals base rent and the manager payout is $1
+  // lower. application_fee_amount remains Nexus's fixed checkout charge.
   const totalAmountCents = amountCents + applicationFeeAmountCents;
 
   const metadata = {
@@ -3349,6 +3380,8 @@ export async function createStripeCheckoutAction(formData: FormData) {
     managerUserId: connectedManager?.id ?? "",
     stripeDestinationAccountId: stripeDestinationAccountId ?? "",
     applicationFeeAmountCents: String(applicationFeeAmountCents),
+    paymentChargeResponsibility: payment.paymentChargeResponsibility ?? "TENANT",
+    managerAbsorbedPaymentChargeCents: String(payment.managerAbsorbedPaymentChargeCents ?? 0),
     leaseId: leaseId ?? "",
     unitId: payment.unitId,
     paymentMonth,
@@ -3510,6 +3543,10 @@ export async function createBundledStripeCheckoutAction(formData: FormData) {
   }
 
   const totalAmountCents = totalRentCents + applicationFeeAmountCents;
+  const managerAbsorbedPaymentChargeCents = selectedPayments.reduce(
+    (sum, payment) => sum + (payment.managerAbsorbedPaymentChargeCents ?? 0),
+    0
+  );
   const appUrl = getAppBaseUrl();
   const paymentIdsStr = paymentIds.join(",");
 
@@ -3523,6 +3560,7 @@ export async function createBundledStripeCheckoutAction(formData: FormData) {
     managerUserId: connectedManager?.id ?? "",
     stripeDestinationAccountId: connectedAccountId,
     applicationFeeAmountCents: String(applicationFeeAmountCents),
+    managerAbsorbedPaymentChargeCents: String(managerAbsorbedPaymentChargeCents),
     leaseId: lease?.id ?? "",
     unitId: firstPayment.unitId,
     amountCents: String(totalAmountCents)

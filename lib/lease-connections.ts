@@ -8,6 +8,12 @@ import { formatAddress, formatUnitAddress } from "@/lib/address";
 import { cleanDisplayName } from "@/lib/document-metadata";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
+import {
+  canManagerAbsorbPaymentCharge,
+  computePaymentChargeBilling,
+  getLeaseBilling,
+  MANAGER_ABSORB_MIN_RENT_MESSAGE
+} from "@/lib/payment-charge";
 import { FileKind, createId, nowIso, readStore, updateStore, type AppStore, type Lease, type LeaseStatus, type TenantInvite, type UnitOccupancyStatus, type User } from "@/lib/store";
 
 export const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
@@ -310,6 +316,7 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
   const property = getLeaseProperty(store, lease);
   const unit = getLeaseUnit(store, lease);
   const invite = getLatestInviteForLease(store, lease.id);
+  const billing = getLeaseBilling(lease);
   const manager = lease.managerUserId ? store.users.find((user) => user.id === lease.managerUserId) ?? null : null;
   const tenant =
     (lease.tenantIds ?? [])
@@ -353,7 +360,12 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
     inviteStatus: getInviteStatus(invite),
     startDate: lease.startDate ?? null,
     endDate: lease.endDate ?? null,
-    monthlyRent: lease.monthlyRent ?? null,
+    monthlyRent: billing.tenantFacingRent,
+    baseMonthlyRent: billing.baseMonthlyRent,
+    tenantFacingRent: billing.tenantFacingRent,
+    managerAbsorbsPaymentCharge: billing.managerAbsorbsPaymentCharge,
+    paymentChargeResponsibility: billing.paymentChargeResponsibility,
+    managerAbsorbedPaymentChargeCents: billing.managerAbsorbedPaymentChargeCents,
     dueDay: lease.dueDay ?? 1,
     rentDueTime: normalizeRentDueTime(lease.rentDueTime),
     securityDeposit: lease.securityDeposit ?? null,
@@ -396,6 +408,7 @@ export async function createConnectedLease({
   tenantIdPath,
   tenantIdName,
   tenantIdOriginalName,
+  managerAbsorbsPaymentCharge = false,
   lateFeePolicy
 }: {
   manager: User;
@@ -413,6 +426,7 @@ export async function createConnectedLease({
   tenantIdPath?: string;
   tenantIdName?: string;
   tenantIdOriginalName?: string;
+  managerAbsorbsPaymentCharge?: boolean;
   lateFeePolicy?: string;
 }) {
   await ensureLeaseConnectionIntegrity(manager.organizationId);
@@ -430,6 +444,11 @@ export async function createConnectedLease({
     if (unit && store.leases.some((item) => item.unitId === unit.id && (isActiveLeaseStatus(item.status) || item.status === "draft"))) {
       throw new Error("This unit already has an active, upcoming, invited, or draft lease.");
     }
+    const baseMonthlyRent = monthlyRent ?? 0;
+    if (managerAbsorbsPaymentCharge && !canManagerAbsorbPaymentCharge(baseMonthlyRent)) {
+      throw new Error(MANAGER_ABSORB_MIN_RENT_MESSAGE);
+    }
+    const billing = computePaymentChargeBilling(baseMonthlyRent, managerAbsorbsPaymentCharge);
 
     const now = nowIso();
     lease = {
@@ -442,7 +461,11 @@ export async function createConnectedLease({
       tenantIds: [],
       startDate: startDate ? dateOnlyToUtcNoonIso(startDate) : undefined,
       endDate: endDate ? dateOnlyToUtcNoonIso(endDate) : undefined,
-      monthlyRent: monthlyRent ?? 0,
+      monthlyRent: billing.baseMonthlyRent,
+      managerAbsorbsPaymentCharge: billing.managerAbsorbsPaymentCharge,
+      paymentChargeResponsibility: billing.paymentChargeResponsibility,
+      managerAbsorbedPaymentChargeCents: billing.managerAbsorbedPaymentChargeCents,
+      tenantFacingRentCents: billing.tenantFacingRentCents,
       dueDay: dueDay ?? 1,
       rentDueTime: normalizeRentDueTime(rentDueTime ?? DEFAULT_RENT_DUE_TIME),
       securityDeposit: securityDeposit ?? 0,

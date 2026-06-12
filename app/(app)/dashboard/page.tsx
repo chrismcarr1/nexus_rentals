@@ -35,7 +35,7 @@ import { UrgentTasksPanel } from "@/components/dashboard/urgent-tasks-panel";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
 import { MetricCard } from "@/components/metric-card";
-import { PaymentCalendar } from "@/components/payment-calendar";
+import { UpcomingOperationsCard } from "@/components/operations-timeline-list";
 import { QuickActionMenu } from "@/components/quick-action-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,7 @@ import { hasAcceptedCurrentPaymentTerms } from "@/lib/legal";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getManagerDashboardData } from "@/services/dashboard";
 import { getDashboardSnapshot } from "@/services/finance";
+import { getOperationsTimeline } from "@/services/operations";
 import { badgeToneFromPayment, badgeToneFromPriority, badgeToneFromMaintenance, getNotificationLabel, getPortalContext } from "@/services/portal";
 import { globalSearch } from "@/services/search";
 
@@ -60,6 +61,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const user = await requireUser();
   const params = (await searchParams) ?? {};
   const portal = await getPortalContext(user);
+  const operations = await getOperationsTimeline(user);
   const searchResults =
     params.q && user.role !== "TENANT"
       ? await globalSearch(user.organizationId, params.q, {
@@ -142,6 +144,8 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             </Link>
           </div>
         ) : null}
+
+        <UpcomingOperationsCard events={operations} href="/operations" />
 
         {dashboard.emptyState ? (
           <>
@@ -304,7 +308,6 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           </>
         )}
 
-        <PaymentCalendar events={portal.calendar} defaultCollapsed />
       </div>
     );
   }
@@ -615,7 +618,11 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         </Card>
       </section>
 
-      <PaymentCalendar events={portal.calendar} defaultCollapsed />
+      <UpcomingOperationsCard
+        events={operations}
+        href={user.role === "ADMIN" ? "/operations" : undefined}
+        title={user.role === "TENANT" ? "Upcoming Dates" : "Upcoming Operations"}
+      />
 
       <div className="flex justify-end">
         <Link href={user.role === "TENANT" ? "/messages" : "/reports"} className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--brand)] transition hover:text-[var(--brand-strong)]">

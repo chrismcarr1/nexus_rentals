@@ -5,6 +5,7 @@ import { createConnectedLease, toSafeLeaseRow } from "@/lib/lease-connections";
 import { getCurrentUser } from "@/lib/auth";
 import { isAllowedSubmittedAssetPath, isAllowedTenantIdAssetPath } from "@/lib/file-security";
 import { ensureScheduledLeasePayments, formatLateFeePolicy } from "@/lib/lease-payment-scheduler";
+import { canManagerAbsorbPaymentCharge, MANAGER_ABSORB_MIN_RENT_MESSAGE } from "@/lib/payment-charge";
 import { readStore, UserRole } from "@/lib/store";
 
 const createLeaseSchema = z.object({
@@ -14,6 +15,7 @@ const createLeaseSchema = z.object({
   startDate: z.string().optional().or(z.literal("")),
   endDate: z.string().optional().or(z.literal("")),
   monthlyRent: z.coerce.number().min(0).optional(),
+  managerAbsorbsPaymentCharge: z.boolean().optional().default(false),
   dueDay: z.coerce.number().min(1).max(28).optional(),
   rentDueTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().default(DEFAULT_RENT_DUE_TIME),
   securityDeposit: z.coerce.number().min(0).optional(),
@@ -56,6 +58,12 @@ export async function POST(request: Request) {
             graceDays: result.data.lateFeeGraceDays ?? 5
           })
         : undefined;
+    if (
+      result.data.managerAbsorbsPaymentCharge &&
+      !canManagerAbsorbPaymentCharge(result.data.monthlyRent ?? 0)
+    ) {
+      return Response.json({ error: MANAGER_ABSORB_MIN_RENT_MESSAGE }, { status: 400 });
+    }
 
     const lease = await createConnectedLease({
       manager: user,
@@ -65,6 +73,7 @@ export async function POST(request: Request) {
       startDate: result.data.startDate || undefined,
       endDate: result.data.endDate || undefined,
       monthlyRent: result.data.monthlyRent,
+      managerAbsorbsPaymentCharge: result.data.managerAbsorbsPaymentCharge,
       dueDay: result.data.dueDay,
       rentDueTime: result.data.rentDueTime,
       securityDeposit: result.data.securityDeposit,

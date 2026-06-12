@@ -2,6 +2,7 @@ import {
   BellRing,
   BarChart3,
   Building2,
+  CalendarClock,
   ClipboardList,
   CreditCard,
   FileCheck2,
@@ -22,6 +23,7 @@ export const navIconNames = {
   barChart3: BarChart3.displayName ?? "BarChart3",
   bellRing: BellRing.displayName ?? "BellRing",
   building2: Building2.displayName ?? "Building2",
+  calendarClock: CalendarClock.displayName ?? "CalendarClock",
   clipboardList: ClipboardList.displayName ?? "ClipboardList",
   creditCard: CreditCard.displayName ?? "CreditCard",
   fileCheck2: FileCheck2.displayName ?? "FileCheck2",
@@ -61,6 +63,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
     description: "Portfolio oversight, reporting, compliance, and team controls.",
     nav: [
       { href: "/dashboard", label: "Executive", icon: "gauge", description: "Portfolio KPIs and executive visibility" },
+      { href: "/operations", label: "Operations", icon: "calendarClock", description: "Upcoming deadlines and action queues" },
       { href: "/properties", label: "Portfolio", icon: "building2", description: "Properties, units, and assignments" },
       { href: "/tenants", label: "People", icon: "users", description: "Tenant, manager, and leaseholder directory" },
       { href: "/leases", label: "Leases", icon: "home", description: "Lease pipeline and renewal exposure" },
@@ -72,7 +75,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/reports", label: "Reporting", icon: "fileCheck2", description: "Financials, compliance, and exports" },
       { href: "/settings", label: "Settings", icon: "shieldCheck", description: "Platform settings and permissions" }
     ],
-    routes: ["/dashboard", "/properties", "/tenants", "/leases", "/transactions", "/maintenance", "/documents", "/reports", "/settings", "/units", "/expenses", "/ai-assessments", "/api/stripe/connect"]
+    routes: ["/dashboard", "/operations", "/properties", "/tenants", "/leases", "/transactions", "/maintenance", "/documents", "/reports", "/settings", "/units", "/expenses", "/ai-assessments", "/api/stripe/connect"]
   },
   MANAGER: {
     label: "Manager",
@@ -80,6 +83,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
     description: "Day-to-day property operations for assigned assets.",
     nav: [
       { href: "/dashboard", label: "Dashboard", icon: "gauge", description: "Assigned property performance and action queues", section: "Workspace" },
+      { href: "/operations", label: "Timeline", icon: "calendarClock", description: "Upcoming deadlines and portfolio actions", section: "Workspace" },
       { href: "/properties", label: "Properties", icon: "building2", description: "Assigned buildings and unit status", section: "Portfolio" },
       { href: "/units", label: "Units", icon: "tableProperties", description: "Unit inventory, occupancy, and lease status", section: "Portfolio" },
       { href: "/tenants", label: "Tenants", icon: "users", description: "Resident roster and communications", section: "Portfolio" },
@@ -92,7 +96,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/reports", label: "Reports", icon: "barChart3", description: "Portfolio reporting and operating visibility", section: "Insights" },
       { href: "/settings", label: "Settings", icon: "settings", description: "Profile and assigned property context", section: "Administration" }
     ],
-    routes: ["/dashboard", "/properties", "/units", "/tenants", "/leases", "/applications", "/move-ins", "/transactions", "/expenses", "/maintenance", "/messages", "/documents", "/reports", "/ai-assessments", "/settings", "/manager-guide", "/api/stripe/connect"]
+    routes: ["/dashboard", "/operations", "/properties", "/units", "/tenants", "/leases", "/applications", "/move-ins", "/transactions", "/expenses", "/maintenance", "/messages", "/documents", "/reports", "/ai-assessments", "/settings", "/manager-guide", "/api/stripe/connect"]
   },
   TENANT: {
     label: "Tenant",

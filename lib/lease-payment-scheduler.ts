@@ -13,6 +13,7 @@ import {
   monthKeyFromValue,
   normalizeRentDueTime
 } from "@/lib/app-time";
+import { getLeaseBilling } from "@/lib/payment-charge";
 import { createId, nowIso, updateStore, type AppStore, type Lease, type Payment } from "@/lib/store";
 
 export type LateFeePolicy = {
@@ -226,17 +227,24 @@ export async function ensureScheduledLeasePayments(organizationId?: string) {
       const tenant = tenantId ? store.tenants.find((item) => item.id === tenantId) ?? null : null;
       const tenantUser = getLeaseTenantUser(store, lease);
       const description = `Monthly rent ${monthKey}`;
+      // Charge the tenant-facing rent (base rent minus $1 when the manager
+      // absorbs the payment charge); the base rent is preserved on the row.
+      const billing = getLeaseBilling(lease);
       const payment: Payment = {
         id: createId("payment"),
         unitId: unit.id,
         leaseId: lease.id,
         tenantId,
         description,
-        amount: lease.monthlyRent,
+        amount: billing.tenantFacingRent,
         dueDate: dateOnlyToUtcNoonIso(dueDateKey),
         status: "PENDING",
         lateFeeAmount: 0,
-        balanceDue: lease.monthlyRent,
+        balanceDue: billing.tenantFacingRent,
+        baseRentAmount: billing.baseMonthlyRent,
+        tenantFacingRentCents: billing.tenantFacingRentCents,
+        managerAbsorbedPaymentChargeCents: billing.managerAbsorbedPaymentChargeCents,
+        paymentChargeResponsibility: billing.paymentChargeResponsibility,
         categoryTag: "Rent",
         generatedRentMonth: monthKey,
         createdAt: now,
@@ -253,7 +261,7 @@ export async function ensureScheduledLeasePayments(organizationId?: string) {
           userId: tenantUser.id,
           type: "RENT_DUE",
           title: "Rent payment requested",
-          body: `${description} for $${lease.monthlyRent.toFixed(2)} is ready to pay online.`,
+          body: `${description} for $${billing.tenantFacingRent.toFixed(2)} is ready to pay online.`,
           href: "/transactions",
           isRead: false,
           createdAt: now

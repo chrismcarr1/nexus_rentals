@@ -11,6 +11,7 @@ import { differenceInAppCalendarDays, formatRentDueTime, getAppDateKey } from "@
 import { requireUser } from "@/lib/auth";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { getManagerLeaseRows } from "@/lib/lease-connections";
+import { getLeaseBilling } from "@/lib/payment-charge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
@@ -237,7 +238,7 @@ export default async function LeasesPage({ searchParams }: { searchParams?: Prom
               <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
                 <LeaseMetric
                   label="Monthly rent"
-                  value={formatCurrencyOrUnset(portal.currentLease.monthlyRent)}
+                  value={formatCurrencyOrUnset(getLeaseBilling(portal.currentLease).tenantFacingRent)}
                   detail={`Day ${portal.currentLease.dueDay} at ${formatRentDueTime(portal.currentLease.rentDueTime)}`}
                   icon={<Wallet className="h-4 w-4" />}
                 />

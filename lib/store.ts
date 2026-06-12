@@ -6,6 +6,7 @@ import path from "node:path";
 import { DEFAULT_COUNTRY, type StoredAddress } from "@/lib/address";
 import { normalizeRentDueTime } from "@/lib/app-time";
 import { ensureAppStoreTable, getAppStoreBackend, getSql, isLocalDevelopment } from "@/lib/database";
+import { getLeaseBilling } from "@/lib/payment-charge";
 import type {
   NormalizedCheckrResult,
   NormalizedPlaidResult,
@@ -157,6 +158,13 @@ export type Lease = {
   dueDay: number;
   rentDueTime?: string;
   lastRentChargeMonth?: string;
+  // $1 payment-charge billing. monthlyRent always stays the base rent; the
+  // tenant-facing rent is derived via lib/payment-charge.ts. Absent fields
+  // (legacy leases) mean tenant responsibility with nothing absorbed.
+  managerAbsorbsPaymentCharge?: boolean;
+  paymentChargeResponsibility?: "TENANT" | "MANAGER";
+  managerAbsorbedPaymentChargeCents?: number;
+  tenantFacingRentCents?: number;
   securityDeposit: number;
   recurringCharges: string;
   lateFeePolicy?: string;
@@ -193,6 +201,13 @@ export type Payment = {
   balanceDue: number;
   categoryTag?: string;
   generatedRentMonth?: string;
+  // Recorded on generated rent charges when the lease's manager absorbs the $1
+  // payment charge: amount is the tenant-facing rent, baseRentAmount preserves
+  // the lease's base rent for reporting. Absent on legacy rows.
+  baseRentAmount?: number;
+  tenantFacingRentCents?: number;
+  managerAbsorbedPaymentChargeCents?: number;
+  paymentChargeResponsibility?: "TENANT" | "MANAGER";
   amountPaid?: number;
   stripeCheckoutSessionId?: string;
   stripePaymentIntentId?: string;
@@ -703,6 +718,7 @@ function normalizeStore(store: AppStore): AppStore {
         .map((tenantId) => store.tenants?.find((item) => item.id === tenantId))
         .find(Boolean);
       const tenantUser = lease.tenantUserId ? store.users?.find((item) => item.id === lease.tenantUserId) : null;
+      const billing = getLeaseBilling({ ...lease, monthlyRent: lease.monthlyRent ?? 0 });
 
       return {
         ...lease,
@@ -713,6 +729,10 @@ function normalizeStore(store: AppStore): AppStore {
         tenantEmail: lease.tenantEmail ?? tenantUser?.email ?? tenant?.email,
         tenantIds: lease.tenantIds ?? [],
         monthlyRent: lease.monthlyRent ?? 0,
+        managerAbsorbsPaymentCharge: billing.managerAbsorbsPaymentCharge,
+        paymentChargeResponsibility: billing.paymentChargeResponsibility,
+        managerAbsorbedPaymentChargeCents: billing.managerAbsorbedPaymentChargeCents,
+        tenantFacingRentCents: billing.tenantFacingRentCents,
         dueDay: lease.dueDay ?? 1,
         rentDueTime: normalizeRentDueTime(lease.rentDueTime),
         securityDeposit: lease.securityDeposit ?? 0,
@@ -721,11 +741,20 @@ function normalizeStore(store: AppStore): AppStore {
     }),
     payments: (store.payments ?? []).map((payment) => {
       const lease = inferPaymentLease(payment);
+      const isRent = (payment.categoryTag ?? "").toLowerCase() === "rent";
       return {
         ...payment,
         tenantId: payment.tenantId ?? lease?.tenantIds?.[0],
         lateFeeAmount: payment.lateFeeAmount ?? 0,
-        balanceDue: payment.balanceDue ?? (payment.status === "PAID" ? 0 : payment.amount)
+        balanceDue: payment.balanceDue ?? (payment.status === "PAID" ? 0 : payment.amount),
+        ...(isRent
+          ? {
+              baseRentAmount: payment.baseRentAmount ?? lease?.monthlyRent ?? payment.amount,
+              tenantFacingRentCents: payment.tenantFacingRentCents ?? Math.round(payment.amount * 100),
+              managerAbsorbedPaymentChargeCents: payment.managerAbsorbedPaymentChargeCents ?? 0,
+              paymentChargeResponsibility: payment.paymentChargeResponsibility ?? "TENANT"
+            }
+          : {})
       };
     }),
     uploadedFiles: [...normalizedFiles, ...legacyLeaseFiles]

@@ -23,6 +23,7 @@ const protectedPaths = [
   "/leases",
   "/applications",
   "/move-ins",
+  "/operations",
   "/transactions",
   "/expenses",
   "/maintenance",

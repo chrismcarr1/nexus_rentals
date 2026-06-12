@@ -24,6 +24,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { DEFAULT_RENT_DUE_TIME, differenceInAppCalendarDays, formatRentDueTime, formatShortAppDate, getAppDateKey } from "@/lib/app-time";
+import { canManagerAbsorbPaymentCharge, computePaymentChargeBilling } from "@/lib/payment-charge";
 import { cn } from "@/lib/utils";
 
 type PropertyOption = {
@@ -59,6 +60,9 @@ type LeaseRow = {
   startDate: string | null;
   endDate: string | null;
   monthlyRent: number | null;
+  baseMonthlyRent?: number | null;
+  tenantFacingRent?: number | null;
+  managerAbsorbsPaymentCharge?: boolean;
   dueDay: number;
   rentDueTime?: string | null;
   securityDeposit: number | null;
@@ -178,6 +182,7 @@ export function LeaseConnectionManager({
     startDate: "",
     endDate: "",
     monthlyRent: "",
+    managerAbsorbsPaymentCharge: false,
     dueDay: "1",
     rentDueTime: DEFAULT_RENT_DUE_TIME,
     securityDeposit: "",
@@ -205,6 +210,10 @@ export function LeaseConnectionManager({
     const days = daysUntil(lease.endDate);
     return lease.status === "active" && days != null && days >= 0 && days <= 60;
   }).length;
+  const billingPreview = computePaymentChargeBilling(
+    Number(form.monthlyRent || 0),
+    form.managerAbsorbsPaymentCharge && canManagerAbsorbPaymentCharge(Number(form.monthlyRent || 0))
+  );
 
   async function refreshLeases() {
     const response = await fetch("/api/leases/manager", { cache: "no-store" });
@@ -246,6 +255,7 @@ export function LeaseConnectionManager({
           startDate: form.startDate || undefined,
           endDate: form.endDate || undefined,
           monthlyRent: form.monthlyRent ? Number(form.monthlyRent) : undefined,
+          managerAbsorbsPaymentCharge: form.managerAbsorbsPaymentCharge,
           dueDay: form.dueDay ? Number(form.dueDay) : undefined,
           rentDueTime: form.rentDueTime || DEFAULT_RENT_DUE_TIME,
           securityDeposit: form.securityDeposit ? Number(form.securityDeposit) : undefined,
@@ -270,6 +280,7 @@ export function LeaseConnectionManager({
         startDate: "",
         endDate: "",
         monthlyRent: "",
+        managerAbsorbsPaymentCharge: false,
         dueDay: "1",
         rentDueTime: DEFAULT_RENT_DUE_TIME,
         securityDeposit: "",
@@ -433,6 +444,39 @@ export function LeaseConnectionManager({
                     placeholder="tenant@example.com"
                   />
                 </label>
+              </div>
+
+              <div className="overflow-hidden rounded-md border border-[var(--line)] bg-white">
+                <label className="flex items-start gap-3 p-4 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.managerAbsorbsPaymentCharge}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, managerAbsorbsPaymentCharge: event.target.checked }))
+                    }
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="block font-semibold text-[var(--text)]">Manager absorbs $1 payment charge</span>
+                    <span className="mt-1 block leading-5 text-[var(--muted)]">
+                      If selected, the tenant&apos;s monthly rent due is reduced by $1. Nexus records the $1 as manager-absorbed.
+                    </span>
+                  </span>
+                </label>
+                <div className="grid gap-px border-t border-[var(--line)] bg-[var(--line)] sm:grid-cols-3">
+                  <div className="bg-[var(--surface)] px-3 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Base rent</p>
+                    <p className="mt-1 text-sm font-semibold">{formatCurrency(billingPreview.baseMonthlyRent)}</p>
+                  </div>
+                  <div className="bg-[var(--surface)] px-3 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Tenant-facing</p>
+                    <p className="mt-1 text-sm font-semibold">{formatCurrency(billingPreview.tenantFacingRent)}</p>
+                  </div>
+                  <div className="bg-[var(--surface)] px-3 py-2.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Manager absorbed</p>
+                    <p className="mt-1 text-sm font-semibold">{billingPreview.managerAbsorbsPaymentCharge ? "$1/month" : "$0"}</p>
+                  </div>
+                </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
@@ -641,7 +685,12 @@ export function LeaseConnectionManager({
                       )}
                     </td>
                     <td className="table-cell">
-                      <span className="block truncate text-sm font-semibold text-[var(--text)]">{formatCurrency(lease.monthlyRent)}</span>
+                      <span className="block truncate text-sm font-semibold text-[var(--text)]">{formatCurrency(lease.baseMonthlyRent ?? lease.monthlyRent)}</span>
+                      {lease.managerAbsorbsPaymentCharge ? (
+                        <span className="mt-0.5 block truncate text-xs text-[var(--brand)]">
+                          Tenant-facing {formatCurrency(lease.tenantFacingRent ?? lease.monthlyRent)}
+                        </span>
+                      ) : null}
                       <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">Day {lease.dueDay} at {formatRentDueTime(lease.rentDueTime)}</span>
                       <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">Deposit {formatCurrency(lease.securityDeposit)}</span>
                     </td>
@@ -750,7 +799,12 @@ export function LeaseConnectionManager({
                     </span>
                   </td>
                   <td className="table-cell">
-                    <span className="block truncate text-sm font-semibold text-[var(--text)]">{formatCurrency(lease.monthlyRent)}</span>
+                    <span className="block truncate text-sm font-semibold text-[var(--text)]">{formatCurrency(lease.baseMonthlyRent ?? lease.monthlyRent)}</span>
+                    {lease.managerAbsorbsPaymentCharge ? (
+                      <span className="mt-0.5 block truncate text-xs text-[var(--brand)]">
+                        Tenant-facing {formatCurrency(lease.tenantFacingRent ?? lease.monthlyRent)}
+                      </span>
+                    ) : null}
                     <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">Deposit {formatCurrency(lease.securityDeposit)}</span>
                   </td>
                   <td className="table-cell text-right">
