@@ -4,7 +4,17 @@ import { useState } from "react";
 
 import { FileUploader } from "@/components/file-uploader";
 
-export function SingleUploadInput({ name, label, accept }: { name: string; label: string; accept?: string }) {
+export function SingleUploadInput({
+  name,
+  label,
+  accept,
+  purpose
+}: {
+  name: string;
+  label: string;
+  accept?: string;
+  purpose?: "tenant-id";
+}) {
   const [path, setPath] = useState("");
 
   return (
@@ -13,6 +23,7 @@ export function SingleUploadInput({ name, label, accept }: { name: string; label
         label={label}
         accept={accept}
         multiple={false}
+        purpose={purpose}
         onChange={(items) => {
           setPath(items[0]?.path ?? "");
         }}

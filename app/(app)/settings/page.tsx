@@ -9,6 +9,7 @@ import { updateProfileAction, updateSettingsAction } from "@/lib/actions";
 import { formatAddress, parseAddressText } from "@/lib/address";
 import { formatAppDateTime } from "@/lib/app-time";
 import { requireUser } from "@/lib/auth";
+import { documentTypeLabel, getFileDisplayName } from "@/lib/document-metadata";
 import { hasAcceptedCurrentPaymentTerms } from "@/lib/legal";
 import { getAppBaseUrl } from "@/lib/request-origin";
 import { getStripeAccountId, getStripeConnectRedirectStatus, getStripeConnectState, syncManagerConnectedAccount } from "@/lib/stripe-connect";
@@ -201,6 +202,58 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
         />
       ) : null}
 
+      {user.role === "ADMIN" ? (
+        <Card id="my-profile" className="p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">My profile</p>
+          <h2 className="mt-2 text-xl font-semibold">Personal contact and identity</h2>
+          <p className="mt-2 text-sm text-[var(--muted)]">Only your own profile is updated here. Role, organization, legal acceptance, and payment metadata stay protected.</p>
+          {params.profile ? (
+            <div className={`page-alert mt-4 ${params.profile === "updated" ? "page-alert-success" : "page-alert-warning"}`}>
+              {params.profile === "updated"
+                ? "Your profile was updated."
+                : params.profile === "duplicate-email"
+                  ? "That email is already used by another account."
+                  : params.profile === "underage"
+                    ? "Account holders must be at least 18 years old."
+                    : params.profile === "invalid-birthdate"
+                      ? "Enter a valid birth date that is not in the future."
+                      : "Review your profile details and try again."}
+            </div>
+          ) : null}
+          <form action={updateProfileAction} className="mt-5 grid gap-4 lg:grid-cols-2">
+            <div className="space-y-3">
+              <div className="form-grid-2">
+                <div>
+                  <label className="field-label" htmlFor="admin-profile-first">First name</label>
+                  <input id="admin-profile-first" name="firstName" defaultValue={user.firstName} className="field" />
+                </div>
+                <div>
+                  <label className="field-label" htmlFor="admin-profile-last">Last name</label>
+                  <input id="admin-profile-last" name="lastName" defaultValue={user.lastName} className="field" />
+                </div>
+              </div>
+              <div>
+                <label className="field-label" htmlFor="admin-profile-email">Email</label>
+                <input id="admin-profile-email" name="email" type="email" defaultValue={user.email} className="field" />
+              </div>
+              <PhoneInput name="phone" defaultValue={user.phone ?? ""} />
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="field-label" htmlFor="admin-profile-birthdate">Date of birth</label>
+                <input id="admin-profile-birthdate" name="birthDate" type="date" required defaultValue={user.birthDate ?? ""} className="field" />
+                <p className="mt-1 text-xs text-[var(--muted)]">Used only for age verification. Must remain 18+.</p>
+              </div>
+              <div>
+                <label className="field-label" htmlFor="admin-profile-title">Job title</label>
+                <input id="admin-profile-title" name="title" defaultValue={user.title ?? ""} className="field" />
+              </div>
+              <SubmitButton className="w-full sm:w-auto">Save profile</SubmitButton>
+            </div>
+          </form>
+        </Card>
+      ) : null}
+
       <div className="content-split-tight">
         {user.role === "ADMIN" ? (
           <Card className="p-6">
@@ -232,9 +285,22 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
             </form>
           </Card>
         ) : (
-          <Card className="p-6">
+          <Card id="my-profile" className="p-6">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">My profile</p>
-            <h2 className="mt-2 text-xl font-semibold">Contact details</h2>
+            <h2 className="mt-2 text-xl font-semibold">Contact and identity</h2>
+            {params.profile ? (
+              <div className={`page-alert mt-4 ${params.profile === "updated" ? "page-alert-success" : "page-alert-warning"}`}>
+                {params.profile === "updated"
+                  ? "Your profile was updated."
+                  : params.profile === "duplicate-email"
+                    ? "That email is already used by another account."
+                    : params.profile === "underage"
+                      ? "Account holders must be at least 18 years old."
+                      : params.profile === "invalid-birthdate"
+                        ? "Enter a valid birth date that is not in the future."
+                        : "Review your profile details and try again."}
+              </div>
+            ) : null}
             <form action={updateProfileAction} className="mt-5 space-y-3">
               <div className="form-grid-2">
                 <div>
@@ -246,7 +312,16 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
                   <input id="profile-last" name="lastName" defaultValue={user.lastName} className="field" />
                 </div>
               </div>
+              <div>
+                <label className="field-label" htmlFor="profile-email">Email</label>
+                <input id="profile-email" name="email" type="email" defaultValue={user.email} className="field" />
+              </div>
               <PhoneInput name="phone" defaultValue={user.phone ?? ""} />
+              <div>
+                <label className="field-label" htmlFor="profile-birthdate">Date of birth</label>
+                <input id="profile-birthdate" name="birthDate" type="date" required defaultValue={user.birthDate ?? ""} className="field" />
+                <p className="mt-1 text-xs text-[var(--muted)]">Private and used only to confirm you remain 18 or older.</p>
+              </div>
               <div>
                 <label className="field-label" htmlFor="profile-title">Job title</label>
                 <input id="profile-title" name="title" defaultValue={user.title ?? ""} placeholder="e.g. Property Manager" className="field" />
@@ -289,8 +364,8 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
             ) : (
               portal.documents.map((file) => (
                 <div key={file.id} className="py-3">
-                  <p className="font-semibold">{file.label || file.kind}</p>
-                  <p className="mt-1 text-sm text-[var(--muted)]">{file.path}</p>
+                  <p className="font-semibold">{getFileDisplayName(file)}</p>
+                  <p className="mt-1 text-sm text-[var(--muted)]">{documentTypeLabel(file.kind)}</p>
                 </div>
               ))
             )}

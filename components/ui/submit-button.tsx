@@ -29,7 +29,7 @@ export function SubmitButton({
       className={className}
     >
       {pending ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-      <span>{pending ? pendingLabel : children}</span>
+      <span className="inline-flex items-center justify-center gap-2">{pending ? pendingLabel : children}</span>
     </Button>
   );
 }

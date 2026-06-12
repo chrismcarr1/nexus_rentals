@@ -189,7 +189,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
                         placeholder="Write a message..."
                         className="field min-h-24 resize-none"
                       />
-                      <SubmitButton pendingLabel="Sending..." className="mb-0 gap-2">
+                      <SubmitButton pendingLabel="Sending..." className="mb-0 w-full sm:w-auto sm:self-end">
                         <Send className="h-4 w-4" />
                         Send
                       </SubmitButton>

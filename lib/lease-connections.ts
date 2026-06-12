@@ -5,9 +5,10 @@ import { createHash, randomBytes } from "crypto";
 import { normalizeEmail } from "@/lib/admin";
 import { addDaysToDateKey, appDateIsAfter, appDateIsBefore, appDateKeyFromValue, dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, getAppDateKey, normalizeRentDueTime } from "@/lib/app-time";
 import { formatAddress, formatUnitAddress } from "@/lib/address";
+import { cleanDisplayName } from "@/lib/document-metadata";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
-import { createId, nowIso, readStore, updateStore, type AppStore, type Lease, type LeaseStatus, type TenantInvite, type UnitOccupancyStatus, type User } from "@/lib/store";
+import { FileKind, createId, nowIso, readStore, updateStore, type AppStore, type Lease, type LeaseStatus, type TenantInvite, type UnitOccupancyStatus, type User } from "@/lib/store";
 
 export const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
@@ -391,6 +392,10 @@ export async function createConnectedLease({
   rentDueTime,
   securityDeposit,
   documentPath,
+  documentName,
+  tenantIdPath,
+  tenantIdName,
+  tenantIdOriginalName,
   lateFeePolicy
 }: {
   manager: User;
@@ -404,6 +409,10 @@ export async function createConnectedLease({
   rentDueTime?: string;
   securityDeposit?: number;
   documentPath?: string;
+  documentName?: string;
+  tenantIdPath?: string;
+  tenantIdName?: string;
+  tenantIdOriginalName?: string;
   lateFeePolicy?: string;
 }) {
   await ensureLeaseConnectionIntegrity(manager.organizationId);
@@ -444,10 +453,58 @@ export async function createConnectedLease({
       createdAt: now,
       updatedAt: now
     };
+    const existingTenant = store.tenants.find(
+      (tenant) =>
+        tenant.organizationId === manager.organizationId &&
+        normalizeEmail(tenant.email ?? "") === normalizeEmail(tenantEmail)
+    );
+    const files = [];
+    if (documentPath) {
+      const displayName = cleanDisplayName(documentName, "Lease agreement");
+      files.push({
+        id: createId("file"),
+        organizationId: manager.organizationId,
+        propertyId,
+        unitId,
+        leaseId: lease.id,
+        tenantId: existingTenant?.id,
+        kind: FileKind.LEASE_DOCUMENT,
+        label: displayName,
+        displayName,
+        path: documentPath,
+        mimeType: "application/octet-stream",
+        visibility: "TENANT" as const,
+        uploadedById: manager.id,
+        uploadedAt: now,
+        createdAt: now
+      });
+    }
+    if (tenantIdPath) {
+      const displayName = cleanDisplayName(tenantIdName, "Tenant ID");
+      files.push({
+        id: createId("file"),
+        organizationId: manager.organizationId,
+        propertyId,
+        unitId,
+        leaseId: lease.id,
+        tenantId: existingTenant?.id,
+        kind: FileKind.TENANT_ID,
+        label: displayName,
+        displayName,
+        originalFileName: tenantIdOriginalName,
+        path: tenantIdPath,
+        mimeType: "application/octet-stream",
+        visibility: "MANAGER_ONLY" as const,
+        uploadedById: manager.id,
+        uploadedAt: now,
+        createdAt: now
+      });
+    }
 
     return {
       ...store,
       leases: [...store.leases, lease],
+      uploadedFiles: [...store.uploadedFiles, ...files],
       units: unit
         ? store.units.map((item) =>
             item.id === unit.id

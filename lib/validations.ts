@@ -101,6 +101,10 @@ export const leaseSchema = z.object({
   lateFeePolicy: z.string().optional(),
   notes: z.string().optional(),
   documentPath: z.string().optional(),
+  documentName: z.string().optional(),
+  tenantIdPath: z.string().optional(),
+  tenantIdName: z.string().optional(),
+  tenantIdOriginalName: z.string().optional(),
   status: z.enum(["ACTIVE", "UPCOMING", "EXPIRED", "TERMINATED"])
 });
 
@@ -133,6 +137,10 @@ export const newMoveInSchema = z
     lateFeePolicy: z.string().optional(),
     notes: z.string().optional(),
     documentPath: z.string().optional(),
+    documentName: z.string().optional(),
+    tenantIdPath: z.string().optional(),
+    tenantIdName: z.string().optional(),
+    tenantIdOriginalName: z.string().optional(),
     sendInvite: z.boolean(),
     existingLeaseId: z.string().optional(),
     applicationSubmissionId: z.string().optional()

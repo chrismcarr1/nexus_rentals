@@ -38,6 +38,16 @@ type StoredAssetOptions = {
   allowDemo?: boolean;
 };
 
+export type PrivateAssetReference = {
+  storage: "local" | "blob";
+  storageKey: string;
+};
+
+const privateAssetPrefixes = {
+  local: "private-local:",
+  blob: "private-blob:"
+} as const;
+
 export function sanitizeFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "-") || "upload";
 }
@@ -155,6 +165,36 @@ function ownerUploadPrefix(owner?: UploadOwner) {
   return `/uploads/${safePathSegment(owner.organizationId)}/${safePathSegment(owner.id)}/`;
 }
 
+function ownerPrivateUploadPrefix(owner?: UploadOwner) {
+  return ownerUploadPrefix(owner).replace(/^\//, "");
+}
+
+function normalizePrivateStorageKey(value: string) {
+  const decoded = decodePath(value.trim());
+  if (!decoded || decoded.startsWith("/") || decoded.includes("\\") || /[\u0000-\u001f\u007f]/.test(decoded)) return null;
+  const normalized = path.posix.normalize(decoded);
+  if (normalized !== decoded || !normalized.startsWith("uploads/")) return null;
+  return normalized;
+}
+
+export function parsePrivateAssetReference(value: string): PrivateAssetReference | null {
+  const trimmed = value.trim();
+  const storage = trimmed.startsWith(privateAssetPrefixes.local)
+    ? "local"
+    : trimmed.startsWith(privateAssetPrefixes.blob)
+      ? "blob"
+      : null;
+  if (!storage) return null;
+
+  const storageKey = normalizePrivateStorageKey(trimmed.slice(privateAssetPrefixes[storage].length));
+  return storageKey ? { storage, storageKey } : null;
+}
+
+function isAllowedPrivateAssetReference(value: string, owner?: UploadOwner) {
+  const reference = parsePrivateAssetReference(value);
+  return Boolean(reference && reference.storageKey.startsWith(ownerPrivateUploadPrefix(owner)));
+}
+
 function isAllowedLocalAssetPath(value: string, owner?: UploadOwner, options: StoredAssetOptions = {}) {
   const normalized = normalizeLocalAssetPath(value);
   if (!normalized) return false;
@@ -181,6 +221,17 @@ export function isAllowedSubmittedAssetPath(value: string, owner: UploadOwner) {
   return isAllowedLocalAssetPath(trimmed, owner) || isAllowedBlobUploadUrl(trimmed, owner);
 }
 
+export function isAllowedTenantIdAssetPath(value: string, owner: UploadOwner) {
+  if (!isAllowedSubmittedAssetPath(value, owner) && !isAllowedPrivateAssetReference(value, owner)) return false;
+  try {
+    const privateReference = parsePrivateAssetReference(value);
+    const pathname = privateReference?.storageKey ?? (value.startsWith("http") ? new URL(value).pathname : stripQueryAndHash(value));
+    return new Set(["jpg", "jpeg", "png", "pdf"]).has(getUploadExtension(pathname));
+  } catch {
+    return false;
+  }
+}
+
 export function filterSubmittedAssetPaths(values: string[], owner: UploadOwner, max = values.length) {
   const unique = new Set<string>();
   for (const value of values) {
@@ -195,7 +246,11 @@ export function filterSubmittedAssetPaths(values: string[], owner: UploadOwner, 
 export function isAllowedStoredAssetPath(value?: string | null, options: StoredAssetOptions = {}) {
   const trimmed = value?.trim();
   if (!trimmed || trimmed.length > 2048) return false;
-  return isAllowedLocalAssetPath(trimmed, undefined, options) || isAllowedBlobUploadUrl(trimmed);
+  return (
+    isAllowedLocalAssetPath(trimmed, undefined, options) ||
+    isAllowedBlobUploadUrl(trimmed) ||
+    isAllowedPrivateAssetReference(trimmed)
+  );
 }
 
 export function isRemoteAssetUrl(value: string) {

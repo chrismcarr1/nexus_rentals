@@ -182,6 +182,10 @@ export function LeaseConnectionManager({
     rentDueTime: DEFAULT_RENT_DUE_TIME,
     securityDeposit: "",
     documentPath: "",
+    documentName: "",
+    tenantIdPath: "",
+    tenantIdName: "",
+    tenantIdOriginalName: "",
     lateFeeType: "fixed" as "fixed" | "percent",
     lateFeeAmount: "",
     lateFeeGraceDays: "5"
@@ -246,6 +250,10 @@ export function LeaseConnectionManager({
           rentDueTime: form.rentDueTime || DEFAULT_RENT_DUE_TIME,
           securityDeposit: form.securityDeposit ? Number(form.securityDeposit) : undefined,
           documentPath: form.documentPath || undefined,
+          documentName: form.documentName || undefined,
+          tenantIdPath: form.tenantIdPath || undefined,
+          tenantIdName: form.tenantIdName || undefined,
+          tenantIdOriginalName: form.tenantIdOriginalName || undefined,
           lateFeeType: form.lateFeeAmount ? form.lateFeeType : undefined,
           lateFeeAmount: form.lateFeeAmount ? Number(form.lateFeeAmount) : undefined,
           lateFeeGraceDays: form.lateFeeGraceDays ? Number(form.lateFeeGraceDays) : undefined
@@ -266,6 +274,10 @@ export function LeaseConnectionManager({
         rentDueTime: DEFAULT_RENT_DUE_TIME,
         securityDeposit: "",
         documentPath: "",
+        documentName: "",
+        tenantIdPath: "",
+        tenantIdName: "",
+        tenantIdOriginalName: "",
         lateFeeType: "fixed",
         lateFeeAmount: "",
         lateFeeGraceDays: "5"
@@ -519,8 +531,34 @@ export function LeaseConnectionManager({
                 label="Attach lease agreement"
                 accept=".pdf,.doc,.docx,image/*"
                 multiple={false}
-                onChange={(items) => setForm((current) => ({ ...current, documentPath: items[0]?.path ?? "" }))}
+                onChange={(items) =>
+                  setForm((current) => ({
+                    ...current,
+                    documentPath: items[0]?.path ?? "",
+                    documentName: items[0] ? "Lease agreement" : ""
+                  }))
+                }
               />
+              <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-3">
+                <FieldLabel hint="PDF, JPG, or PNG">Upload tenant ID</FieldLabel>
+                <FileUploader
+                  label="Choose tenant ID"
+                  accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf"
+                  multiple={false}
+                  purpose="tenant-id"
+                  onChange={(items) =>
+                    setForm((current) => ({
+                      ...current,
+                      tenantIdPath: items[0]?.path ?? "",
+                      tenantIdName: items[0] ? "Tenant ID" : "",
+                      tenantIdOriginalName: items[0]?.name ?? ""
+                    }))
+                  }
+                />
+                <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
+                  The ID is manager-only and linked to the lease record.
+                </p>
+              </div>
 
               <div className="border-t border-[var(--line)] pt-4">
                 <p className="text-xs leading-5 text-[var(--muted)]">

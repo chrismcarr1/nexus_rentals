@@ -3,7 +3,7 @@ import { z } from "zod";
 import { DEFAULT_RENT_DUE_TIME } from "@/lib/app-time";
 import { createConnectedLease, toSafeLeaseRow } from "@/lib/lease-connections";
 import { getCurrentUser } from "@/lib/auth";
-import { isAllowedSubmittedAssetPath } from "@/lib/file-security";
+import { isAllowedSubmittedAssetPath, isAllowedTenantIdAssetPath } from "@/lib/file-security";
 import { ensureScheduledLeasePayments, formatLateFeePolicy } from "@/lib/lease-payment-scheduler";
 import { readStore, UserRole } from "@/lib/store";
 
@@ -18,6 +18,10 @@ const createLeaseSchema = z.object({
   rentDueTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().default(DEFAULT_RENT_DUE_TIME),
   securityDeposit: z.coerce.number().min(0).optional(),
   documentPath: z.string().max(2048).optional().or(z.literal("")),
+  documentName: z.string().max(120).optional().or(z.literal("")),
+  tenantIdPath: z.string().max(2048).optional().or(z.literal("")),
+  tenantIdName: z.string().max(120).optional().or(z.literal("")),
+  tenantIdOriginalName: z.string().max(255).optional().or(z.literal("")),
   lateFeeType: z.enum(["fixed", "percent"]).optional(),
   lateFeeAmount: z.coerce.number().min(0).optional(),
   lateFeeGraceDays: z.coerce.number().min(0).max(30).optional()
@@ -40,6 +44,10 @@ export async function POST(request: Request) {
     if (documentPath && !isAllowedSubmittedAssetPath(documentPath, user)) {
       return Response.json({ error: "The uploaded lease agreement is invalid. Upload it again and retry." }, { status: 400 });
     }
+    const tenantIdPath = result.data.tenantIdPath || undefined;
+    if (tenantIdPath && !isAllowedTenantIdAssetPath(tenantIdPath, user)) {
+      return Response.json({ error: "Tenant ID must be a PDF, JPG, or PNG uploaded by your account." }, { status: 400 });
+    }
     const lateFeePolicy =
       result.data.lateFeeType && result.data.lateFeeAmount && result.data.lateFeeAmount > 0
         ? formatLateFeePolicy({
@@ -61,6 +69,10 @@ export async function POST(request: Request) {
       rentDueTime: result.data.rentDueTime,
       securityDeposit: result.data.securityDeposit,
       documentPath,
+      documentName: result.data.documentName || undefined,
+      tenantIdPath,
+      tenantIdName: result.data.tenantIdName || undefined,
+      tenantIdOriginalName: result.data.tenantIdOriginalName || undefined,
       lateFeePolicy
     });
     await ensureScheduledLeasePayments(user.organizationId);

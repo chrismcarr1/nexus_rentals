@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import { getPhotoSwipeDirection } from "@/lib/photo-gallery";
 
-type Photo = { id: string; path: string; label?: string | null };
+type Photo = { id: string; path: string; label?: string | null; displayName?: string | null };
 type Point = { x: number; y: number };
 
 export function PhotoCarousel({
@@ -82,12 +82,15 @@ export function PhotoCarousel({
         <img
           key={photo.id}
           src={photo.path}
-          alt={photo.label ?? `Photo ${visibleIndex + 1}`}
+          alt={photo.displayName ?? photo.label ?? `Photo ${visibleIndex + 1}`}
           className="h-full w-full select-none object-cover"
           loading={visibleIndex === 0 ? "eager" : "lazy"}
           decoding="async"
           draggable={false}
         />
+        <span className="absolute bottom-2 left-3 max-w-[70%] truncate rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white">
+          {photo.displayName ?? photo.label ?? `Photo ${visibleIndex + 1}`}
+        </span>
         {multi ? (
           <>
           <button

@@ -1,8 +1,11 @@
 import Link from "next/link";
 import {
+  AlertCircle,
   ArrowRight,
+  Banknote,
   BellRing,
   Building2,
+  CalendarClock,
   CheckCircle2,
   ClipboardList,
   CreditCard,
@@ -11,47 +14,52 @@ import {
   MessageSquare,
   ReceiptText,
   ShieldCheck,
+  TrendingUp,
   Wrench
 } from "lucide-react";
 
-import { CashFlowChart, ProjectedRevenueChart } from "@/components/charts/lazy-charts";
-import { DataTable } from "@/components/data-table";
+import { CashFlowChart } from "@/components/charts/lazy-charts";
+import { DashboardRangeSelector } from "@/components/dashboard/dashboard-range-selector";
+import { EmptyDashboardState } from "@/components/dashboard/empty-dashboard-state";
+import { KpiCard } from "@/components/dashboard/kpi-card";
+import { DashboardCashFlowChart, RentStatusChart } from "@/components/dashboard/lazy-dashboard-charts";
+import { LeaseExpirationsTable } from "@/components/dashboard/lease-expirations-table";
+import { MaintenanceQueueCard } from "@/components/dashboard/maintenance-queue-card";
+import { NexusInsightCard } from "@/components/dashboard/nexus-insight-card";
+import { PortfolioPulseCard } from "@/components/dashboard/portfolio-pulse-card";
+import { PropertyPerformanceTable } from "@/components/dashboard/property-performance-table";
+import { QuickActionsCard } from "@/components/dashboard/quick-actions-card";
+import { RecentActivityFeed } from "@/components/dashboard/recent-activity-feed";
+import { TenantMessagesCard } from "@/components/dashboard/tenant-messages-card";
+import { UrgentTasksPanel } from "@/components/dashboard/urgent-tasks-panel";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
 import { MetricCard } from "@/components/metric-card";
-import { PageHeader } from "@/components/page-header";
 import { PaymentCalendar } from "@/components/payment-calendar";
 import { QuickActionMenu } from "@/components/quick-action-menu";
-import { StatCard } from "@/components/stat-card";
-import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createStripeCheckoutAction } from "@/lib/actions";
-import { managerOwnsApplication, primaryApplicant } from "@/lib/applications";
-import { appDateIsOnOrAfter, getAppDateKey, getAppMonthKey } from "@/lib/app-time";
 import { requireUser } from "@/lib/auth";
 import { hasAcceptedCurrentPaymentTerms } from "@/lib/legal";
-import { getRoleConfig } from "@/lib/rbac";
-import { readStore } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { getDashboardSnapshot, projectMonthlyRevenue } from "@/services/finance";
-import {
-  badgeToneFromMaintenance,
-  badgeToneFromPayment,
-  badgeToneFromPriority,
-  getNotificationLabel,
-  getPortalContext
-} from "@/services/portal";
+import { getManagerDashboardData } from "@/services/dashboard";
+import { getDashboardSnapshot } from "@/services/finance";
+import { badgeToneFromPayment, badgeToneFromPriority, badgeToneFromMaintenance, getNotificationLabel, getPortalContext } from "@/services/portal";
 import { globalSearch } from "@/services/search";
+
+function formatPercent(rate: number) {
+  const value = rate * 100;
+  const rounded = Math.round(value * 10) / 10;
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`;
+}
 
 export default async function DashboardPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireUser();
   const params = (await searchParams) ?? {};
-  const role = getRoleConfig(user.role);
   const portal = await getPortalContext(user);
-  const snapshot = await getDashboardSnapshot(user.organizationId);
   const searchResults =
     params.q && user.role !== "TENANT"
       ? await globalSearch(user.organizationId, params.q, {
@@ -61,6 +69,247 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         })
       : null;
 
+  const searchSection =
+    params.q && searchResults ? (
+      <DetailSection title={`Search results for "${params.q}"`} description="Jump directly into matching records.">
+        <div className="grid gap-3 lg:grid-cols-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Properties</p>
+            <div className="mt-2 space-y-1">
+              {searchResults.properties.length ? searchResults.properties.map((item) => (
+                <Link key={item.id} href={`/properties/${item.id}`} className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.name}</Link>
+              )) : <p className="text-sm text-[var(--muted)]">No property matches.</p>}
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Units</p>
+            <div className="mt-2 space-y-1">
+              {searchResults.units.length ? searchResults.units.map((item) => (
+                <Link key={item.id} href={`/units/${item.id}`} className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.property.name} {item.unitNumber}</Link>
+              )) : <p className="text-sm text-[var(--muted)]">No unit matches.</p>}
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Tenants</p>
+            <div className="mt-2 space-y-1">
+              {searchResults.tenants.length ? searchResults.tenants.map((item) => (
+                <Link key={item.id} href="/tenants" className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.firstName} {item.lastName}</Link>
+              )) : <p className="text-sm text-[var(--muted)]">No tenant matches.</p>}
+            </div>
+          </div>
+        </div>
+      </DetailSection>
+    ) : null;
+
+  if (user.role === "MANAGER") {
+    const dashboard = await getManagerDashboardData(user, params.range);
+    const { range, kpis } = dashboard;
+    const paidHref = `/transactions?tab=payments&dateFrom=${range.start}&dateTo=${range.end}`;
+    const rentStatusHrefs: Record<string, string> = {
+      paid: paidHref,
+      partial: "/transactions?status=Partial",
+      outstanding: "/transactions",
+      overdue: "/transactions?status=overdue"
+    };
+    const rentStatusDotColors: Record<string, string> = {
+      paid: "bg-[var(--brand)]",
+      partial: "bg-amber-600",
+      outstanding: "bg-amber-500",
+      overdue: "bg-[var(--danger)]"
+    };
+
+    return (
+      <div className="dashboard-page">
+        <header className="page-header">
+          <div className="page-header-copy min-w-0 max-w-4xl">
+            <h1 className="page-title font-semibold text-[var(--text)]">Dashboard</h1>
+            <p className="mt-1 text-sm text-[var(--muted)]">Overview of portfolio performance and operations.</p>
+          </div>
+          <div className="page-actions flex flex-wrap items-center gap-2">
+            <DashboardRangeSelector activeKey={range.key} />
+            <QuickActionMenu role={user.role} />
+          </div>
+        </header>
+
+        {searchSection}
+
+        {!dashboard.stripe.ready && !dashboard.emptyState ? (
+          <div className="page-alert page-alert-warning flex flex-wrap items-center justify-between gap-3">
+            <span>Connect Stripe to collect rent online. {dashboard.stripe.detail}</span>
+            <Link href="/settings" className="inline-flex shrink-0 items-center gap-1.5 font-semibold underline underline-offset-2">
+              Set up payments
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        ) : null}
+
+        {dashboard.emptyState ? (
+          <>
+            <EmptyDashboardState
+              mode={dashboard.emptyState}
+              organizationName={dashboard.organizationName}
+              stripeReady={dashboard.stripe.ready}
+              hasProperties={dashboard.counts.properties > 0}
+              hasUnits={dashboard.counts.units > 0}
+            />
+            {dashboard.urgentTasks.length ? <UrgentTasksPanel tasks={dashboard.urgentTasks} /> : null}
+          </>
+        ) : (
+          <>
+            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <KpiCard
+                icon={Building2}
+                label="Occupancy"
+                value={formatPercent(kpis.occupancy.rate)}
+                detail={`${kpis.occupancy.occupiedUnits} of ${kpis.occupancy.rentableUnits} units occupied`}
+                href="/units"
+                tone={kpis.occupancy.rate >= 0.95 ? "success" : kpis.occupancy.rate >= 0.85 ? "warning" : "danger"}
+              />
+              <KpiCard
+                icon={Banknote}
+                label={`Collected · ${range.label.toLowerCase()}`}
+                value={formatCurrency(kpis.collected.total)}
+                detail={
+                  kpis.collected.rateOfExpected !== null
+                    ? `${Math.round(kpis.collected.rateOfExpected * 100)}% of ${formatCurrency(kpis.collected.expected)} expected`
+                    : `${kpis.collected.count} payment${kpis.collected.count === 1 ? "" : "s"} received`
+                }
+                href={paidHref}
+                tone="brand"
+                trend={kpis.collected.trend}
+                sparkline={dashboard.collectedSparkline}
+              />
+              <KpiCard
+                icon={ReceiptText}
+                label="Outstanding rent"
+                value={formatCurrency(kpis.outstanding.total)}
+                detail={`${kpis.outstanding.count} open charge${kpis.outstanding.count === 1 ? "" : "s"} · ${kpis.outstanding.partiesAffected} tenant${kpis.outstanding.partiesAffected === 1 ? "" : "s"}`}
+                href="/transactions"
+                tone={kpis.outstanding.total ? "warning" : "success"}
+              />
+              <KpiCard
+                icon={AlertCircle}
+                label="Overdue rent"
+                value={formatCurrency(kpis.overdue.total)}
+                detail={
+                  kpis.overdue.count
+                    ? `${kpis.overdue.count} late charge${kpis.overdue.count === 1 ? "" : "s"} · ${kpis.overdue.partiesAffected} tenant${kpis.overdue.partiesAffected === 1 ? "" : "s"}`
+                    : "Nothing past due"
+                }
+                href="/transactions?status=overdue"
+                tone={kpis.overdue.total ? "danger" : "success"}
+              />
+              <KpiCard
+                icon={Wrench}
+                label="Open maintenance"
+                value={String(kpis.maintenance.open)}
+                detail={kpis.maintenance.urgent ? `${kpis.maintenance.urgent} urgent or high priority` : "No urgent work orders"}
+                href="/maintenance?status=active"
+                tone={kpis.maintenance.urgent ? "danger" : kpis.maintenance.open ? "warning" : "success"}
+              />
+              <KpiCard
+                icon={CalendarClock}
+                label="Lease expirations · 60d"
+                value={String(kpis.leaseExpirations.within60)}
+                detail={`${kpis.leaseExpirations.within30} within 30 days · ${kpis.leaseExpirations.within90} within 90`}
+                href="/leases"
+                tone={kpis.leaseExpirations.within30 ? "warning" : "info"}
+              />
+              <KpiCard
+                icon={TrendingUp}
+                label={`Net cash flow · ${range.label.toLowerCase()}`}
+                value={formatCurrency(kpis.netCashFlow.net)}
+                detail={
+                  kpis.netCashFlow.hasExpenseData
+                    ? `${formatCurrency(kpis.netCashFlow.collected)} in − ${formatCurrency(kpis.netCashFlow.expenses)} expenses`
+                    : "Income only — no expense records yet"
+                }
+                href="/reports"
+                tone={kpis.netCashFlow.net >= 0 ? "success" : "danger"}
+                trend={kpis.netCashFlow.trend}
+              />
+              <NexusInsightCard insight={dashboard.insight} />
+            </section>
+
+            <section className="grid items-start gap-[var(--layout-gap,1rem)] xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)]">
+              <DetailSection
+                title="Cash flow overview"
+                description={`Collected income, expenses, and net cash flow · ${formatDate(range.start)} to ${formatDate(range.end)}.`}
+                actions={
+                  <Link href="/reports" className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">
+                    Open reports
+                  </Link>
+                }
+              >
+                <DashboardCashFlowChart data={dashboard.cashFlowSeries} showExpenses={kpis.netCashFlow.hasExpenseData} />
+                {!kpis.netCashFlow.hasExpenseData ? (
+                  <p className="mt-3 text-xs leading-5 text-[var(--muted)]">
+                    No expenses recorded yet, so this shows collected income only.{" "}
+                    <Link href="/expenses" className="font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">
+                      Add expenses
+                    </Link>{" "}
+                    to track true net cash flow.
+                  </p>
+                ) : null}
+              </DetailSection>
+
+              <DetailSection title="Rent status" description={`Where this period's rent stands · ${range.label.toLowerCase()}.`}>
+                <RentStatusChart
+                  segments={dashboard.rentStatusBreakdown.segments}
+                  centerLabel={formatCurrency(dashboard.rentStatusBreakdown.totalTracked)}
+                />
+                {dashboard.rentStatusBreakdown.segments.length ? (
+                  <div className="mt-4">
+                    {dashboard.rentStatusBreakdown.segments.map((segment) => (
+                      <Link
+                        key={segment.key}
+                        href={rentStatusHrefs[segment.key] ?? "/transactions"}
+                        className="group flex items-center gap-2.5 border-b border-[var(--line)] px-1 py-2 last:border-b-0 hover:bg-[var(--surface-hover)]"
+                      >
+                        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${rentStatusDotColors[segment.key] ?? "bg-[var(--line-strong)]"}`} />
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--text)] transition group-hover:text-[var(--brand)]">
+                          {segment.label}
+                          <span className="ml-1.5 text-xs text-[var(--muted)]">({segment.count})</span>
+                        </span>
+                        <span className="shrink-0 text-sm font-semibold tabular-nums text-[var(--text)]">{formatCurrency(segment.amount)}</span>
+                        <span className="w-10 shrink-0 text-right text-xs tabular-nums text-[var(--muted)]">
+                          {dashboard.rentStatusBreakdown.totalTracked
+                            ? `${Math.round((segment.amount / dashboard.rentStatusBreakdown.totalTracked) * 100)}%`
+                            : "—"}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                ) : null}
+              </DetailSection>
+            </section>
+
+            <section className="grid items-start gap-[var(--layout-gap,1rem)] lg:grid-cols-2 xl:grid-cols-3">
+              <UrgentTasksPanel tasks={dashboard.urgentTasks} />
+              <PortfolioPulseCard pulse={dashboard.portfolioPulse} />
+              <QuickActionsCard />
+            </section>
+
+            <section className="grid items-start gap-[var(--layout-gap,1rem)] xl:grid-cols-2">
+              <MaintenanceQueueCard queue={dashboard.maintenanceQueue} openCount={kpis.maintenance.open} />
+              <LeaseExpirationsTable rows={dashboard.leaseExpirations} />
+            </section>
+
+            <PropertyPerformanceTable rows={dashboard.propertyPerformance} rangeLabel={range.label} />
+
+            <section className="grid items-start gap-[var(--layout-gap,1rem)] xl:grid-cols-2">
+              <RecentActivityFeed items={dashboard.recentActivity} />
+              <TenantMessagesCard messages={dashboard.tenantMessages} unreadCount={dashboard.unreadMessageCount} />
+            </section>
+          </>
+        )}
+
+        <PaymentCalendar events={portal.calendar} defaultCollapsed />
+      </div>
+    );
+  }
+
+  const snapshot = await getDashboardSnapshot(user.organizationId);
   const trend =
     user.role === "ADMIN"
       ? snapshot.charts.cashFlowTrend
@@ -75,234 +324,6 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     : 0;
   const renewalCount = portal.expiringLeases.filter((lease) => lease.daysRemaining <= 60).length;
   const tenantBalance = portal.nextPayment?.balanceDue ?? portal.nextPayment?.amount ?? 0;
-
-  if (user.role === "MANAGER") {
-    const store = await readStore();
-    const managerApplications = store.rentalApplications
-      .filter((application) => managerOwnsApplication(store, user, application))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const managerSubmissions = store.applicationSubmissions
-      .filter((submission) => managerApplications.some((application) => application.id === submission.applicationId))
-      .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
-    const pendingApplicationCount = managerSubmissions.filter((submission) => submission.status === "SUBMITTED" || submission.status === "UNDER_REVIEW").length;
-    const monthlyRentRoll = portal.scope.units.reduce((sum, unit) => sum + unit.monthlyRent, 0);
-    const upcomingMoveIns = portal.scope.leases.filter((lease) => {
-      if (lease.moveInDate) return appDateIsOnOrAfter(lease.moveInDate, getAppDateKey());
-      return lease.status === "UPCOMING" || lease.status === "invited";
-    });
-    const urgentMaintenance = [...portal.maintenanceOpen].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt)).slice(0, 5);
-    const recentOverdue = portal.overduePayments.slice(0, 5);
-    const recentSubmissions = managerSubmissions.slice(0, 5);
-
-    return (
-      <div className="dashboard-page">
-        <PageHeader
-          eyebrow={role.homeLabel}
-          title="Dashboard"
-          description="Scan collections, maintenance, applications, and lease events from one view."
-          actions={<QuickActionMenu role={user.role} />}
-        />
-
-        {params.q && searchResults ? (
-          <DetailSection title={`Search results for "${params.q}"`} description="Jump directly into matching records.">
-            <div className="grid gap-3 lg:grid-cols-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Properties</p>
-                <div className="mt-2 space-y-1">
-                  {searchResults.properties.length ? searchResults.properties.map((item) => (
-                    <Link key={item.id} href={`/properties/${item.id}`} className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.name}</Link>
-                  )) : <p className="text-sm text-[var(--muted)]">No property matches.</p>}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Units</p>
-                <div className="mt-2 space-y-1">
-                  {searchResults.units.length ? searchResults.units.map((item) => (
-                    <Link key={item.id} href={`/units/${item.id}`} className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.property.name} {item.unitNumber}</Link>
-                  )) : <p className="text-sm text-[var(--muted)]">No unit matches.</p>}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Tenants</p>
-                <div className="mt-2 space-y-1">
-                  {searchResults.tenants.length ? searchResults.tenants.map((item) => (
-                    <Link key={item.id} href="/tenants" className="block rounded-md px-2 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)]">{item.firstName} {item.lastName}</Link>
-                  )) : <p className="text-sm text-[var(--muted)]">No tenant matches.</p>}
-                </div>
-              </div>
-            </div>
-          </DetailSection>
-        ) : null}
-
-        <section className="ops-grid">
-          <StatCard label="Monthly rent roll" value={formatCurrency(monthlyRentRoll)} detail="Scheduled unit rent" tone="brand" />
-          <StatCard label="Occupancy" value={`${Math.round(portal.metrics.occupancyRate * 100)}%`} detail={`${portal.metrics.occupiedUnits} of ${portal.metrics.totalUnits} units`} tone="success" />
-          <StatCard label="Overdue balances" value={formatCurrency(portal.metrics.overdue)} detail={`${portal.overduePayments.length} open charges`} tone={portal.metrics.overdue ? "danger" : "success"} />
-          <StatCard label="Pending applications" value={String(pendingApplicationCount)} detail={`${managerApplications.length} active application links`} tone={pendingApplicationCount ? "warning" : "default"} />
-          <StatCard label="Upcoming move-ins" value={String(upcomingMoveIns.length)} detail="Upcoming or invited leases" tone={upcomingMoveIns.length ? "brand" : "default"} />
-        </section>
-
-        <section className="ops-split">
-          <DetailSection
-            title="Collections priority"
-            description="Open balances sorted for immediate follow-up."
-            actions={<Link href="/transactions" className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">Open collections</Link>}
-          >
-            {recentOverdue.length ? (
-              <DataTable columns={["Charge", "Property / unit", "Due", "Balance"]} minWidth="38rem">
-                {recentOverdue.map((payment) => {
-                  const unit = portal.scope.units.find((candidate) => candidate.id === payment.unitId);
-                  const property = unit ? portal.scope.properties.find((candidate) => candidate.id === unit.propertyId) : null;
-                  return (
-                    <tr key={payment.id} className="table-row">
-                      <td className="table-cell font-semibold">{payment.description}</td>
-                      <td className="table-cell text-[var(--muted)]">{property?.name ?? "Property"}{unit ? ` / ${unit.unitNumber}` : ""}</td>
-                      <td className="table-cell text-[var(--muted)]">{formatDate(payment.dueDate)}</td>
-                      <td className="table-cell font-semibold text-[var(--danger)]">{formatCurrency(payment.balanceDue || payment.amount)}</td>
-                    </tr>
-                  );
-                })}
-              </DataTable>
-            ) : <EmptyState icon={CheckCircle2} title="Collections are clear" description="There are no overdue balances in the current portfolio." />}
-          </DetailSection>
-
-          <DetailSection title="Quick actions" description="Start the most common manager workflows.">
-            <div>
-              {[
-                { href: "/move-ins/new", label: "Start move-in", detail: "Create lease, charges, and invite tenant" },
-                { href: "/transactions?create=charge", label: "Create charge", detail: "Add an open resident balance" },
-                { href: "/maintenance?create=1", label: "New work order", detail: "Log and assign maintenance" },
-                { href: "/applications/new", label: "Publish application", detail: "Open a leasing funnel" },
-                { href: "/properties?create=1", label: "Add property", detail: "Expand portfolio inventory" }
-              ].map((item) => (
-                <Link key={item.href} href={item.href} className="group flex items-center justify-between gap-4 border-b border-[var(--line)] px-1 py-2.5 text-sm last:border-b-0 hover:text-[var(--brand)]">
-                  <span className="min-w-0">
-                    <span className="block font-semibold transition group-hover:text-[var(--brand)]">{item.label}</span>
-                    <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{item.detail}</span>
-                  </span>
-                  <ArrowRight className="h-4 w-4 shrink-0 text-[var(--muted)] transition group-hover:text-[var(--brand)]" />
-                </Link>
-              ))}
-            </div>
-          </DetailSection>
-        </section>
-
-        <section className="ops-split">
-          <DetailSection
-            title="Application pipeline"
-            description="Latest applicants across published application links."
-            actions={<Link href="/applications" className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">View applications</Link>}
-          >
-            {recentSubmissions.length ? (
-              <DataTable columns={["Applicant", "Property / unit", "Submitted", "Status", "Fee"]} minWidth="44rem">
-                {recentSubmissions.map((submission) => {
-                  const application = managerApplications.find((item) => item.id === submission.applicationId);
-                  const property = application ? portal.scope.properties.find((item) => item.id === application.propertyId) : null;
-                  const unit = application?.unitId ? portal.scope.units.find((item) => item.id === application.unitId) : null;
-                  const applicants = store.applicationApplicants.filter((applicant) => applicant.submissionId === submission.id);
-                  const applicant = primaryApplicant(applicants);
-                  return (
-                    <tr key={submission.id} className="table-row">
-                      <td className="table-cell font-semibold">{applicant ? `${applicant.firstName} ${applicant.lastName}` : "Applicant"}</td>
-                      <td className="table-cell text-[var(--muted)]">{property?.name ?? "Property"}{unit ? ` / ${unit.unitNumber}` : ""}</td>
-                      <td className="table-cell text-[var(--muted)]">{formatDate(submission.submittedAt)}</td>
-                      <td className="table-cell"><StatusBadge status={submission.status} /></td>
-                      <td className="table-cell"><StatusBadge status={submission.feeStatus} /></td>
-                    </tr>
-                  );
-                })}
-              </DataTable>
-            ) : (
-              <EmptyState icon={ClipboardList} title="No application submissions" description="Published application activity will appear here." />
-            )}
-          </DetailSection>
-
-          <DetailSection
-            title="Open work orders"
-            description="Active maintenance ordered by most recent request."
-            actions={<Link href="/maintenance" className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">View all</Link>}
-          >
-            {urgentMaintenance.length ? urgentMaintenance.map((item) => {
-              const property = portal.scope.properties.find((candidate) => candidate.id === item.propertyId);
-              const unit = item.unitId ? portal.scope.units.find((candidate) => candidate.id === item.unitId) : null;
-              return (
-                <div key={item.id} className="activity-item">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{item.title}</p>
-                    <p className="mt-1 truncate text-xs text-[var(--muted)]">{property?.name ?? "Property"}{unit ? ` / Unit ${unit.unitNumber}` : ""}</p>
-                  </div>
-                  <StatusBadge status={item.priority} />
-                </div>
-              );
-            }) : <EmptyState icon={Wrench} title="No open work orders" description="Maintenance exceptions will appear here." />}
-          </DetailSection>
-        </section>
-
-        <section className="ops-split">
-          <DetailSection title="Upcoming lease events" description="Renewals and expirations requiring a decision.">
-            {portal.expiringLeases.length ? (
-              <DataTable columns={["Lease", "Unit", "End date", "Days remaining"]} minWidth="36rem">
-                {portal.expiringLeases.slice(0, 6).map((lease) => {
-                  const unit = portal.scope.units.find((item) => item.id === lease.unitId);
-                  return (
-                    <tr key={lease.id} className="table-row">
-                      <td className="table-cell font-semibold"><Link href={`/leases/${lease.id}`}>{lease.nexusLeaseId ?? lease.id}</Link></td>
-                      <td className="table-cell text-[var(--muted)]">{unit ? `Unit ${unit.unitNumber}` : "Unassigned"}</td>
-                      <td className="table-cell text-[var(--muted)]">{formatDate(lease.endDate!)}</td>
-                      <td className="table-cell"><StatusBadge status={`${Math.max(lease.daysRemaining, 0)} days`} tone={lease.daysRemaining <= 30 ? "warning" : "default"} /></td>
-                    </tr>
-                  );
-                })}
-              </DataTable>
-            ) : <EmptyState icon={CheckCircle2} title="No near-term lease events" description="Upcoming renewals and expirations will appear here." />}
-          </DetailSection>
-
-          <DetailSection title="Recent activity" description="Payments, requests, notices, and system updates.">
-            <div>
-              {portal.recentActivity.length ? portal.recentActivity.slice(0, 7).map((item) => (
-                <div key={item.id} className="activity-item">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{item.title}</p>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--muted)]">{item.detail}</p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{item.kind}</p>
-                    <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(item.date)}</p>
-                  </div>
-                </div>
-              )) : <EmptyState icon={BellRing} title="No recent activity" description="New operational updates will appear here." />}
-            </div>
-          </DetailSection>
-        </section>
-
-        {(() => {
-          const revenueProjection = projectMonthlyRevenue(portal.scope.leases, getAppMonthKey(), 6);
-          return (
-            <section className="ops-split">
-              <DetailSection
-                title="Projected monthly revenue"
-                description="Expected rent and deposits from active leases over the next 6 months."
-              >
-                <div className="mt-4">
-                  <ProjectedRevenueChart data={revenueProjection} />
-                </div>
-              </DetailSection>
-              <DetailSection
-                title="Cash flow trend"
-                description="Actual rent collected and expenses by month."
-              >
-                <div className="mt-4">
-                  <CashFlowChart data={trend} />
-                </div>
-              </DetailSection>
-            </section>
-          );
-        })()}
-
-        <PaymentCalendar events={portal.calendar} defaultCollapsed />
-      </div>
-    );
-  }
 
   const heroMetrics =
     user.role === "TENANT"

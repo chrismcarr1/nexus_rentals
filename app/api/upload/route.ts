@@ -3,12 +3,13 @@ import { mkdir, writeFile } from "fs/promises";
 import path from "path";
 
 import { getCurrentUser } from "@/lib/auth";
-import { getUploadStorageKey, validateUploadFile } from "@/lib/file-security";
+import { getUploadStorageKey, getUploadExtension, validateUploadFile } from "@/lib/file-security";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 const localUploadDir = path.join(process.cwd(), "public", "uploads");
+const localPrivateUploadDir = path.join(process.cwd(), "data", "private-uploads");
 
 async function saveLocalUpload(storageKey: string, bytes: Buffer) {
   const uploadPath = path.join(process.cwd(), "public", storageKey);
@@ -20,6 +21,18 @@ async function saveLocalUpload(storageKey: string, bytes: Buffer) {
   await mkdir(path.dirname(uploadPath), { recursive: true });
   await writeFile(uploadPath, bytes);
   return `/${storageKey.replace(/\\/g, "/")}`;
+}
+
+async function saveLocalPrivateUpload(storageKey: string, bytes: Buffer) {
+  const uploadPath = path.resolve(localPrivateUploadDir, storageKey.replace(/\//g, path.sep));
+
+  if (!uploadPath.startsWith(localPrivateUploadDir + path.sep)) {
+    throw new Error("Invalid private upload path.");
+  }
+
+  await mkdir(path.dirname(uploadPath), { recursive: true });
+  await writeFile(uploadPath, bytes);
+  return `private-local:${storageKey}`;
 }
 
 export async function POST(request: Request) {
@@ -50,6 +63,7 @@ export async function POST(request: Request) {
   }
 
   const file = data.get("file");
+  const purpose = String(data.get("purpose") ?? "");
 
   if (!(file instanceof File)) {
     return Response.json({ error: "Missing file" }, { status: 400 });
@@ -59,8 +73,12 @@ export async function POST(request: Request) {
   if (validation.error || !validation.bytes || !validation.contentType) {
     return Response.json({ error: validation.error ?? "Invalid upload." }, { status: 400 });
   }
+  if (purpose === "tenant-id" && !new Set(["jpg", "jpeg", "png", "pdf"]).has(getUploadExtension(file.name))) {
+    return Response.json({ error: "Tenant ID must be a PDF, JPG, or PNG file." }, { status: 400 });
+  }
 
   const storageKey = getUploadStorageKey(file.name, user);
+  const isTenantId = purpose === "tenant-id";
 
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     // Vercel production functions cannot persist uploads to the local filesystem.
@@ -74,7 +92,9 @@ export async function POST(request: Request) {
     }
 
     try {
-      const localPath = await saveLocalUpload(storageKey, validation.bytes);
+      const localPath = isTenantId
+        ? await saveLocalPrivateUpload(storageKey, validation.bytes)
+        : await saveLocalUpload(storageKey, validation.bytes);
 
       return Response.json({
         path: localPath,
@@ -89,14 +109,15 @@ export async function POST(request: Request) {
 
   try {
     const blob = await put(storageKey, new Blob([validation.bytes], { type: validation.contentType }), {
-      access: "public",
+      access: isTenantId ? "private" : "public",
       addRandomSuffix: true,
       contentType: validation.contentType
     });
+    const storedPath = isTenantId ? `private-blob:${blob.pathname}` : blob.url;
 
     return Response.json({
-      path: blob.url,
-      url: blob.url,
+      path: storedPath,
+      url: storedPath,
       name: file.name
     });
   } catch (error) {

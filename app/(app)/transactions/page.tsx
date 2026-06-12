@@ -427,6 +427,9 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
       const status = collectionStatus(row.payment).label;
       if (query && !row.searchText.includes(query)) return false;
       if (propertyFilter !== "all" && row.property?.id !== propertyFilter) return false;
+      // "overdue" is a grouped filter used by dashboard deep links: any charge
+      // that is past due, regardless of how late it is.
+      if (statusFilter === "overdue") return status === "Late" || status === "Severely Late";
       if (statusFilter !== "all" && status !== statusFilter) return false;
       return true;
     })
@@ -650,6 +653,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                   { label: "Due Soon", value: "Due Soon" },
                   { label: "Pending", value: "Pending" },
                   { label: "Partial", value: "Partial" },
+                  { label: "Overdue (any)", value: "overdue" },
                   { label: "Late", value: "Late" },
                   { label: "Severely Late", value: "Severely Late" }
                 ]

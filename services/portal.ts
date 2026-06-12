@@ -132,6 +132,15 @@ export const getPortalContext = cache(async (user: AppUser) => {
       return inspection ? unitIds.includes(inspection.unitId) : false;
     }),
     files: snapshot.uploadedFiles.filter((file) => {
+      if (user.role === "TENANT" && file.visibility === "MANAGER_ONLY") return false;
+      if (user.role === "TENANT" && file.kind === "LEASE_DOCUMENT" && !file.leaseId) {
+        return tenantLeases.some((lease) => lease.documentPath === file.path);
+      }
+      if (file.leaseId && leaseIds.includes(file.leaseId)) {
+        if (user.role !== "TENANT") return true;
+        if (file.tenantId && tenantProfile && file.tenantId !== tenantProfile.id) return false;
+        return file.visibility === "TENANT";
+      }
       if (file.propertyId) return propertyIds.includes(file.propertyId);
       if (file.unitId) return unitIds.includes(file.unitId);
       if (file.inspectionId) {

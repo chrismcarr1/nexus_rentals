@@ -34,7 +34,8 @@ import {
   sendApplicationSubmittedEmail,
   sendPasswordResetEmail
 } from "@/lib/email";
-import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmittedAssetPath } from "@/lib/file-security";
+import { filterSubmittedAssetPaths, isAllowedStoredAssetPath, isAllowedSubmittedAssetPath, isAllowedTenantIdAssetPath } from "@/lib/file-security";
+import { cleanDisplayName, defaultPhotoName, PROPERTY_PHOTO_LIMIT, UNIT_PHOTO_LIMIT } from "@/lib/document-metadata";
 import { ensureLeaseConnectionIntegrity, generateInviteToken, getUnitAvailableStartDate, hashInviteToken, isActiveLeaseStatus, leaseBlocksNewMoveIn, leaseCanResumeMoveIn, leaseStartIsAvailable, normalizeLeaseLifecycleStatus } from "@/lib/lease-connections";
 import {
   LEGAL_ACCEPT_PATH,
@@ -49,6 +50,7 @@ import {
 import { ensureScheduledLeasePayments, formatLateFeePolicy } from "@/lib/lease-payment-scheduler";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { formatPhoneNumber } from "@/lib/phone";
+import { applyOwnProfileUpdate, ProfileUpdateError } from "@/lib/profile";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { recordPlatformEvent } from "@/lib/platform-events";
 import { buildAppUrl, getAppBaseUrl } from "@/lib/request-origin";
@@ -129,6 +131,42 @@ function resolveLateFeePolicy(formData: FormData): string | undefined {
 
 function readAssetPaths(formData: FormData, key: string) {
   return formData.getAll(key).map(String).map((value) => value.trim()).filter(Boolean);
+}
+
+function readNamedAssetUploads(
+  formData: FormData,
+  {
+    pathKey,
+    titleKey,
+    originalNameKey,
+    user,
+    errorPath,
+    max
+  }: {
+    pathKey: string;
+    titleKey: string;
+    originalNameKey: string;
+    user: { id: string; organizationId: string };
+    errorPath: string;
+    max: number;
+  }
+) {
+  const paths = readAssetPaths(formData, pathKey);
+  const titles = formData.getAll(titleKey).map(String);
+  const originalNames = formData.getAll(originalNameKey).map(String);
+  if (paths.length > max || paths.some((path) => !isAllowedSubmittedAssetPath(path, user))) {
+    redirect(errorPath);
+  }
+  const seen = new Set<string>();
+  return paths.flatMap((path, index) => {
+    if (seen.has(path)) return [];
+    seen.add(path);
+    return [{
+      path,
+      title: titles[index],
+      originalName: originalNames[index]?.trim().slice(0, 255) || undefined
+    }];
+  });
 }
 
 function requireSubmittedAssetPaths(formData: FormData, key: string, user: { id: string; organizationId: string }, errorPath: string, max = 12) {
@@ -801,9 +839,20 @@ export async function createPropertyAction(formData: FormData) {
 
   const parsed = result.data;
   const address = addressResult.address;
-  const imagePaths = requireSubmittedAssetPaths(formData, "imagePaths", user, "/properties?error=invalid-upload");
+  const namedUploads = readNamedAssetUploads(formData, {
+    pathKey: "imagePaths",
+    titleKey: "imageNames",
+    originalNameKey: "imageOriginalNames",
+    user,
+    errorPath: "/properties?error=invalid-upload",
+    max: PROPERTY_PHOTO_LIMIT
+  });
   const fallbackImagePath = requireOptionalSubmittedAssetPath(getOptionalString(formData, "imagePath"), user, "/properties?error=invalid-upload");
-  const uploadedPaths = imagePaths.length ? imagePaths : fallbackImagePath ? [fallbackImagePath] : [];
+  const uploaded = namedUploads.length
+    ? namedUploads
+    : fallbackImagePath
+      ? [{ path: fallbackImagePath, title: "Property photo 1", originalName: undefined }]
+      : [];
 
   await db.property.create({
     data: {
@@ -812,13 +861,19 @@ export async function createPropertyAction(formData: FormData) {
       ...address,
       managerId: user.role === UserRole.MANAGER ? user.id : parsed.managerId,
       amenities: parsed.amenities ?? "",
-      files: uploadedPaths.length
+      files: uploaded.length
         ? {
-            create: uploadedPaths.map((path, index) => ({
+            create: uploaded.map((file, index) => ({
+              organizationId: user.organizationId,
               kind: FileKind.PROPERTY_IMAGE,
-              label: index === 0 ? "Uploaded cover" : "Uploaded property photo",
-              path,
-              mimeType: "image/*"
+              label: cleanDisplayName(file.title, defaultPhotoName("property", index + 1)),
+              displayName: cleanDisplayName(file.title, defaultPhotoName("property", index + 1)),
+              originalFileName: file.originalName,
+              path: file.path,
+              mimeType: "image/*",
+              visibility: "ORGANIZATION",
+              uploadedById: user.id,
+              uploadedAt: nowIso()
             }))
           }
         : undefined
@@ -858,43 +913,264 @@ export async function updatePropertyAction(formData: FormData) {
 
   const parsed = result.data;
   const address = addressResult.address;
-  const imagePaths = requireSubmittedAssetPaths(formData, "imagePaths", user, `/properties/${propertyId}?error=invalid-upload`);
-  const fallbackImagePath = requireOptionalSubmittedAssetPath(getOptionalString(formData, "imagePath"), user, `/properties/${propertyId}?error=invalid-upload`);
-  const uploadedPaths = imagePaths.length ? imagePaths : fallbackImagePath ? [fallbackImagePath] : [];
-
-  await db.property.update({
-    where: { id: propertyId },
-    data: {
-      name: parsed.name,
-      addressLine1: address.addressLine1,
-      addressLine2: address.addressLine2,
-      city: address.city,
-      state: address.state,
-      postalCode: address.postalCode,
-      country: address.country,
-      description: parsed.description,
-      amenities: parsed.amenities ?? "",
-      notes: parsed.notes,
-      ...(user.role === UserRole.ADMIN ? { managerId: parsed.managerId || undefined } : {})
-    }
+  const uploads = readNamedAssetUploads(formData, {
+    pathKey: "imagePaths",
+    titleKey: "imageNames",
+    originalNameKey: "imageOriginalNames",
+    user,
+    errorPath: `/properties/${propertyId}?error=invalid-upload`,
+    max: PROPERTY_PHOTO_LIMIT
   });
+  const fallbackImagePath = requireOptionalSubmittedAssetPath(getOptionalString(formData, "imagePath"), user, `/properties/${propertyId}?error=invalid-upload`);
+  const pendingUploads = uploads.length
+    ? uploads
+    : fallbackImagePath
+      ? [{ path: fallbackImagePath, title: undefined, originalName: undefined }]
+      : [];
 
-  for (const path of uploadedPaths) {
-    await db.uploadedFile.create({
-      data: {
-        propertyId,
-        kind: FileKind.PROPERTY_IMAGE,
-        label: "Uploaded property photo",
-        path,
-        mimeType: "image/*"
+  try {
+    await updateStore((store) => {
+      const ownedProperty = store.properties.find(
+        (item) =>
+          item.id === propertyId &&
+          item.organizationId === user.organizationId &&
+          (user.role === UserRole.ADMIN || item.managerId === user.id)
+      );
+      if (!ownedProperty) throw new Error("property-not-found");
+      const existingCount = store.uploadedFiles.filter(
+        (file) => file.propertyId === propertyId && file.kind === FileKind.PROPERTY_IMAGE
+      ).length;
+      if (existingCount + pendingUploads.length > PROPERTY_PHOTO_LIMIT) {
+        throw new Error("property-photo-limit");
       }
+      const uploadedAt = nowIso();
+      return {
+        ...store,
+        properties: store.properties.map((item) =>
+          item.id === propertyId
+            ? {
+                ...item,
+                name: parsed.name,
+                addressLine1: address.addressLine1,
+                addressLine2: address.addressLine2,
+                city: address.city,
+                state: address.state,
+                postalCode: address.postalCode,
+                country: address.country,
+                description: parsed.description,
+                amenities: parsed.amenities ?? "",
+                notes: parsed.notes,
+                ...(user.role === UserRole.ADMIN ? { managerId: parsed.managerId || undefined } : {}),
+                updatedAt: uploadedAt
+              }
+            : item
+        ),
+        uploadedFiles: [
+          ...store.uploadedFiles,
+          ...pendingUploads.map((file, index) => {
+            const displayName = cleanDisplayName(file.title, defaultPhotoName("property", existingCount + index + 1));
+            return {
+              id: createId("file"),
+              organizationId: user.organizationId,
+              propertyId,
+              kind: FileKind.PROPERTY_IMAGE,
+              label: displayName,
+              displayName,
+              originalFileName: file.originalName,
+              path: file.path,
+              mimeType: "image/*",
+              visibility: "ORGANIZATION" as const,
+              uploadedById: user.id,
+              uploadedAt,
+              createdAt: uploadedAt
+            };
+          })
+        ]
+      };
     });
+  } catch (error) {
+    if (error instanceof Error && error.message === "property-photo-limit") {
+      redirect(`/properties/${propertyId}?error=photo-limit#photos`);
+    }
+    throw error;
   }
 
   revalidatePath("/properties");
   revalidatePath(`/properties/${propertyId}`);
   revalidatePath("/dashboard");
   redirect(`/properties/${propertyId}`);
+}
+
+export async function renamePropertyPhotoAction(formData: FormData) {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const propertyId = getString(formData, "propertyId");
+  const fileId = getString(formData, "fileId");
+  const displayName = cleanDisplayName(getString(formData, "displayName"), "Property photo");
+
+  await updateStore((store) => {
+    const property = store.properties.find(
+      (item) =>
+        item.id === propertyId &&
+        item.organizationId === user.organizationId &&
+        (user.role === UserRole.ADMIN || item.managerId === user.id)
+    );
+    const file = store.uploadedFiles.find(
+      (item) => item.id === fileId && item.propertyId === propertyId && item.kind === FileKind.PROPERTY_IMAGE
+    );
+    if (!property || !file) throw new Error("Property photo not found.");
+    return {
+      ...store,
+      uploadedFiles: store.uploadedFiles.map((item) =>
+        item.id === fileId ? { ...item, label: displayName, displayName } : item
+      )
+    };
+  });
+
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/documents");
+}
+
+export async function deletePropertyPhotoAction(formData: FormData) {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const propertyId = getString(formData, "propertyId");
+  const fileId = getString(formData, "fileId");
+
+  await updateStore((store) => {
+    const property = store.properties.find(
+      (item) =>
+        item.id === propertyId &&
+        item.organizationId === user.organizationId &&
+        (user.role === UserRole.ADMIN || item.managerId === user.id)
+    );
+    const file = store.uploadedFiles.find(
+      (item) => item.id === fileId && item.propertyId === propertyId && item.kind === FileKind.PROPERTY_IMAGE
+    );
+    if (!property || !file) throw new Error("Property photo not found.");
+    return { ...store, uploadedFiles: store.uploadedFiles.filter((item) => item.id !== fileId) };
+  });
+
+  revalidatePath(`/properties/${propertyId}`);
+  revalidatePath("/properties");
+  revalidatePath("/documents");
+}
+
+export async function addUnitPhotosAction(formData: FormData) {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const unitId = getString(formData, "unitId");
+  const uploads = readNamedAssetUploads(formData, {
+    pathKey: "imagePaths",
+    titleKey: "imageNames",
+    originalNameKey: "imageOriginalNames",
+    user,
+    errorPath: `/units/${unitId}?error=invalid-upload#photos`,
+    max: UNIT_PHOTO_LIMIT
+  });
+
+  try {
+    await updateStore((store) => {
+      const unit = store.units.find((item) => item.id === unitId);
+      const property = store.properties.find(
+        (item) =>
+          item.id === unit?.propertyId &&
+          item.organizationId === user.organizationId &&
+          (user.role === UserRole.ADMIN || item.managerId === user.id)
+      );
+      if (!unit || !property) throw new Error("unit-not-found");
+      const existingCount = store.uploadedFiles.filter(
+        (file) => file.unitId === unitId && file.kind === FileKind.UNIT_IMAGE
+      ).length;
+      if (existingCount + uploads.length > UNIT_PHOTO_LIMIT) throw new Error("unit-photo-limit");
+      const uploadedAt = nowIso();
+      return {
+        ...store,
+        uploadedFiles: [
+          ...store.uploadedFiles,
+          ...uploads.map((file, index) => {
+            const displayName = cleanDisplayName(file.title, defaultPhotoName("unit", existingCount + index + 1));
+            return {
+              id: createId("file"),
+              organizationId: user.organizationId,
+              propertyId: property.id,
+              unitId,
+              kind: FileKind.UNIT_IMAGE,
+              label: displayName,
+              displayName,
+              originalFileName: file.originalName,
+              path: file.path,
+              mimeType: "image/*",
+              visibility: "ORGANIZATION" as const,
+              uploadedById: user.id,
+              uploadedAt,
+              createdAt: uploadedAt
+            };
+          })
+        ]
+      };
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "unit-photo-limit") {
+      redirect(`/units/${unitId}?error=photo-limit#photos`);
+    }
+    throw error;
+  }
+
+  revalidatePath(`/units/${unitId}`);
+  revalidatePath("/documents");
+  redirect(`/units/${unitId}#photos`);
+}
+
+export async function renameUnitPhotoAction(formData: FormData) {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const unitId = getString(formData, "unitId");
+  const fileId = getString(formData, "fileId");
+  const displayName = cleanDisplayName(getString(formData, "displayName"), "Unit photo");
+
+  await updateStore((store) => {
+    const unit = store.units.find((item) => item.id === unitId);
+    const property = store.properties.find(
+      (item) =>
+        item.id === unit?.propertyId &&
+        item.organizationId === user.organizationId &&
+        (user.role === UserRole.ADMIN || item.managerId === user.id)
+    );
+    const file = store.uploadedFiles.find(
+      (item) => item.id === fileId && item.unitId === unitId && item.kind === FileKind.UNIT_IMAGE
+    );
+    if (!unit || !property || !file) throw new Error("Unit photo not found.");
+    return {
+      ...store,
+      uploadedFiles: store.uploadedFiles.map((item) =>
+        item.id === fileId ? { ...item, label: displayName, displayName } : item
+      )
+    };
+  });
+
+  revalidatePath(`/units/${unitId}`);
+  revalidatePath("/documents");
+}
+
+export async function deleteUnitPhotoAction(formData: FormData) {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const unitId = getString(formData, "unitId");
+  const fileId = getString(formData, "fileId");
+
+  await updateStore((store) => {
+    const unit = store.units.find((item) => item.id === unitId);
+    const property = store.properties.find(
+      (item) =>
+        item.id === unit?.propertyId &&
+        item.organizationId === user.organizationId &&
+        (user.role === UserRole.ADMIN || item.managerId === user.id)
+    );
+    const file = store.uploadedFiles.find(
+      (item) => item.id === fileId && item.unitId === unitId && item.kind === FileKind.UNIT_IMAGE
+    );
+    if (!unit || !property || !file) throw new Error("Unit photo not found.");
+    return { ...store, uploadedFiles: store.uploadedFiles.filter((item) => item.id !== fileId) };
+  });
+
+  revalidatePath(`/units/${unitId}`);
+  revalidatePath("/documents");
 }
 
 export async function assignPropertyManagerAction(formData: FormData) {
@@ -998,7 +1274,20 @@ export async function createUnitAction(formData: FormData) {
     redirect(propertyId ? `/properties/${encodeURIComponent(propertyId)}?error=invalid-unit#add-unit` : "/properties");
   }
   const parsed = unitResult.data;
+  const namedUploads = readNamedAssetUploads(formData, {
+    pathKey: "imagePaths",
+    titleKey: "imageNames",
+    originalNameKey: "imageOriginalNames",
+    user,
+    errorPath: "/properties?error=invalid-upload",
+    max: UNIT_PHOTO_LIMIT
+  });
   const imagePath = requireOptionalSubmittedAssetPath(getOptionalString(formData, "imagePath"), user, "/properties?error=invalid-upload");
+  const uploads = namedUploads.length
+    ? namedUploads
+    : imagePath
+      ? [{ path: imagePath, title: "Unit photo 1", originalName: undefined }]
+      : [];
 
   if (!hasId(portal.scope.properties, parsed.propertyId)) {
     redirect("/properties");
@@ -1016,16 +1305,23 @@ export async function createUnitAction(formData: FormData) {
       ...parsed,
       squareFeet: parsed.squareFeet || null,
       amenities: parsed.amenities ?? "",
-      files: imagePath
+      files: uploads.length
         ? {
-            create: [
-              {
+            create: uploads.map((file, index) => {
+              const displayName = cleanDisplayName(file.title, defaultPhotoName("unit", index + 1));
+              return {
+                organizationId: user.organizationId,
                 kind: FileKind.UNIT_IMAGE,
-                label: "Uploaded image",
-                path: imagePath,
-                mimeType: "image/*"
-              }
-            ]
+                label: displayName,
+                displayName,
+                originalFileName: file.originalName,
+                path: file.path,
+                mimeType: "image/*",
+                visibility: "ORGANIZATION",
+                uploadedById: user.id,
+                uploadedAt: nowIso()
+              };
+            })
           }
         : undefined
     }
@@ -1838,6 +2134,10 @@ export async function createMoveInAction(formData: FormData) {
     user,
     `/move-ins/new?error=${encodeURIComponent("The lease agreement upload is invalid. Upload it again and retry.")}`
   );
+  const tenantIdPath = getOptionalString(formData, "tenantIdPath");
+  if (tenantIdPath && !isAllowedTenantIdAssetPath(tenantIdPath, user)) {
+    redirect(`/move-ins/new?error=${encodeURIComponent("Tenant ID must be a PDF, JPG, or PNG uploaded by your account.")}`);
+  }
   const result = newMoveInSchema.safeParse({
     propertyId: getString(formData, "propertyId"),
     unitId: getString(formData, "unitId"),
@@ -1866,6 +2166,10 @@ export async function createMoveInAction(formData: FormData) {
     lateFeePolicy: getOptionalString(formData, "lateFeePolicy"),
     notes: getOptionalString(formData, "notes"),
     documentPath,
+    documentName: getOptionalString(formData, "documentName"),
+    tenantIdPath,
+    tenantIdName: getOptionalString(formData, "tenantIdName"),
+    tenantIdOriginalName: getOptionalString(formData, "tenantIdOriginalName"),
     sendInvite: getBoolean(formData, "sendInvite"),
     existingLeaseId: getOptionalString(formData, "existingLeaseId"),
     applicationSubmissionId: getOptionalString(formData, "applicationSubmissionId")
@@ -2073,6 +2377,51 @@ export async function createMoveInAction(formData: FormData) {
           })
         : [...store.leases, lease];
       const nextUnitState = leaseDrivenUnitState(leases.filter((item) => item.unitId === unit.id));
+      const newFiles = [];
+      if (
+        parsed.documentPath &&
+        !store.uploadedFiles.some((file) => file.leaseId === leaseId && file.path === parsed.documentPath)
+      ) {
+        const displayName = cleanDisplayName(parsed.documentName, "Lease agreement");
+        newFiles.push({
+          id: createId("file"),
+          organizationId: user.organizationId,
+          propertyId: property.id,
+          unitId: unit.id,
+          leaseId,
+          tenantId,
+          kind: FileKind.LEASE_DOCUMENT,
+          label: displayName,
+          displayName,
+          path: parsed.documentPath,
+          mimeType: "application/octet-stream",
+          visibility: "TENANT" as const,
+          uploadedById: user.id,
+          uploadedAt: now,
+          createdAt: now
+        });
+      }
+      if (parsed.tenantIdPath) {
+        const displayName = cleanDisplayName(parsed.tenantIdName, "Tenant ID");
+        newFiles.push({
+          id: createId("file"),
+          organizationId: user.organizationId,
+          propertyId: property.id,
+          unitId: unit.id,
+          leaseId,
+          tenantId,
+          kind: FileKind.TENANT_ID,
+          label: displayName,
+          displayName,
+          originalFileName: parsed.tenantIdOriginalName,
+          path: parsed.tenantIdPath,
+          mimeType: "application/octet-stream",
+          visibility: "MANAGER_ONLY" as const,
+          uploadedById: user.id,
+          uploadedAt: now,
+          createdAt: now
+        });
+      }
 
       return {
         ...store,
@@ -2080,6 +2429,7 @@ export async function createMoveInAction(formData: FormData) {
         leases,
         payments: [...store.payments, ...payments],
         notifications: [...store.notifications, ...notifications],
+        uploadedFiles: [...store.uploadedFiles, ...newFiles],
         units: store.units.map((item) =>
           item.id === unit.id
             ? {
@@ -2174,6 +2524,10 @@ export async function createLeaseAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
   const documentPath = requireOptionalSubmittedAssetPath(getOptionalString(formData, "documentPath"), user, "/leases?error=invalid-upload");
+  const tenantIdPath = getOptionalString(formData, "tenantIdPath");
+  if (tenantIdPath && !isAllowedTenantIdAssetPath(tenantIdPath, user)) {
+    redirect("/leases?error=invalid-upload");
+  }
   const result = leaseSchema.safeParse({
     unitId: getString(formData, "unitId"),
     tenantId: getString(formData, "tenantId"),
@@ -2187,6 +2541,10 @@ export async function createLeaseAction(formData: FormData) {
     lateFeePolicy: resolveLateFeePolicy(formData),
     notes: getOptionalString(formData, "notes"),
     documentPath,
+    documentName: getOptionalString(formData, "documentName"),
+    tenantIdPath,
+    tenantIdName: getOptionalString(formData, "tenantIdName"),
+    tenantIdOriginalName: getOptionalString(formData, "tenantIdOriginalName"),
     status: getString(formData, "status")
   });
   if (!result.success) {
@@ -2204,7 +2562,7 @@ export async function createLeaseAction(formData: FormData) {
   const tenant = portal.scope.tenants.find((item) => item.id === parsed.tenantId);
   const tenantUser = tenant?.email ? portal.users.find((item) => item.email.toLowerCase() === tenant.email?.toLowerCase()) : null;
 
-  await db.lease.create({
+  const lease = await db.lease.create({
     data: {
       nexusLeaseId: `NXR-${Date.now().toString(36).toUpperCase()}`,
       propertyId: property?.id,
@@ -2228,6 +2586,49 @@ export async function createLeaseAction(formData: FormData) {
       }
     }
   });
+
+  const uploadedAt = nowIso();
+  if (parsed.documentPath) {
+    const displayName = cleanDisplayName(parsed.documentName, "Lease agreement");
+    await db.uploadedFile.create({
+      data: {
+        organizationId: user.organizationId,
+        propertyId: property?.id,
+        unitId: parsed.unitId,
+        leaseId: lease.id,
+        tenantId: parsed.tenantId,
+        kind: FileKind.LEASE_DOCUMENT,
+        label: displayName,
+        displayName,
+        path: parsed.documentPath,
+        mimeType: "application/octet-stream",
+        visibility: "TENANT",
+        uploadedById: user.id,
+        uploadedAt
+      }
+    });
+  }
+  if (parsed.tenantIdPath) {
+    const displayName = cleanDisplayName(parsed.tenantIdName, "Tenant ID");
+    await db.uploadedFile.create({
+      data: {
+        organizationId: user.organizationId,
+        propertyId: property?.id,
+        unitId: parsed.unitId,
+        leaseId: lease.id,
+        tenantId: parsed.tenantId,
+        kind: FileKind.TENANT_ID,
+        label: displayName,
+        displayName,
+        originalFileName: parsed.tenantIdOriginalName,
+        path: parsed.tenantIdPath,
+        mimeType: "application/octet-stream",
+        visibility: "MANAGER_ONLY",
+        uploadedById: user.id,
+        uploadedAt
+      }
+    });
+  }
 
   await db.unit.update({
     where: { id: parsed.unitId },
@@ -2268,6 +2669,7 @@ export async function updateLeaseAction(formData: FormData) {
     lateFeePolicy: resolveLateFeePolicy(formData),
     notes: getOptionalString(formData, "notes"),
     documentPath: newDocumentPath ?? existingDocumentPath,
+    documentName: getOptionalString(formData, "documentName"),
     status: getString(formData, "status")
   });
 
@@ -2319,9 +2721,31 @@ export async function updateLeaseAction(formData: FormData) {
         : lease
     );
 
+    const documentFiles =
+      newDocumentPath && !store.uploadedFiles.some((file) => file.leaseId === leaseId && file.path === newDocumentPath)
+        ? [{
+            id: createId("file"),
+            organizationId: user.organizationId,
+            propertyId: updatedProperty?.id,
+            unitId: parsed.unitId,
+            leaseId,
+            tenantId: parsed.tenantId,
+            kind: FileKind.LEASE_DOCUMENT,
+            label: cleanDisplayName(parsed.documentName, "Lease agreement"),
+            displayName: cleanDisplayName(parsed.documentName, "Lease agreement"),
+            path: newDocumentPath,
+            mimeType: "application/octet-stream",
+            visibility: "TENANT" as const,
+            uploadedById: user.id,
+            uploadedAt: updatedAt,
+            createdAt: updatedAt
+          }]
+        : [];
+
     return {
       ...store,
       leases,
+      uploadedFiles: [...store.uploadedFiles, ...documentFiles],
       units: store.units.map((unit) => {
         if (!affectedUnitIds.has(unit.id)) return unit;
         return {
@@ -2435,6 +2859,7 @@ export async function deleteLeaseAction(formData: FormData) {
       }),
       payments: store.payments.map((payment) => (payment.leaseId === leaseId ? { ...payment, leaseId: undefined, updatedAt } : payment)),
       inspections: store.inspections.map((inspection) => (inspection.leaseId === leaseId ? { ...inspection, leaseId: undefined, updatedAt } : inspection)),
+      uploadedFiles: store.uploadedFiles.filter((file) => file.leaseId !== leaseId),
       discussionThreads: store.discussionThreads.filter((thread) => !discussionThreadIds.includes(thread.id)),
       discussionMessages: store.discussionMessages.filter((message) => !discussionThreadIds.includes(message.threadId))
     };
@@ -2760,19 +3185,49 @@ export async function updateSettingsAction(formData: FormData) {
 
 export async function updateProfileAction(formData: FormData) {
   const user = await requireUser();
+  const requestedEmail = normalizeEmail(getString(formData, "email"));
+  if (
+    isRetiredAccountEmail(requestedEmail) ||
+    (isSystemAdminEmail(requestedEmail) && !isSystemAdminEmail(user.email))
+  ) {
+    redirect("/settings?profile=invalid-profile#my-profile");
+  }
 
-  await db.user.update({
-    where: { id: user.id },
-    data: {
-      firstName: getString(formData, "firstName"),
-      lastName: getString(formData, "lastName"),
-      phone: formatPhoneNumber(getOptionalString(formData, "phone")) || undefined,
-      title: getOptionalString(formData, "title")
+  let updatedUser = user;
+  try {
+    await updateStore((store) => {
+      const result = applyOwnProfileUpdate(
+        store.users,
+        user.id,
+        {
+          firstName: getString(formData, "firstName"),
+          lastName: getString(formData, "lastName"),
+          email: requestedEmail,
+          phone: getOptionalString(formData, "phone"),
+          title: getOptionalString(formData, "title"),
+          birthDate: getString(formData, "birthDate")
+        },
+        new Date()
+      );
+      updatedUser = result.updatedUser as typeof user;
+      return { ...store, users: result.users };
+    });
+  } catch (error) {
+    if (error instanceof ProfileUpdateError) {
+      redirect(`/settings?profile=${error.code}#my-profile`);
     }
-  });
+    throw error;
+  }
 
+  await createSession({
+    sub: updatedUser.id,
+    organizationId: updatedUser.organizationId,
+    role: updatedUser.role,
+    email: updatedUser.email,
+    sessionVersion: updatedUser.sessionVersion ?? 0
+  });
   revalidatePath("/settings");
-  redirect("/settings");
+  redirect("/settings?profile=updated#my-profile");
 }
 
 export async function createStripeCheckoutAction(formData: FormData) {
@@ -3140,26 +3595,53 @@ export async function createBundledStripeCheckoutAction(formData: FormData) {
 
 export async function addUnitAssetAction(formData: FormData) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
-  const portal = await getPortalContext(user);
   const unitId = getString(formData, "unitId");
   const path = requireOptionalSubmittedAssetPath(getString(formData, "path"), user, "/properties");
-  const kind = getString(formData, "kind") as FileKind;
 
-  if (!hasId(portal.scope.units, unitId) || !path) {
+  if (!path) {
     redirect("/properties");
   }
 
-  await db.uploadedFile.create({
-    data: {
-      unitId,
-      path,
-      kind,
-      mimeType: "image/*",
-      label: "Uploaded asset"
-    }
+  await updateStore((store) => {
+    const unit = store.units.find((item) => item.id === unitId);
+    const property = store.properties.find(
+      (item) =>
+        item.id === unit?.propertyId &&
+        item.organizationId === user.organizationId &&
+        (user.role === UserRole.ADMIN || item.managerId === user.id)
+    );
+    if (!unit || !property) throw new Error("Unit not found.");
+    const existingCount = store.uploadedFiles.filter(
+      (file) => file.unitId === unitId && file.kind === FileKind.UNIT_IMAGE
+    ).length;
+    if (existingCount >= UNIT_PHOTO_LIMIT) throw new Error("Unit photo limit reached.");
+    const uploadedAt = nowIso();
+    const displayName = defaultPhotoName("unit", existingCount + 1);
+    return {
+      ...store,
+      uploadedFiles: [
+        ...store.uploadedFiles,
+        {
+          id: createId("file"),
+          organizationId: user.organizationId,
+          propertyId: property.id,
+          unitId,
+          path,
+          kind: FileKind.UNIT_IMAGE,
+          mimeType: "image/*",
+          label: displayName,
+          displayName,
+          visibility: "ORGANIZATION",
+          uploadedById: user.id,
+          uploadedAt,
+          createdAt: uploadedAt
+        }
+      ]
+    };
   });
 
   revalidatePath(`/units/${unitId}`);
+  revalidatePath("/documents");
 }
 
 export async function createDamageAssessmentAction(formData: FormData) {

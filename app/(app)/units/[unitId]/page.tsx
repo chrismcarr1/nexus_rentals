@@ -1,20 +1,21 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
+import { NamedPhotoUpload } from "@/components/named-photo-upload";
 import { PageHeader } from "@/components/page-header";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { StatCard } from "@/components/stat-card";
-import { SingleUploadInput } from "@/components/upload-inputs";
 import { Badge } from "@/components/ui/badge";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { addUnitAssetAction } from "@/lib/actions";
+import { addUnitPhotosAction, deleteUnitPhotoAction, renameUnitPhotoAction } from "@/lib/actions";
 import { formatUnitAddress } from "@/lib/address";
 import { requireRouteAccess } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getFileDisplayName, UNIT_PHOTO_LIMIT } from "@/lib/document-metadata";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { formatCurrency, formatDate, parseTags } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
@@ -23,8 +24,15 @@ function formatDateOrUnset(value?: string | Date | null) {
   return value ? formatDate(value) : "Not set";
 }
 
-export default async function UnitDetailPage({ params }: { params: Promise<{ unitId: string }> }) {
+export default async function UnitDetailPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ unitId: string }>;
+  searchParams?: Promise<Record<string, string>>;
+}) {
   const { unitId } = await params;
+  const query = (await searchParams) ?? {};
   const user = await requireRouteAccess("/units");
   const portal = await getPortalContext(user);
   const unit = await db.unit.findFirst({
@@ -43,7 +51,17 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
   if (!unit || !portal.scope.units.some((item) => item.id === unit.id)) notFound();
   const unitFiles = unit.files
     .filter((file) => file.kind === "UNIT_IMAGE" && isAllowedStoredAssetPath(file.path, { allowDemo: true }))
+    .slice(0, UNIT_PHOTO_LIMIT);
+  const propertyFiles = portal.scope.files
+    .filter(
+      (file) =>
+        file.propertyId === unit.propertyId &&
+        !file.unitId &&
+        file.kind === "PROPERTY_IMAGE" &&
+        isAllowedStoredAssetPath(file.path, { allowDemo: true })
+    )
     .slice(0, 20);
+  const galleryFiles = unitFiles.length ? unitFiles : propertyFiles;
   const canStartMoveIn =
     user.role === "MANAGER" &&
     unit.property.managerId === user.id &&
@@ -83,18 +101,76 @@ export default async function UnitDetailPage({ params }: { params: Promise<{ uni
         </div>
       ) : null}
 
-      <DetailSection title="Unit gallery" description="Reference photos and unit-specific visual records.">
-        {unitFiles.length ? (
-          <PhotoCarousel photos={unitFiles} height="h-64" />
+      <DetailSection
+        id="photos"
+        title="Unit gallery"
+        description={
+          unitFiles.length
+            ? `${unitFiles.length} of ${UNIT_PHOTO_LIMIT} unit photos. Unit-specific photos are enabled.`
+            : `Using ${propertyFiles.length} inherited property photo${propertyFiles.length === 1 ? "" : "s"}.`
+        }
+      >
+        <div className="mb-4 flex flex-wrap gap-2">
+          <Badge tone={unitFiles.length ? "success" : "default"}>
+            {unitFiles.length ? "Unit-specific photos enabled" : "Using property photos"}
+          </Badge>
+          <Badge>{unitFiles.length} of {UNIT_PHOTO_LIMIT} unit photos</Badge>
+        </div>
+        {query.error === "photo-limit" ? (
+          <div className="page-alert page-alert-warning mb-4">
+            This unit already has the maximum of {UNIT_PHOTO_LIMIT} unit photos. Delete one before adding another.
+          </div>
+        ) : null}
+        {galleryFiles.length ? (
+          <PhotoCarousel
+            photos={galleryFiles}
+            height="h-64"
+            label={unitFiles.length ? "Unit-specific photos" : "Inherited property photos"}
+          />
         ) : (
-          <EmptyState title="No unit photos" description="Upload the first unit image to build a visual record for inspections, listings, and turnover." />
+          <EmptyState title="No photos available" description="Upload unit photos or add property photos to provide an inherited gallery." />
         )}
+        {unitFiles.length ? (
+          <div className="mt-5 grid gap-4 border-t border-[var(--line)] pt-5 sm:grid-cols-2 xl:grid-cols-4">
+            {unitFiles.map((file) => (
+              <div key={file.id} className="overflow-hidden rounded-md border border-[var(--line)] bg-[var(--panel)]">
+                <img src={file.path} alt={getFileDisplayName(file)} className="h-36 w-full object-cover" />
+                <div className="space-y-3 p-3">
+                  <form action={renameUnitPhotoAction} className="space-y-2">
+                    <input type="hidden" name="unitId" value={unit.id} />
+                    <input type="hidden" name="fileId" value={file.id} />
+                    <label className="block">
+                      <span className="field-label">Photo name</span>
+                      <input name="displayName" defaultValue={getFileDisplayName(file)} maxLength={120} className="field" />
+                    </label>
+                    <SubmitButton variant="secondary" className="w-full">Save name</SubmitButton>
+                  </form>
+                  <form action={deleteUnitPhotoAction}>
+                    <input type="hidden" name="unitId" value={unit.id} />
+                    <input type="hidden" name="fileId" value={file.id} />
+                    <SubmitButton variant="ghost" pendingLabel="Removing..." className="w-full text-[var(--danger)]">
+                      <Trash2 className="h-4 w-4" />
+                      Delete photo
+                    </SubmitButton>
+                  </form>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <div className="mt-5 border-t border-[var(--line)] pt-5">
-          <form action={addUnitAssetAction} className="mt-6 space-y-4">
+          <form action={addUnitPhotosAction} className="space-y-4">
             <input type="hidden" name="unitId" value={unit.id} />
-            <input type="hidden" name="kind" value="UNIT_IMAGE" />
-            <SingleUploadInput name="path" label="Upload new gallery image" />
-            <SubmitButton>Add to gallery</SubmitButton>
+            <NamedPhotoUpload
+              pathName="imagePaths"
+              titleName="imageNames"
+              originalNameName="imageOriginalNames"
+              kind="unit"
+              existingCount={unitFiles.length}
+              limit={UNIT_PHOTO_LIMIT}
+              label="Add unit photos"
+            />
+            <SubmitButton disabled={unitFiles.length >= UNIT_PHOTO_LIMIT}>Add to gallery</SubmitButton>
           </form>
         </div>
       </DetailSection>

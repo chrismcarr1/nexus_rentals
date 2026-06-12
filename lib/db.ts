@@ -142,16 +142,13 @@ function hydrateInspectionBare(store: AppStore, inspection: Inspection) {
 async function createUploadedFiles(store: AppStore, items: Partial<UploadedFile>[]) {
   for (const item of items) {
     store.uploadedFiles.push({
+      ...item,
       id: createId("file"),
       createdAt: nowIso(),
+      uploadedAt: item.uploadedAt ?? nowIso(),
       mimeType: item.mimeType ?? "image/*",
       kind: item.kind as any,
       path: item.path!,
-      label: item.label,
-      propertyId: item.propertyId,
-      unitId: item.unitId,
-      inspectionId: item.inspectionId,
-      assessmentId: item.assessmentId
     });
   }
 }

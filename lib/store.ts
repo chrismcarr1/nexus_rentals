@@ -26,7 +26,20 @@ export type MaintenanceStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
 export type MaintenancePriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 export type AssessmentSeverity = "LOW" | "MODERATE" | "HIGH" | "CRITICAL";
 export type NotificationType = "RENT_DUE" | "RENT_OVERDUE" | "LEASE_EXPIRING" | "INSPECTION_PENDING" | "MAINTENANCE_OPEN" | "DAMAGE_ASSESSMENT" | "SYSTEM";
-export type FileKind = "PROPERTY_IMAGE" | "UNIT_IMAGE" | "MOVE_IN_IMAGE" | "MOVE_OUT_IMAGE" | "DAMAGE_IMAGE" | "LEASE_DOCUMENT" | "AVATAR";
+export type FileKind =
+  | "PROPERTY_IMAGE"
+  | "UNIT_IMAGE"
+  | "MOVE_IN_IMAGE"
+  | "MOVE_OUT_IMAGE"
+  | "DAMAGE_IMAGE"
+  | "MAINTENANCE_IMAGE"
+  | "TENANT_ID"
+  | "LEASE_DOCUMENT"
+  | "LEASE_ATTACHMENT"
+  | "PAYMENT_DOCUMENT"
+  | "GENERAL_DOCUMENT"
+  | "AVATAR";
+export type FileVisibility = "ORGANIZATION" | "TENANT" | "MANAGER_ONLY";
 export type RentalApplicationStatus = "DRAFT" | "PUBLISHED" | "SUBMITTED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED" | "WITHDRAWN" | "CONVERTED_TO_LEASE";
 export type ApplicationApplicantType = "PRIMARY" | "CO_APPLICANT";
 export type ApplicationFeeStatus = "NOT_REQUIRED" | "UNPAID" | "PAID" | "WAIVED";
@@ -59,7 +72,12 @@ export const FileKind = {
   MOVE_IN_IMAGE: "MOVE_IN_IMAGE",
   MOVE_OUT_IMAGE: "MOVE_OUT_IMAGE",
   DAMAGE_IMAGE: "DAMAGE_IMAGE",
+  MAINTENANCE_IMAGE: "MAINTENANCE_IMAGE",
+  TENANT_ID: "TENANT_ID",
   LEASE_DOCUMENT: "LEASE_DOCUMENT",
+  LEASE_ATTACHMENT: "LEASE_ATTACHMENT",
+  PAYMENT_DOCUMENT: "PAYMENT_DOCUMENT",
+  GENERAL_DOCUMENT: "GENERAL_DOCUMENT",
   AVATAR: "AVATAR"
 } as const;
 
@@ -217,7 +235,27 @@ export type MaintenanceRequest = {
 };
 export type Inspection = { id: string; unitId: string; leaseId?: string; inspectionDate: string; type: string; notes?: string; createdAt: string; updatedAt: string };
 export type DamageAssessment = { id: string; inspectionId: string; createdById: string; summary: string; damageCategories: string; severity: AssessmentSeverity; confidenceScore: number; estimatedLow: number; estimatedHigh: number; wearAndTear: boolean; explanation: string; recommendedNext: string; createdAt: string; updatedAt: string };
-export type UploadedFile = { id: string; propertyId?: string; unitId?: string; inspectionId?: string; assessmentId?: string; kind: FileKind; label?: string; path: string; mimeType: string; createdAt: string };
+export type UploadedFile = {
+  id: string;
+  organizationId?: string;
+  propertyId?: string;
+  unitId?: string;
+  leaseId?: string;
+  tenantId?: string;
+  maintenanceId?: string;
+  inspectionId?: string;
+  assessmentId?: string;
+  kind: FileKind;
+  label?: string;
+  displayName?: string;
+  originalFileName?: string;
+  path: string;
+  mimeType: string;
+  visibility?: FileVisibility;
+  uploadedById?: string;
+  uploadedAt?: string;
+  createdAt: string;
+};
 export type DiscussionThread = { id: string; organizationId: string; managerUserId: string; tenantId: string; tenantUserId?: string; leaseId: string; propertyId?: string; unitId?: string; subject: string; createdAt: string; updatedAt: string };
 export type DiscussionMessage = { id: string; threadId: string; organizationId: string; senderUserId: string; body: string; createdAt: string };
 export type Notification = { id: string; organizationId: string; userId?: string; type: NotificationType; title: string; body: string; href?: string; isRead: boolean; createdAt: string };
@@ -570,6 +608,70 @@ function normalizeStore(store: AppStore): AppStore {
       .filter((lease) => lease.unitId === payment.unitId && activeLeaseStatuses.has(lease.status))
       .sort((a, b) => (b.startDate ?? b.createdAt ?? "").localeCompare(a.startDate ?? a.createdAt ?? ""))[0] ?? null;
   };
+  const fileCounters = new Map<string, number>();
+  const normalizedFiles = (store.uploadedFiles ?? []).map((file) => {
+    const unit = file.unitId ? store.units?.find((item) => item.id === file.unitId) : null;
+    const lease = file.leaseId ? sourceLeases.find((item) => item.id === file.leaseId) : null;
+    const inspection = file.inspectionId ? store.inspections?.find((item) => item.id === file.inspectionId) : null;
+    const assessment = file.assessmentId ? store.damageAssessments?.find((item) => item.id === file.assessmentId) : null;
+    const assessmentInspection = assessment
+      ? store.inspections?.find((item) => item.id === assessment.inspectionId)
+      : null;
+    const propertyId =
+      file.propertyId ??
+      lease?.propertyId ??
+      unit?.propertyId ??
+      store.units?.find((item) => item.id === lease?.unitId)?.propertyId ??
+      store.units?.find((item) => item.id === inspection?.unitId)?.propertyId ??
+      store.units?.find((item) => item.id === assessmentInspection?.unitId)?.propertyId;
+    const property = store.properties?.find((item) => item.id === propertyId);
+    const counterKey = `${file.kind}:${propertyId ?? file.unitId ?? file.leaseId ?? "general"}`;
+    const counter = (fileCounters.get(counterKey) ?? 0) + 1;
+    fileCounters.set(counterKey, counter);
+    const fallbackName =
+      file.kind === "PROPERTY_IMAGE"
+        ? `Property photo ${counter}`
+        : file.kind === "UNIT_IMAGE"
+          ? `Unit photo ${counter}`
+          : file.kind === "TENANT_ID"
+            ? "Tenant ID"
+            : file.kind === "LEASE_DOCUMENT"
+              ? "Lease agreement"
+              : "General document";
+
+    return {
+      ...file,
+      organizationId: file.organizationId ?? property?.organizationId,
+      propertyId,
+      displayName: file.displayName ?? file.label ?? fallbackName,
+      uploadedAt: file.uploadedAt ?? file.createdAt,
+      visibility: file.visibility ?? (file.kind === "TENANT_ID" ? "MANAGER_ONLY" : "ORGANIZATION")
+    };
+  });
+  const legacyLeaseFiles = sourceLeases.flatMap((lease) => {
+    if (!lease.documentPath || normalizedFiles.some((file) => file.leaseId === lease.id && file.path === lease.documentPath)) {
+      return [];
+    }
+    const unit = lease.unitId ? store.units?.find((item) => item.id === lease.unitId) : null;
+    const propertyId = lease.propertyId ?? unit?.propertyId;
+    const property = store.properties?.find((item) => item.id === propertyId);
+    return [{
+      id: `legacy-lease-document-${lease.id}`,
+      organizationId: property?.organizationId,
+      propertyId,
+      unitId: lease.unitId,
+      leaseId: lease.id,
+      tenantId: lease.tenantIds?.[0],
+      kind: "LEASE_DOCUMENT" as const,
+      label: "Lease agreement",
+      displayName: "Lease agreement",
+      path: lease.documentPath,
+      mimeType: "application/octet-stream",
+      visibility: "TENANT" as const,
+      uploadedAt: lease.updatedAt ?? lease.createdAt,
+      createdAt: lease.updatedAt ?? lease.createdAt
+    }];
+  });
 
   return {
     ...emptyStore(),
@@ -625,7 +727,8 @@ function normalizeStore(store: AppStore): AppStore {
         lateFeeAmount: payment.lateFeeAmount ?? 0,
         balanceDue: payment.balanceDue ?? (payment.status === "PAID" ? 0 : payment.amount)
       };
-    })
+    }),
+    uploadedFiles: [...normalizedFiles, ...legacyLeaseFiles]
   };
 }
 
@@ -836,7 +939,16 @@ export async function getOrganizationSnapshot(organizationId: string) {
     discussionThreads: store.discussionThreads.filter((thread) => thread.organizationId === organizationId),
     discussionMessages: store.discussionMessages.filter((message) => message.organizationId === organizationId),
     uploadedFiles: store.uploadedFiles.filter((file) => {
+      if (file.organizationId) return file.organizationId === organizationId;
       if (file.propertyId) return store.properties.find((property) => property.id === file.propertyId)?.organizationId === organizationId;
+      if (file.leaseId) {
+        const lease = store.leases.find((candidate) => candidate.id === file.leaseId);
+        const property = lease
+          ? store.properties.find((candidate) => candidate.id === lease.propertyId) ??
+            store.properties.find((candidate) => candidate.id === store.units.find((unit) => unit.id === lease.unitId)?.propertyId)
+          : null;
+        return property?.organizationId === organizationId;
+      }
       if (file.unitId) {
         const unit = store.units.find((candidate) => candidate.id === file.unitId);
         const property = store.properties.find((candidate) => candidate.id === unit?.propertyId);

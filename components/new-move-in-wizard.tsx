@@ -91,6 +91,10 @@ type MoveInFormState = {
   lateFeePolicy: string;
   notes: string;
   documentPath: string;
+  documentName: string;
+  tenantIdPath: string;
+  tenantIdName: string;
+  tenantIdOriginalName: string;
   sendInvite: boolean;
   existingLeaseId: string;
   applicationSubmissionId: string;
@@ -218,6 +222,10 @@ export function NewMoveInWizard({
     lateFeePolicy: "",
     notes: "",
     documentPath: defaultUnit?.resumableLease?.documentPath ?? "",
+    documentName: "Lease agreement",
+    tenantIdPath: "",
+    tenantIdName: "Tenant ID",
+    tenantIdOriginalName: "",
     sendInvite: defaultUnit?.resumableLease?.status !== "invited",
     existingLeaseId: defaultUnit?.resumableLease?.id ?? "",
     applicationSubmissionId: prefill?.applicationSubmissionId ?? ""
@@ -254,6 +262,10 @@ export function NewMoveInWizard({
       dueDay: String(nextUnit?.resumableLease?.dueDay ?? 1),
       rentDueTime: nextUnit?.resumableLease?.rentDueTime ?? DEFAULT_RENT_DUE_TIME,
       documentPath: nextUnit?.resumableLease?.documentPath ?? "",
+      documentName: "Lease agreement",
+      tenantIdPath: "",
+      tenantIdName: "Tenant ID",
+      tenantIdOriginalName: "",
       sendInvite: nextUnit?.resumableLease?.status !== "invited",
       existingLeaseId: nextUnit?.resumableLease?.id ?? ""
     });
@@ -277,6 +289,10 @@ export function NewMoveInWizard({
       dueDay: String(unit?.resumableLease?.dueDay ?? 1),
       rentDueTime: unit?.resumableLease?.rentDueTime ?? DEFAULT_RENT_DUE_TIME,
       documentPath: unit?.resumableLease?.documentPath ?? "",
+      documentName: "Lease agreement",
+      tenantIdPath: "",
+      tenantIdName: "Tenant ID",
+      tenantIdOriginalName: "",
       sendInvite: unit?.resumableLease?.status !== "invited",
       existingLeaseId: unit?.resumableLease?.id ?? ""
     });
@@ -573,10 +589,34 @@ export function NewMoveInWizard({
                     label="Attach signed or prepared lease"
                     accept=".pdf,.doc,.docx,image/*"
                     multiple={false}
-                    onChange={(items) => patch({ documentPath: items[0]?.path ?? "" })}
+                    onChange={(items) =>
+                      patch({
+                        documentPath: items[0]?.path ?? "",
+                        documentName: items[0] ? "Lease agreement" : ""
+                      })
+                    }
                   />
                   <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
                     This agreement will be available from the tenant invite and their lease page.
+                  </p>
+                </div>
+                <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-4">
+                  <FieldLabel label="Upload tenant ID" hint="PDF, JPG, or PNG" />
+                  <FileUploader
+                    label="Choose tenant ID"
+                    accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf"
+                    multiple={false}
+                    purpose="tenant-id"
+                    onChange={(items) =>
+                      patch({
+                        tenantIdPath: items[0]?.path ?? "",
+                        tenantIdName: items[0] ? "Tenant ID" : "",
+                        tenantIdOriginalName: items[0]?.name ?? ""
+                      })
+                    }
+                  />
+                  <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
+                    Stored as a manager-only document linked to this tenant and lease.
                   </p>
                 </div>
               </div>
@@ -667,6 +707,7 @@ export function NewMoveInWizard({
                   <ReviewRow label="Rent schedule" value={`Day ${form.dueDay} at ${formatRentDueTime(form.rentDueTime)}`} />
                   <ReviewRow label="Initial charges" value={formatCurrency(totalInitialCharges)} />
                   <ReviewRow label="Lease agreement" value={form.documentPath ? "Attached" : "Not attached"} />
+                  <ReviewRow label="Tenant ID" value={form.tenantIdPath ? "Attached" : "Not attached"} />
                   <ReviewRow label="Lease record" value={form.existingLeaseId ? "Continue existing lease" : "Create new lease"} />
                 </div>
                 <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-4">

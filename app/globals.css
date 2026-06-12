@@ -4821,6 +4821,11 @@ button.surface-card:hover {
   box-shadow: inset 2px 0 0 var(--brand);
 }
 
+.table-row[tabindex]:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
 .table-link {
   font-weight: 620;
   text-underline-offset: 3px;

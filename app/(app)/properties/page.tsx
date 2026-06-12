@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Building2, Plus } from "lucide-react";
+import { ArrowRight, Building2, Plus } from "lucide-react";
 
 import { AddressFields } from "@/components/address-fields";
+import { ClickableTableRow } from "@/components/clickable-table-row";
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
@@ -12,7 +13,7 @@ import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { MultiUploadInput } from "@/components/upload-inputs";
+import { NamedPhotoUpload } from "@/components/named-photo-upload";
 import { archivePropertyAction, assignPropertyManagerAction, createPropertyAction } from "@/lib/actions";
 import { formatAddress } from "@/lib/address";
 import { requireRouteAccess } from "@/lib/auth";
@@ -56,14 +57,6 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
     const vacant = units.length - occupied;
     const rentRoll = units.reduce((sum, unit) => sum + unit.monthlyRent, 0);
     const openMaintenance = portal.scope.maintenance.filter((item) => item.propertyId === property.id && item.status !== "RESOLVED" && item.status !== "CLOSED").length;
-    const delinquentTenants = new Set(
-      portal.overduePayments
-        .filter((payment) => units.some((unit) => unit.id === payment.unitId))
-        .flatMap((payment) => {
-          const lease = payment.leaseId ? portal.scope.leases.find((item) => item.id === payment.leaseId) : null;
-          return lease?.tenantIds ?? [];
-        })
-    ).size;
     const occupancyRate = units.length ? occupied / units.length : 0;
     const recentActivity = [
       property.updatedAt,
@@ -78,7 +71,6 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
       vacant,
       rentRoll,
       openMaintenance,
-      delinquentTenants,
       occupancyRate,
       recentActivity,
       coverImagePath: propertyCoverImages.get(property.id)
@@ -112,7 +104,7 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
       <PageHeader
         eyebrow={user.role === "ADMIN" ? "Portfolio" : "Assigned portfolio"}
         title="Properties"
-        description="A scalable property register for scanning occupancy, rent roll, maintenance exceptions, and delinquency without image-card browsing."
+        description="Open any property quickly while scanning occupancy, rent roll, and maintenance exceptions."
         actions={
           <Link href="/properties?create=1" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]">
             <Plus className="h-4 w-4" />
@@ -163,23 +155,24 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
         />
 
         {filtered.length ? (
-          <DataTable
-              className="mt-4"
-              minWidth="64rem"
-              columns={[
-                <Link key="name" href={sortHref(params, "name")} className="sort-link">Property</Link>,
-                "Address",
-                <Link key="units" href={sortHref(params, "units")} className="sort-link">Units</Link>,
-                <Link key="occupancy" href={sortHref(params, "occupancy")} className="sort-link">Occupancy</Link>,
-                <Link key="rent" href={sortHref(params, "rent")} className="sort-link">Rent roll</Link>,
-                "Maintenance",
-                "Delinquent",
-                "Status",
-                ""
-              ]}
-            >
+          <>
+            <div className="mt-4 hidden md:block">
+              <DataTable
+                minWidth="54rem"
+                columns={[
+                  <Link key="name" href={sortHref(params, "name")} className="sort-link">Property</Link>,
+                  "Address",
+                  <Link key="units" href={sortHref(params, "units")} className="sort-link">Units</Link>,
+                  <Link key="occupancy" href={sortHref(params, "occupancy")} className="sort-link">Occupancy</Link>,
+                  <Link key="rent" href={sortHref(params, "rent")} className="sort-link">Rent roll</Link>,
+                  "Maintenance",
+                  "Status",
+                  "Open",
+                  ""
+                ]}
+              >
               {filtered.map((row) => (
-                <tr key={row.property.id} className="table-row">
+                <ClickableTableRow key={row.property.id} href={`/properties/${row.property.id}`}>
                   <td className="table-cell">
                     <Link href={`/properties/${row.property.id}`} className="table-link flex items-center gap-3">
                       {row.coverImagePath ? (
@@ -203,8 +196,13 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
                   </td>
                   <td className="table-cell font-semibold">{formatCurrency(row.rentRoll)}</td>
                   <td className="table-cell">{row.openMaintenance ? <StatusBadge status={`${row.openMaintenance} open`} tone="warning" /> : <StatusBadge status="Clear" tone="success" />}</td>
-                  <td className="table-cell">{row.delinquentTenants ? <StatusBadge status={`${row.delinquentTenants} delinquent`} tone="danger" /> : <StatusBadge status="Clear" tone="success" />}</td>
                   <td className="table-cell"><StatusBadge status={row.property.status} /></td>
+                  <td className="table-cell">
+                    <Link href={`/properties/${row.property.id}`} className="inline-flex items-center gap-1.5 font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">
+                      Open
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </td>
                   <td className="table-cell text-right">
                     <RowActionsMenu>
                       <RowActionLink href={`/properties/${row.property.id}`}>View</RowActionLink>
@@ -222,9 +220,40 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
                       ) : null}
                     </RowActionsMenu>
                   </td>
-                </tr>
+                </ClickableTableRow>
               ))}
-            </DataTable>
+              </DataTable>
+            </div>
+            <div className="mt-4 grid gap-3 md:hidden">
+              {filtered.map((row) => (
+                <Link
+                  key={row.property.id}
+                  href={`/properties/${row.property.id}`}
+                  className="rounded-md border border-[var(--line)] bg-[var(--panel)] p-4 transition hover:border-[var(--brand)] hover:bg-[var(--surface-hover)]"
+                >
+                  <div className="flex items-start gap-3">
+                    {row.coverImagePath ? (
+                      <img src={row.coverImagePath} alt="" className="h-14 w-14 rounded-md object-cover" />
+                    ) : (
+                      <span className="flex h-14 w-14 items-center justify-center rounded-md bg-[var(--surface)] text-[var(--muted)]">
+                        <Building2 className="h-5 w-5" />
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold">{row.property.name}</span>
+                      <span className="mt-1 block text-sm text-[var(--muted)]">{formatAddress(row.property)}</span>
+                    </span>
+                    <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-[var(--brand)]" />
+                  </div>
+                  <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs text-[var(--muted)]">
+                    <span className="rounded-md bg-[var(--surface)] p-2"><strong className="block text-sm text-[var(--text)]">{row.units.length}</strong>Units</span>
+                    <span className="rounded-md bg-[var(--surface)] p-2"><strong className="block text-sm text-[var(--text)]">{Math.round(row.occupancyRate * 100)}%</strong>Occupied</span>
+                    <span className="rounded-md bg-[var(--surface)] p-2"><strong className="block truncate text-sm text-[var(--text)]">{formatCurrency(row.rentRoll)}</strong>Rent</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="mt-4">
             <EmptyState icon={Building2} title="No properties match" description="Adjust search or filters, or create the first property in this portfolio." action={<Link href="/properties?create=1" className="inline-flex items-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]"><Plus className="h-4 w-4" />Add first property</Link>} />
@@ -271,7 +300,15 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
                   </select>
                 </label>
               ) : null}
-              <MultiUploadInput name="imagePaths" label="Upload property photos — up to 20 total" accept="image/*" />
+              <NamedPhotoUpload
+                pathName="imagePaths"
+                titleName="imageNames"
+                originalNameName="imageOriginalNames"
+                kind="property"
+                existingCount={0}
+                limit={20}
+                label="Upload property photos"
+              />
               <div className="flex gap-2">
                 <SubmitButton>Save property</SubmitButton>
                 <Link href="/properties">
