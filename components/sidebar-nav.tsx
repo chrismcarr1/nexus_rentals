@@ -52,7 +52,15 @@ type NavItem = {
   section?: string;
 };
 
-export function SidebarNav({ items, collapsed = false }: { items: NavItem[]; collapsed?: boolean }) {
+export function SidebarNav({
+  items,
+  collapsed = false,
+  ariaLabel = "Primary navigation"
+}: {
+  items: NavItem[];
+  collapsed?: boolean;
+  ariaLabel?: string;
+}) {
   const pathname = usePathname();
   const groups = items.reduce<Array<{ label?: string; items: NavItem[] }>>((result, item) => {
     const current = result[result.length - 1];
@@ -65,7 +73,7 @@ export function SidebarNav({ items, collapsed = false }: { items: NavItem[]; col
   }, []);
 
   return (
-    <nav className="sidebar-nav" aria-label="Primary navigation" data-collapsed={collapsed}>
+    <nav className="sidebar-nav" aria-label={ariaLabel} data-collapsed={collapsed}>
       {groups.map((group, groupIndex) => (
         <div key={`${group.label ?? "navigation"}-${groupIndex}`} className="sidebar-nav-group">
           {group.label ? <p className="sidebar-nav-label">{group.label}</p> : null}

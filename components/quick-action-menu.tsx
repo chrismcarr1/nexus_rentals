@@ -49,6 +49,7 @@ export function QuickActionMenu({
         )}
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label="Quick actions"
       >
         <Plus className="h-4 w-4" />
         {compact ? <span className="sr-only">Quick actions</span> : <span>New</span>}

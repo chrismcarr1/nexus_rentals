@@ -3,12 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, ChevronDown, Gauge, LogOut, PanelLeftClose, PanelLeftOpen, Settings, X } from "lucide-react";
+import { BookOpen, ChevronDown, Gauge, LogOut, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 
 import { DropdownDismissListener } from "@/components/dropdown-dismiss-listener";
+import { MobileMenuPanel } from "@/components/mobile-menu-panel";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { TopBar } from "@/components/top-bar";
 import { useClickOutside } from "@/components/use-click-outside";
+import { useMediaQuery } from "@/components/use-media-query";
+import { getPageTitle } from "@/lib/page-title";
 import { getRoleConfig } from "@/lib/rbac";
 import { cn, initials } from "@/lib/utils";
 
@@ -41,6 +44,10 @@ export function AppShell({
   const [accountOpen, setAccountOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Tablets get an icon-only rail so content keeps enough width.
+  const isTabletRail = useMediaQuery("(min-width: 768px) and (max-width: 1023.98px)");
+  const collapsed = sidebarCollapsed || isTabletRail;
+  const pageTitle = getPageTitle(pathname, role.nav);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   useClickOutside(accountMenuRef, () => setAccountOpen(false), accountOpen);
   const guideLink =
@@ -64,7 +71,13 @@ export function AppShell({
       if (event.key === "Escape") setMobileNavOpen(false);
     }
     window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    // Lock background scrolling while the full-screen menu sheet is open.
+    const previousOverflow = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      document.documentElement.style.overflow = previousOverflow;
+    };
   }, [mobileNavOpen]);
 
   function toggleSidebar() {
@@ -78,14 +91,10 @@ export function AppShell({
   return (
     <div className="app-frame">
       <DropdownDismissListener />
-      <div className={cn("app-shell-layout", sidebarCollapsed && "app-shell-layout-collapsed")}>
+      <div className={cn("app-shell-layout", collapsed && "app-shell-layout-collapsed")}>
         <aside
           id="app-sidebar"
-          className={cn(
-            "app-sidebar",
-            sidebarCollapsed && "app-sidebar-collapsed",
-            mobileNavOpen && "app-sidebar-mobile-open"
-          )}
+          className={cn("app-sidebar", collapsed && "app-sidebar-collapsed")}
         >
           <div className="app-sidebar-brand">
             <Link href="/dashboard" className="app-sidebar-brand-link" aria-label="Nexus dashboard">
@@ -98,23 +107,15 @@ export function AppShell({
             <button
               type="button"
               onClick={toggleSidebar}
-              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              aria-expanded={!sidebarCollapsed}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!collapsed}
               className="sidebar-collapse-trigger"
             >
-              {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileNavOpen(false)}
-              aria-label="Close navigation"
-              className="sidebar-mobile-close"
-            >
-              <X className="h-4 w-4" />
+              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
             </button>
           </div>
           <div className="app-sidebar-scroll">
-            <SidebarNav items={role.nav} collapsed={sidebarCollapsed} />
+            <SidebarNav items={role.nav} collapsed={collapsed} />
           </div>
           <div className="app-sidebar-footer">
             {guideLink ? (
@@ -196,16 +197,11 @@ export function AppShell({
             </div>
           </div>
         </aside>
-        <button
-          type="button"
-          className={cn("app-sidebar-backdrop", mobileNavOpen && "app-sidebar-backdrop-visible")}
-          aria-label="Close navigation"
-          onClick={() => setMobileNavOpen(false)}
-        />
         <main className="app-main">
           <TopBar
             role={user.role}
             organizationName={user.organization.name}
+            pageTitle={pageTitle}
             notifications={notifications}
             searchQuery={searchQuery}
             searchResults={searchResults}
@@ -215,6 +211,16 @@ export function AppShell({
           <div className="app-content"><div className="app-content-inner">{children}</div></div>
         </main>
       </div>
+      <MobileMenuPanel
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        user={user}
+        roleLabel={role.label}
+        navItems={role.nav}
+        guideLink={guideLink ? { href: guideLink.href, label: user.role === "MANAGER" ? "Manager guide" : "Renter guide" } : null}
+        searchPlaceholder={user.role === "TENANT" ? "Search your records" : "Search properties, units, tenants"}
+        logoutAction={logoutAction}
+      />
     </div>
   );
 }

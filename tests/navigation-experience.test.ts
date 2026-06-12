@@ -32,24 +32,28 @@ describe("timeline and collapsible navigation wiring", () => {
 
     expect(shell).toContain('window.localStorage.getItem("nexus-sidebar-collapsed")');
     expect(shell).toContain('window.localStorage.setItem("nexus-sidebar-collapsed"');
-    expect(shell).toContain("sidebarCollapsed && \"app-sidebar-collapsed\"");
+    expect(shell).toContain("collapsed && \"app-sidebar-collapsed\"");
     expect(nav).toContain("sidebar-nav-icon");
     expect(nav).toContain("sidebar-nav-text");
     expect(css).toContain(".app-sidebar-collapsed .sidebar-nav-text");
     expect(css).toContain(".app-sidebar-collapsed .sidebar-nav-icon");
   });
 
-  it("provides an accessible mobile drawer without changing logout behavior", async () => {
+  it("provides an accessible mobile top-nav menu without changing logout behavior", async () => {
     const shell = await read("components/app-shell.tsx");
     const topBar = await read("components/top-bar.tsx");
+    const menuPanel = await read("components/mobile-menu-panel.tsx");
     const css = await read("app/globals.css");
 
-    expect(topBar).toContain('aria-controls="app-sidebar"');
+    expect(topBar).toContain('aria-controls="mobile-menu"');
     expect(topBar).toContain("mobile-nav-trigger");
-    expect(shell).toContain("app-sidebar-backdrop");
+    expect(topBar).toContain("mobile-topbar-title");
+    expect(shell).toContain("MobileMenuPanel");
     expect(shell).toContain('event.key === "Escape"');
     expect(shell).toContain("<form action={logoutAction}>");
-    expect(css).toContain(".app-sidebar-mobile-open");
-    expect(css).toContain(".app-sidebar-backdrop-visible");
+    expect(menuPanel).toContain("logoutAction");
+    expect(menuPanel).toContain('role="dialog"');
+    expect(css).toContain(".mobile-menu-overlay-open");
+    expect(css).toContain(".mobile-nav-trigger");
   });
 });

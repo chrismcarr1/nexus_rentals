@@ -1,3 +1,4 @@
+import { labelRowCells, nodeText } from "@/components/data-table-labels";
 import { cn } from "@/lib/utils";
 
 export function DataTable({
@@ -11,6 +12,8 @@ export function DataTable({
   className?: string;
   minWidth?: string;
 }) {
+  const labels = columns.map((column) => nodeText(column).trim());
+
   return (
     <div className={cn("data-table-frame data-table-scroll", className)}>
       <table className="responsive-table text-left text-[13px]" style={{ minWidth }}>
@@ -23,7 +26,7 @@ export function DataTable({
             ))}
           </tr>
         </thead>
-        <tbody>{children}</tbody>
+        <tbody>{labelRowCells(children, labels)}</tbody>
       </table>
     </div>
   );
