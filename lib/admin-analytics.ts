@@ -723,7 +723,15 @@ export async function getAdminAnalytics(range: AdminTimeRange = "30d") {
       detailsSubmitted: Boolean(manager.stripeDetailsSubmitted),
       disabledReason: manager.stripeDisabledReason ?? null,
       currentlyDue: manager.stripeCurrentlyDue ?? [],
-      updatedAt: manager.stripeUpdatedAt ?? null
+      updatedAt: manager.stripeUpdatedAt ?? null,
+      metadataUserId: manager.stripeMetadataUserId ?? null,
+      metadataOrganizationId: manager.stripeMetadataOrganizationId ?? null,
+      metadataMismatchReason: manager.stripeMetadataMismatchReason ?? null,
+      metadataMismatch: Boolean(
+        manager.stripeMetadataMismatchReason ||
+          (manager.stripeMetadataUserId && manager.stripeMetadataUserId !== manager.id) ||
+          (manager.stripeMetadataOrganizationId && manager.stripeMetadataOrganizationId !== manager.organizationId)
+      )
     };
   });
 

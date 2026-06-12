@@ -55,7 +55,19 @@ import { buildAppUrl, getAppBaseUrl } from "@/lib/request-origin";
 import { ensureApplicantPortalAccess, startCheckrScreening, startPlaidScreening } from "@/lib/screening/service";
 import { FileKind, UserRole, createId, incrementUserSessionVersion, nowIso, updateStore, type ApplicationInvite, type LeaseStatus, type RentalApplicationStatus, type UnitOccupancyStatus } from "@/lib/store";
 import { getPlatformFeeCents, getStripe } from "@/lib/stripe";
-import { clearManagerStripeConnection, createManagerConnectedAccount, createManagerDashboardLoginLink, createManagerOnboardingLink, getStripeAccountId, getStripeConnectRedirectStatus, isStripeConnectReady, syncManagerConnectedAccount } from "@/lib/stripe-connect";
+import {
+  clearManagerStripeConnection,
+  createManagerConnectedAccount,
+  createManagerOnboardingLink,
+  createManagerStripeAccessLink,
+  getManagerStripeAccessResult,
+  getManagerStripeAccessStatus,
+  getStripeAccountId,
+  getStripeConnectRedirectStatus,
+  isStripeConnectReady,
+  syncManagerConnectedAccount,
+  verifyManagerPayoutDestination
+} from "@/lib/stripe-connect";
 import { sendLeaseTenantInvite } from "@/lib/tenant-invite-delivery";
 import { formatDate } from "@/lib/utils";
 import {
@@ -255,12 +267,6 @@ function isStripeConnectSignupError(error: unknown) {
   );
 }
 
-function isStripeNoSuchAccountError(error: unknown) {
-  if (!(error instanceof Error)) return false;
-  const e = error as any;
-  return e.statusCode === 404 || e.code === "resource_missing" || e.message.toLowerCase().includes("no such account");
-}
-
 // Payment terms must be accepted (once per version) before any Stripe money
 // movement is set up: tenant checkout and manager Connect onboarding both run
 // through this. Acceptance is recorded on the acting user's own record.
@@ -284,33 +290,28 @@ export async function connectStripeAccountAction(formData?: FormData) {
   await ensurePaymentTermsAccepted(user, formData, "/settings?stripe=payment-terms-required#payments-stripe");
   let accountId = getStripeAccountId(user);
   let redirectUrl: string | null = null;
+  let startedOnboarding = false;
 
   try {
     const appUrl = getAppBaseUrl();
 
     if (accountId) {
       try {
-        const updatedUser = await syncManagerConnectedAccount(user);
-        const hasRequirements =
-          (updatedUser?.stripeCurrentlyDue?.length ?? 0) > 0 ||
-          (updatedUser?.stripePastDue?.length ?? 0) > 0;
-
-        if (!hasRequirements && updatedUser?.stripeDetailsSubmitted) {
-          // Onboarding complete, no outstanding requirements → Express Dashboard.
-          redirectUrl = await createManagerDashboardLoginLink(accountId);
-        } else if (updatedUser?.stripeDetailsSubmitted) {
-          // Details submitted but requirements still outstanding → account_update link.
-          redirectUrl = await createManagerOnboardingLink(accountId, appUrl, "account_update");
-        }
-        // else details_submitted = false → fall through to account_onboarding below.
-      } catch (syncError) {
-        if (isStripeNoSuchAccountError(syncError)) {
-          console.log("[stripe-connect] Stale account cleared; creating fresh Express account", { userId: user.id, staleId: accountId });
+        const access = await createManagerStripeAccessLink(user, appUrl);
+        redirectUrl = access.url;
+        startedOnboarding = access.mode === "onboarding";
+      } catch (accessError) {
+        const status = getManagerStripeAccessStatus(accessError);
+        if (status === "reconnect-required" || status === "stripe-account-mismatch") {
+          console.log("[stripe-connect] Unusable account cleared; creating fresh Express account", {
+            userId: user.id,
+            reason: status
+          });
           await clearManagerStripeConnection(user.id);
           const fresh = await createManagerConnectedAccount(user);
           accountId = fresh.id;
         } else {
-          throw syncError;
+          throw accessError;
         }
       }
     } else {
@@ -319,7 +320,11 @@ export async function connectStripeAccountAction(formData?: FormData) {
     }
 
     if (!redirectUrl) {
-      redirectUrl = await createManagerOnboardingLink(accountId!, appUrl, "account_onboarding");
+      redirectUrl = await createManagerOnboardingLink(accountId!, appUrl);
+      startedOnboarding = true;
+    }
+
+    if (startedOnboarding) {
       await recordPlatformEvent({
         type: "STRIPE_SETUP_STARTED",
         category: "connect_onboarding",
@@ -334,13 +339,17 @@ export async function connectStripeAccountAction(formData?: FormData) {
     const e = error as any;
     console.error("[stripe] Failed to start manager Connect onboarding", {
       userId: user.id,
-      message: e?.message,
+      name: e?.name,
       type: e?.type,
       code: e?.code,
       statusCode: e?.statusCode
     });
     if (isStripeConnectSignupError(error)) {
       redirect("/settings?stripe=connect-not-enabled#payments-stripe");
+    }
+    const status = getManagerStripeAccessStatus(error);
+    if (status !== "connect-error") {
+      redirect(`/settings?stripe=${status}#payments-stripe`);
     }
     redirect("/settings?stripe=connect-error#payments-stripe");
   }
@@ -361,8 +370,11 @@ export async function refreshStripeConnectStatusAction() {
       status = getStripeConnectRedirectStatus(updatedUser);
     }
   } catch (error) {
-    console.error("[stripe] Failed to refresh manager Connect status", error);
-    status = "connect-error";
+    status = getManagerStripeAccessStatus(error);
+    console.error("[stripe] Failed to refresh manager Connect status", {
+      userId: user.id,
+      status
+    });
   }
 
   revalidatePath("/settings");
@@ -373,26 +385,24 @@ export async function refreshStripeConnectStatusAction() {
 export async function openStripeDashboardAction() {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const accountId = getStripeAccountId(user);
-  let loginUrl: string | null = null;
 
   if (!accountId) {
     redirect("/settings?stripe=connect-required#payments-stripe");
   }
 
-  try {
-    await syncManagerConnectedAccount(user);
-    loginUrl = await createManagerDashboardLoginLink(accountId);
-  } catch (error) {
-    console.error("[stripe] Failed to open manager Stripe dashboard", error);
-    if (isStripeNoSuchAccountError(error)) {
+  const result = await getManagerStripeAccessResult(user, getAppBaseUrl());
+  if (result.ok === false) {
+    console.error("[stripe] Failed to open manager Stripe account", {
+      userId: user.id,
+      ...result.diagnostic
+    });
+    if (result.clearConnection) {
       await clearManagerStripeConnection(user.id);
-      redirect("/settings?stripe=reconnect-required#payments-stripe");
     }
-    redirect("/settings?stripe=connect-error#payments-stripe");
+    redirect(`/settings?stripe=${result.status}#payments-stripe`);
   }
 
-  if (!loginUrl) redirect("/settings?stripe=connect-error#payments-stripe");
-  redirect(loginUrl);
+  redirect(result.url);
 }
 
 
@@ -2804,12 +2814,37 @@ export async function createStripeCheckoutAction(formData: FormData) {
     redirect(`/transactions?stripe=manager-setup-required&payment=${encodeURIComponent(payment.id)}`);
   }
 
-  try {
-    connectedManager = await syncManagerConnectedAccount(manager);
-  } catch (error) {
-    console.error("[stripe] Failed to verify manager Connect account before checkout", error);
+  // Payout safety: the destination account is retrieved fresh from Stripe and
+  // its metadata must map to this manager and organization. Mismatched or
+  // unverifiable ownership fails closed so rent can never route to a connected
+  // account that belongs to a different Nexus user or organization.
+  const destinationCheck = await verifyManagerPayoutDestination(manager);
+  if (!destinationCheck.ok) {
+    if (destinationCheck.blocked) {
+      await recordPlatformEvent({
+        type: "STRIPE_CHECKOUT_BLOCKED",
+        category: "checkout_single",
+        status: "blocked",
+        organizationId: user.organizationId,
+        userId: user.id,
+        relatedId: payment.id,
+        message: "Checkout blocked: manager Stripe payout account ownership mismatch.",
+        metadata: {
+          paymentId: payment.id,
+          managerUserId: manager.id,
+          accountId: getStripeAccountId(manager) ?? null,
+          reason: destinationCheck.reason
+        }
+      });
+      redirect(`/transactions?stripe=manager-account-mismatch&payment=${encodeURIComponent(payment.id)}`);
+    }
+    console.error("[stripe] Manager Connect account unavailable before checkout", {
+      managerUserId: manager.id,
+      reason: destinationCheck.reason
+    });
     redirect(`/transactions?stripe=manager-setup-required&payment=${encodeURIComponent(payment.id)}`);
   }
+  connectedManager = destinationCheck.user;
 
   const connectedAccountId = getStripeAccountId(connectedManager);
   if (!isStripeConnectReady(connectedManager) || !connectedAccountId) {
@@ -2974,11 +3009,32 @@ export async function createBundledStripeCheckoutAction(formData: FormData) {
   }
 
   let connectedManager = manager;
-  try {
-    connectedManager = await syncManagerConnectedAccount(manager);
-  } catch {
+  // Payout safety: same fail-closed ownership verification as the single
+  // payment checkout — the bundled transfer destination must belong to this
+  // manager and organization.
+  const destinationCheck = await verifyManagerPayoutDestination(manager);
+  if (!destinationCheck.ok) {
+    if (destinationCheck.blocked) {
+      await recordPlatformEvent({
+        type: "STRIPE_CHECKOUT_BLOCKED",
+        category: "checkout_bundled",
+        status: "blocked",
+        organizationId: user.organizationId,
+        userId: user.id,
+        relatedId: firstPayment.id,
+        message: "Bundled checkout blocked: manager Stripe payout account ownership mismatch.",
+        metadata: {
+          paymentIds: paymentIds.join(","),
+          managerUserId: manager.id,
+          accountId: getStripeAccountId(manager) ?? null,
+          reason: destinationCheck.reason
+        }
+      });
+      redirect(`/transactions?stripe=manager-account-mismatch`);
+    }
     redirect(`/transactions?stripe=manager-setup-required`);
   }
+  connectedManager = destinationCheck.user;
 
   const connectedAccountId = getStripeAccountId(connectedManager);
   if (!isStripeConnectReady(connectedManager) || !connectedAccountId) {
