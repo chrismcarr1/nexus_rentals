@@ -119,6 +119,9 @@ export type StripeOwnershipReason =
   | "metadata-missing"
   | "metadata-user-mismatch"
   | "metadata-organization-mismatch"
+  // The Stripe client refused to initialize (missing key, or a live key
+  // blocked outside production by lib/stripe-env). Not an ownership problem.
+  | "stripe-config"
   | "stripe-error";
 
 // Safe, loggable summary of a connected account's ownership check. Never put
@@ -179,8 +182,21 @@ function buildOwnershipVerification(
 async function retrieveAccountForOwnership(accountId: string): Promise<
   { account: Stripe.Account; failure?: never } | { account: null; failure: StripeOwnershipReason }
 > {
+  let stripe: Stripe;
   try {
-    const retrieved = await getStripe().accounts.retrieve(accountId);
+    stripe = getStripe();
+  } catch (error) {
+    // Environment guard rails (lib/stripe-env) throw here before any network
+    // call — e.g. a live key in local development. Surface this as a distinct
+    // configuration failure so the UI never reports it as an ownership mismatch.
+    console.error("[stripe-connect] Stripe client unavailable for ownership check", {
+      accountId,
+      message: error instanceof Error ? error.message : "unknown"
+    });
+    return { account: null, failure: "stripe-config" };
+  }
+  try {
+    const retrieved = await stripe.accounts.retrieve(accountId);
     if ((retrieved as unknown as { deleted?: boolean }).deleted === true) {
       return { account: null, failure: "account-deleted" };
     }
@@ -513,7 +529,11 @@ export async function verifyAndSyncStoredStripeAccount(user: StripeAccountOwner)
   const expectation = { expectedUserId: user.id, expectedOrganizationId: user.organizationId };
   const { account, failure } = await retrieveAccountForOwnership(accountId);
   if (!account) {
-    if (failure !== "stripe-error") await markManagerStripeMismatch(user.id, failure);
+    // Only a definitive account problem is persisted as a mismatch; transient
+    // API failures and environment configuration refusals are not ownership facts.
+    if (failure === "account-not-found" || failure === "account-deleted") {
+      await markManagerStripeMismatch(user.id, failure);
+    }
     return { verification: buildOwnershipVerification(accountId, null, failure), metadataBackfilled: false };
   }
 

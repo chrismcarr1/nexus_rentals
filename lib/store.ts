@@ -700,6 +700,32 @@ export async function getUserById(id: string) {
   return store.users.find((user) => user.id === id) ?? null;
 }
 
+// Bypasses the shared read cache for the rare reads that must observe a write
+// made milliseconds earlier — possibly by another server instance whose cache
+// invalidation we cannot see (e.g. rendering settings immediately after a
+// Stripe repair action redirected back). Use sparingly: every call is a full
+// uncached store fetch.
+export async function readStoreFresh(): Promise<AppStore> {
+  if (shouldUseLocalFallback()) {
+    return readLocalStore();
+  }
+  try {
+    return await fetchHostedStore();
+  } catch (error) {
+    if (isLocalDevelopment()) {
+      enterLocalFallback(error);
+      return readLocalStore();
+    }
+    console.error("[store] Failed to read hosted Postgres datastore (fresh read)", error);
+    throw error;
+  }
+}
+
+export async function getUserByIdFresh(id: string) {
+  const store = await readStoreFresh();
+  return store.users.find((user) => user.id === id) ?? null;
+}
+
 export async function getOrganizationById(id: string) {
   const store = await readStore();
   return store.organizations.find((organization) => organization.id === id) ?? null;

@@ -11,16 +11,28 @@ const mocks = vi.hoisted(() => {
       this.url = url;
     }
   }
-  return {
-    RedirectError,
-    redirect: vi.fn((url: string): never => {
-      throw new RedirectError(url);
-    }),
+  const stripeFns = {
     retrieveAccount: vi.fn(),
     updateAccount: vi.fn(),
     createAccount: vi.fn(),
     createAccountLink: vi.fn(),
-    createLoginLink: vi.fn(),
+    createLoginLink: vi.fn()
+  };
+  return {
+    RedirectError,
+    ...stripeFns,
+    redirect: vi.fn((url: string): never => {
+      throw new RedirectError(url);
+    }),
+    getStripe: vi.fn(() => ({
+      accounts: {
+        retrieve: stripeFns.retrieveAccount,
+        update: stripeFns.updateAccount,
+        create: stripeFns.createAccount,
+        createLoginLink: stripeFns.createLoginLink
+      },
+      accountLinks: { create: stripeFns.createAccountLink }
+    })),
     updateUser: vi.fn(),
     recordPlatformEvent: vi.fn(),
     requireRoles: vi.fn(),
@@ -34,15 +46,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 
 vi.mock("@/lib/stripe", () => ({
-  getStripe: () => ({
-    accounts: {
-      retrieve: mocks.retrieveAccount,
-      update: mocks.updateAccount,
-      create: mocks.createAccount,
-      createLoginLink: mocks.createLoginLink
-    },
-    accountLinks: { create: mocks.createAccountLink }
-  })
+  getStripe: mocks.getStripe
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -55,7 +59,8 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/legal", () => ({
-  hasAcceptedCurrentPaymentTerms: mocks.hasAcceptedCurrentPaymentTerms
+  hasAcceptedCurrentPaymentTerms: mocks.hasAcceptedCurrentPaymentTerms,
+  PAYMENT_TERMS_VERSION: "test-payment-terms-v1"
 }));
 
 vi.mock("@/lib/platform-events", () => ({
@@ -117,7 +122,7 @@ async function expectRedirect(promise: Promise<unknown>, includes: string) {
   } catch (error) {
     expect(error).toBeInstanceOf(mocks.RedirectError);
     expect((error as InstanceType<typeof mocks.RedirectError>).url).toContain(includes);
-    return;
+    return (error as InstanceType<typeof mocks.RedirectError>).url;
   }
   throw new Error(`Expected a redirect containing "${includes}" but the action returned.`);
 }
@@ -141,19 +146,25 @@ beforeEach(() => {
 });
 
 describe("attachStripeAccountAction", () => {
-  it("attaches a valid account and records the repair", async () => {
+  it("attaches a valid account, mutates the current user record, and reports repair-success", async () => {
     mocks.retrieveAccount.mockResolvedValue(stripeAccount());
     const { attachStripeAccountAction } = await import("@/lib/stripe-repair-actions");
 
-    await expectRedirect(attachStripeAccountAction(formData({ accountId: "acct_1" })), "stripe=attach-success");
+    const url = await expectRedirect(attachStripeAccountAction(formData({ accountId: "acct_1" })), "stripe=repair-success");
+    expect(url).toContain("account=acct_1");
 
-    expect(mocks.updateUser).toHaveBeenCalled();
+    // The mutation targets the logged-in user and writes both connected
+    // account fields — the same fields settings displays and checkout reads.
+    const { where, data } = mocks.updateUser.mock.calls[0][0];
+    expect(where).toEqual({ id: manager.id });
+    expect(data.stripeAccountId).toBe("acct_1");
+    expect(data.stripeConnectedAccountId).toBe("acct_1");
     expect(mocks.recordPlatformEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "STRIPE_ACCOUNT_REPAIRED", userId: manager.id, organizationId: manager.organizationId })
     );
   });
 
-  it("rejects an account whose metadata belongs to a different user", async () => {
+  it("rejects a userId mismatch with a clear status and does not mutate", async () => {
     mocks.retrieveAccount.mockResolvedValue(
       stripeAccount({ metadata: { userId: "user_other", organizationId: manager.organizationId } })
     );
@@ -161,7 +172,7 @@ describe("attachStripeAccountAction", () => {
 
     await expectRedirect(
       attachStripeAccountAction(formData({ accountId: "acct_1" })),
-      "stripe=attach-blocked&reason=metadata-user-mismatch"
+      "stripe=repair-rejected-user-mismatch"
     );
 
     expect(mocks.updateUser).not.toHaveBeenCalled();
@@ -170,7 +181,7 @@ describe("attachStripeAccountAction", () => {
     );
   });
 
-  it("rejects an account from another organization", async () => {
+  it("rejects an organization mismatch with a clear status and does not mutate", async () => {
     mocks.retrieveAccount.mockResolvedValue(
       stripeAccount({ metadata: { userId: manager.id, organizationId: "org_other" } })
     );
@@ -178,34 +189,62 @@ describe("attachStripeAccountAction", () => {
 
     await expectRedirect(
       attachStripeAccountAction(formData({ accountId: "acct_1" })),
-      "reason=metadata-organization-mismatch"
+      "stripe=repair-rejected-org-mismatch"
     );
     expect(mocks.updateUser).not.toHaveBeenCalled();
   });
 
-  it("rejects an account with missing metadata", async () => {
+  it("rejects an account with missing metadata as repair-invalid-account", async () => {
     mocks.retrieveAccount.mockResolvedValue(stripeAccount({ metadata: {} }));
     const { attachStripeAccountAction } = await import("@/lib/stripe-repair-actions");
 
-    await expectRedirect(attachStripeAccountAction(formData({ accountId: "acct_1" })), "reason=metadata-missing");
+    const url = await expectRedirect(
+      attachStripeAccountAction(formData({ accountId: "acct_1" })),
+      "stripe=repair-invalid-account"
+    );
+    expect(url).toContain("reason=metadata-missing");
     expect(mocks.updateUser).not.toHaveBeenCalled();
   });
 
   it("refuses malformed account IDs without calling Stripe", async () => {
     const { attachStripeAccountAction } = await import("@/lib/stripe-repair-actions");
 
-    await expectRedirect(attachStripeAccountAction(formData({ accountId: "evil-input" })), "stripe=attach-invalid-id");
+    const url = await expectRedirect(
+      attachStripeAccountAction(formData({ accountId: "evil-input" })),
+      "stripe=repair-invalid-account"
+    );
+    expect(url).toContain("reason=invalid-id");
     expect(mocks.retrieveAccount).not.toHaveBeenCalled();
+  });
+
+  it("reports a Stripe environment refusal as repair-error/stripe-config, never as an ownership problem", async () => {
+    // lib/stripe-env throws before any network call when a live key is used
+    // outside production (the exact situation in local development).
+    mocks.getStripe.mockImplementationOnce(() => {
+      throw new Error("Refusing to initialize Stripe with a LIVE secret key in the development environment");
+    });
+    const { attachStripeAccountAction } = await import("@/lib/stripe-repair-actions");
+
+    const url = await expectRedirect(attachStripeAccountAction(formData({ accountId: "acct_1" })), "stripe=repair-error");
+    expect(url).toContain("reason=stripe-config");
+    expect(mocks.updateUser).not.toHaveBeenCalled();
+    // Not an ownership fact: no mismatch event is recorded.
+    expect(mocks.recordPlatformEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "STRIPE_ACCOUNT_MISMATCH_DETECTED" })
+    );
   });
 });
 
 describe("resyncStripeAccountAction", () => {
-  it("re-syncs a valid stored account", async () => {
+  it("re-syncs a valid stored account and stores a fresh metadataVerifiedAt", async () => {
     mocks.retrieveAccount.mockResolvedValue(stripeAccount());
     const { resyncStripeAccountAction } = await import("@/lib/stripe-repair-actions");
 
-    await expectRedirect(resyncStripeAccountAction(), "stripe=resync-ok");
+    await expectRedirect(resyncStripeAccountAction(), "stripe=resync-success");
 
+    const { data } = mocks.updateUser.mock.calls[0][0];
+    expect(data.stripeMetadataVerifiedAt).toBeTruthy();
+    expect(data.stripeMetadataMismatchReason).toBeUndefined();
     expect(mocks.recordPlatformEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "STRIPE_ACCOUNT_RESYNCED" })
     );
@@ -217,7 +256,7 @@ describe("resyncStripeAccountAction", () => {
     );
     const { resyncStripeAccountAction } = await import("@/lib/stripe-repair-actions");
 
-    await expectRedirect(resyncStripeAccountAction(), "stripe=resync-blocked&reason=metadata-user-mismatch");
+    await expectRedirect(resyncStripeAccountAction(), "stripe=repair-rejected-user-mismatch");
 
     expect(mocks.recordPlatformEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "STRIPE_ACCOUNT_MISMATCH_DETECTED" })
@@ -229,13 +268,13 @@ describe("reconnectStripeAccountAction", () => {
   it("requires the explicit confirmation checkbox", async () => {
     const { reconnectStripeAccountAction } = await import("@/lib/stripe-repair-actions");
 
-    await expectRedirect(reconnectStripeAccountAction(formData({})), "stripe=reconnect-confirm-required");
+    await expectRedirect(reconnectStripeAccountAction(formData({})), "stripe=reconnect-confirmation-required");
 
     expect(mocks.updateUser).not.toHaveBeenCalled();
     expect(mocks.createAccount).not.toHaveBeenCalled();
   });
 
-  it("clears the stored account and creates a fresh one with correct metadata", async () => {
+  it("creates the replacement account first and redirects to Stripe onboarding", async () => {
     mocks.createAccount.mockResolvedValue(stripeAccount({ id: "acct_new" }));
     const { reconnectStripeAccountAction } = await import("@/lib/stripe-repair-actions");
 
@@ -244,10 +283,12 @@ describe("reconnectStripeAccountAction", () => {
       "https://connect.stripe.test/onboarding"
     );
 
-    // First user update clears the old connection without deleting anything in Stripe.
-    const clearCall = mocks.updateUser.mock.calls[0][0];
-    expect(clearCall.data.stripeAccountId).toBeUndefined();
-    expect(clearCall.data.stripeConnectedAccountId).toBeUndefined();
+    // No destructive pre-clear: the very first user write already stores the
+    // new account (overwriting the old fields in the same update).
+    const firstWrite = mocks.updateUser.mock.calls[0][0];
+    expect(firstWrite.where).toEqual({ id: manager.id });
+    expect(firstWrite.data.stripeAccountId).toBe("acct_new");
+    expect(firstWrite.data.stripeConnectedAccountId).toBe("acct_new");
 
     expect(mocks.createAccount.mock.calls[0][0].metadata).toEqual({
       source: "nexus_manager_payouts",
@@ -255,8 +296,52 @@ describe("reconnectStripeAccountAction", () => {
       organizationId: manager.organizationId
     });
     expect(mocks.recordPlatformEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "STRIPE_ACCOUNT_RECONNECT_STARTED" })
+      expect.objectContaining({
+        type: "STRIPE_ACCOUNT_RECONNECT_STARTED",
+        metadata: expect.objectContaining({ previousAccountId: "acct_1", newAccountId: "acct_new" })
+      })
     );
+  });
+
+  it("leaves the previous connection untouched when account creation fails", async () => {
+    mocks.createAccount.mockRejectedValue(new Error("Stripe unavailable"));
+    const { reconnectStripeAccountAction } = await import("@/lib/stripe-repair-actions");
+
+    const url = await expectRedirect(
+      reconnectStripeAccountAction(formData({ confirmReconnect: "on" })),
+      "stripe=repair-error"
+    );
+    expect(url).toContain("reason=reconnect-failed");
+    // The stored account was never cleared or replaced.
+    expect(mocks.updateUser).not.toHaveBeenCalled();
+  });
+
+  it("bounces to payment-terms-required when terms are outstanding and the checkbox is absent", async () => {
+    mocks.hasAcceptedCurrentPaymentTerms.mockReturnValue(false);
+    const { reconnectStripeAccountAction } = await import("@/lib/stripe-repair-actions");
+
+    await expectRedirect(
+      reconnectStripeAccountAction(formData({ confirmReconnect: "on" })),
+      "stripe=payment-terms-required"
+    );
+    expect(mocks.createAccount).not.toHaveBeenCalled();
+  });
+
+  it("records inline payment-terms acceptance and proceeds", async () => {
+    mocks.hasAcceptedCurrentPaymentTerms.mockReturnValue(false);
+    mocks.createAccount.mockResolvedValue(stripeAccount({ id: "acct_new" }));
+    const { reconnectStripeAccountAction } = await import("@/lib/stripe-repair-actions");
+
+    await expectRedirect(
+      reconnectStripeAccountAction(formData({ confirmReconnect: "on", acceptPaymentTerms: "on" })),
+      "https://connect.stripe.test/onboarding"
+    );
+
+    const termsWrite = mocks.updateUser.mock.calls.find(
+      (call) => call[0].data.paymentTermsVersionAccepted === "test-payment-terms-v1"
+    );
+    expect(termsWrite).toBeTruthy();
+    expect(mocks.createAccount).toHaveBeenCalled();
   });
 });
 
@@ -305,7 +390,6 @@ describe("adminRepairStripeAccountAction", () => {
       "repair=success"
     );
 
-    // Metadata userId is re-stamped to the repaired manager.
     expect(mocks.updateAccount).toHaveBeenCalledWith("acct_1", {
       metadata: {
         source: "nexus_manager_payouts",
@@ -313,7 +397,6 @@ describe("adminRepairStripeAccountAction", () => {
         organizationId: manager.organizationId
       }
     });
-    // The previous local owner is detached so payouts cannot double-route.
     const detachCall = mocks.updateUser.mock.calls.find((call) => call[0].where.id === "user_other");
     expect(detachCall).toBeTruthy();
     expect(detachCall![0].data.stripeAccountId).toBeUndefined();

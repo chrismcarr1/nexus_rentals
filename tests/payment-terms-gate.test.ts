@@ -15,7 +15,8 @@ import { describe, expect, it } from "vitest";
 const GATED_FORM_ACTIONS = [
   "createStripeCheckoutAction",
   "createBundledStripeCheckoutAction",
-  "connectStripeAccountAction"
+  "connectStripeAccountAction",
+  "reconnectStripeAccountAction"
 ];
 
 const APP_DIR = path.join(__dirname, "..", "app");

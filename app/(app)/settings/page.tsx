@@ -28,6 +28,7 @@ import {
   reconnectStripeAccountAction,
   resyncStripeAccountAction
 } from "@/lib/stripe-repair-actions";
+import { getUserByIdFresh } from "@/lib/store";
 import { getPortalContext } from "@/services/portal";
 
 function stripeOwnershipReasonLabel(reason?: string) {
@@ -36,19 +37,45 @@ function stripeOwnershipReasonLabel(reason?: string) {
   if (reason === "metadata-missing") return "the Stripe account has no Nexus ownership metadata";
   if (reason === "account-not-found") return "the Stripe account could not be found (possibly a test/live mode mismatch)";
   if (reason === "account-deleted") return "the Stripe account was deleted in Stripe";
+  if (reason === "stripe-config") return "Stripe is not available in this environment";
   return "the account's ownership could not be verified";
 }
 
+// One explicit message per repair outcome. Status names are fixed vocabulary
+// shared with lib/stripe-repair-actions.ts.
 function stripeRepairMessage(status?: string, reason?: string) {
-  if (status === "resync-ok") return "Stripe account re-synced. Ownership metadata matches your Nexus account and payout status was refreshed.";
-  if (status === "resync-metadata-repaired") return "Stripe account re-synced. Missing ownership metadata was restored from your Nexus account.";
-  if (status === "resync-blocked") return `Re-sync refused: ${stripeOwnershipReasonLabel(reason)}. Payments stay blocked until this is repaired.`;
-  if (status === "attach-invalid-id") return "Enter a Stripe account ID starting with acct_.";
-  if (status === "attach-success") return "Stripe account verified and attached. Payout status was synced.";
-  if (status === "attach-blocked") return `That account cannot be attached: ${stripeOwnershipReasonLabel(reason)}.`;
-  if (status === "reconnect-confirm-required") return "Check the confirmation box before starting a fresh Stripe connection.";
+  if (status === "repair-success") return "Stripe account verified and attached. Payout status was synced; checkout will route to this account.";
+  if (status === "repair-rejected-user-mismatch")
+    return "This Stripe account belongs to a different Nexus user in the same organization. Use system admin repair or reconnect.";
+  if (status === "repair-rejected-org-mismatch")
+    return "This Stripe account belongs to a different Nexus organization, so it can never be attached here. Nothing was changed.";
+  if (status === "repair-invalid-account")
+    return reason === "invalid-id"
+      ? "Enter a Stripe account ID starting with acct_."
+      : `That account cannot be attached: ${stripeOwnershipReasonLabel(reason)}. Nothing was changed.`;
+  if (status === "resync-success")
+    return reason === "metadata-backfilled"
+      ? "Stripe account re-synced. Missing ownership metadata was restored from your Nexus account."
+      : "Stripe account re-synced. Ownership metadata matches your Nexus account and payout status was refreshed.";
+  if (status === "reconnect-started") return "A fresh Stripe onboarding was started. Finish onboarding in Stripe to enable payouts.";
+  if (status === "reconnect-confirmation-required") return "Check the confirmation box before starting a fresh Stripe connection.";
+  if (status === "repair-error")
+    return reason === "stripe-config"
+      ? "Stripe is disabled in this environment: the server refused to initialize the Stripe client (live keys are blocked outside production). Nothing was changed. Run this repair on the deployed app, or use a test key locally."
+      : "Stripe could not be reached to complete this repair. Nothing was changed. Try again, or check the Stripe status page.";
   return null;
 }
+
+const STRIPE_REPAIR_STATUSES = new Set([
+  "repair-success",
+  "repair-rejected-user-mismatch",
+  "repair-rejected-org-mismatch",
+  "repair-invalid-account",
+  "resync-success",
+  "reconnect-started",
+  "reconnect-confirmation-required",
+  "repair-error"
+]);
 
 function stripeSettingsMessage(status?: string) {
   if (status === "connect-return") return "Stripe onboarding returned to Nexus. Refreshing payout status...";
@@ -82,6 +109,17 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
     } catch (error) {
       console.error("[stripe] Failed to refresh Connect status after settings return", error);
       stripeStatus = "connect-error";
+    }
+  }
+
+  // The store read cache (1s TTL) is per server instance, so the render right
+  // after a repair action's redirect can land on an instance whose cache
+  // predates the write and silently show the old account ID. Re-read the user
+  // uncached whenever we arrive from a repair outcome.
+  if (user.role !== "TENANT" && stripeStatus && STRIPE_REPAIR_STATUSES.has(stripeStatus)) {
+    const freshUser = await getUserByIdFresh(user.id);
+    if (freshUser) {
+      stripeUser = { ...user, ...freshUser };
     }
   }
 
@@ -149,6 +187,11 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
               {stripeMessage ? (
                 <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--text)]">
                   {stripeMessage}
+                  {params.account ? (
+                    <p className="mt-1 font-mono text-xs font-normal text-[var(--muted)]">
+                      Submitted account: {params.account} · Current stored account: {managerConnect.accountId ?? "none"}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               {stripeOwnershipMismatch ? (
@@ -356,6 +399,15 @@ export default async function SettingsPage({ searchParams }: { searchParams?: Pr
                       <input type="checkbox" name="confirmReconnect" required className="mt-0.5 shrink-0" />
                       <span>I understand this replaces my current Stripe payout connection.</span>
                     </label>
+                    {!hasAcceptedCurrentPaymentTerms(stripeUser) ? (
+                      <label className="flex items-start gap-2 text-xs leading-5 text-[var(--muted-strong)]">
+                        <input type="checkbox" name="acceptPaymentTerms" required className="mt-0.5 shrink-0" />
+                        <span>
+                          I understand payments are processed by third-party processors and agree to the{" "}
+                          <Link href="/payment-terms" target="_blank" className="font-semibold underline">Payment Terms</Link>.
+                        </span>
+                      </label>
+                    ) : null}
                     <SubmitButton className="w-full" variant="secondary" pendingLabel="Starting...">
                       <ExternalLink className="h-4 w-4" />
                       Reconnect Stripe
