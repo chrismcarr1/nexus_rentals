@@ -7,7 +7,8 @@ import {
   normalizeContractorType,
   normalizeMaintenanceAnalysis,
   normalizePriority,
-  normalizeTimeline
+  normalizeTimeline,
+  parseMaintenanceJson
 } from "@/lib/ai-maintenance";
 
 function validRawAnalysis() {
@@ -138,5 +139,35 @@ describe("normalizeMaintenanceAnalysis", () => {
   it("returns null when normalized text still violates the strict schema", () => {
     expect(normalizeMaintenanceAnalysis({ ...validRawAnalysis(), issueSummary: "Short." })).toBeNull();
     expect(normalizeMaintenanceAnalysis({ ...validRawAnalysis(), title: "X" })).toBeNull();
+  });
+});
+
+describe("parseMaintenanceJson", () => {
+  it("parses a plain JSON string", () => {
+    const result = parseMaintenanceJson(JSON.stringify(validRawAnalysis()));
+    expect(result).not.toBeNull();
+    expect(result?.category).toBe("plumbing");
+  });
+
+  it("strips ```json markdown fences before parsing", () => {
+    const fenced = "```json\n" + JSON.stringify(validRawAnalysis()) + "\n```";
+    const result = parseMaintenanceJson(fenced);
+    expect(result).not.toBeNull();
+    expect(result?.title).toBe("Kitchen sink drain leak");
+  });
+
+  it("strips bare ``` fences before parsing", () => {
+    const fenced = "```\n" + JSON.stringify(validRawAnalysis()) + "\n```";
+    expect(parseMaintenanceJson(fenced)).not.toBeNull();
+  });
+
+  it("returns null for invalid or truncated JSON instead of throwing", () => {
+    expect(parseMaintenanceJson("not json at all")).toBeNull();
+    expect(parseMaintenanceJson('{"title": "Leak under sink", "category": "plumb')).toBeNull();
+    expect(parseMaintenanceJson("")).toBeNull();
+  });
+
+  it("returns null for valid JSON that fails schema validation", () => {
+    expect(parseMaintenanceJson(JSON.stringify({ title: "x" }))).toBeNull();
   });
 });

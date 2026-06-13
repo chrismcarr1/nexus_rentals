@@ -182,6 +182,10 @@ type OpenAiOutputItem = {
 type OpenAiResponse = {
   output_text?: string;
   output?: OpenAiOutputItem[];
+  status?: string;
+  incomplete_details?: {
+    reason?: string;
+  };
   error?: {
     message?: string;
   };
@@ -354,23 +358,55 @@ async function toOpenAiImageContent(imagePath: string) {
   };
 }
 
-function extractOutputText(response: OpenAiResponse) {
+function firstTextBlock(items: OpenAiOutputItem[]): string | null {
+  for (const item of items) {
+    for (const block of item.content ?? []) {
+      if (typeof block.text === "string" && block.text.trim()) {
+        return block.text.trim();
+      }
+    }
+  }
+  return null;
+}
+
+// Resilient extraction for the Responses API. `output_text` is an SDK-only
+// convenience field and is absent from raw HTTP responses, so we fall back to
+// walking `output`: prefer message items, then any item carrying a text block.
+function extractResponseText(response: OpenAiResponse): string | null {
   if (typeof response.output_text === "string" && response.output_text.trim()) {
-    return response.output_text;
+    return response.output_text.trim();
   }
 
-  const text = response.output
-    ?.flatMap((item) => item.content ?? [])
-    .filter((content) => content.type === "output_text" && typeof content.text === "string")
-    .map((content) => content.text)
-    .join("\n")
+  const items = Array.isArray(response.output) ? response.output : [];
+  const messageItems = items.filter((item) => item.type === "message");
+  return firstTextBlock(messageItems) ?? firstTextBlock(items);
+}
+
+// First 500 chars, whitespace-collapsed, for diagnostics. The Responses payload
+// only echoes the model's own output (never the API key or uploaded image data),
+// so this is safe to log.
+function safePreview(value: string) {
+  return collapseWhitespace(value).slice(0, 500);
+}
+
+// Strips markdown fences then parses + validates. Returns null on any failure
+// (invalid JSON or schema violation) rather than throwing.
+export function parseMaintenanceJson(raw: string): MaintenanceAiAnalysis | null {
+  const cleaned = raw
+    .trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
     .trim();
 
-  if (!text) {
-    throw new Error("OpenAI returned no maintenance analysis text.");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    return null;
   }
 
-  return text;
+  return normalizeMaintenanceAnalysis(parsed);
 }
 
 function collapseWhitespace(value: string) {
@@ -554,11 +590,15 @@ async function requestAnalysis(input: AnalyzeMaintenanceInput): Promise<Maintena
           ]
         }
       ],
-      max_output_tokens: 1200,
+      // gpt-5-mini is a reasoning model: leave generous headroom so reasoning
+      // tokens cannot truncate the JSON message (a truncated body is the usual
+      // cause of "not valid JSON"). Keep reasoning effort low to limit spend.
+      max_output_tokens: 2048,
+      reasoning: { effort: "low" },
       text: {
         format: {
           type: "json_schema",
-          name: "maintenance_analysis",
+          name: "maintenance_ai_analysis",
           strict: true,
           schema: responseSchema
         }
@@ -571,16 +611,26 @@ async function requestAnalysis(input: AnalyzeMaintenanceInput): Promise<Maintena
     throw new Error(payload.error?.message || "OpenAI could not analyze the maintenance request.");
   }
 
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(extractOutputText(payload));
-  } catch {
-    throw new Error("OpenAI returned a maintenance analysis that was not valid JSON.");
+  const rawText = extractResponseText(payload);
+  if (!rawText) {
+    console.error(
+      "[ai-maintenance] OpenAI response contained no text output.",
+      `status=${payload.status ?? "unknown"}`,
+      payload.incomplete_details?.reason ? `reason=${payload.incomplete_details.reason}` : "",
+      `output=${safePreview(JSON.stringify(payload.output ?? []))}`
+    );
+    throw new Error("OpenAI returned an empty maintenance analysis.");
   }
 
-  const analysis = normalizeMaintenanceAnalysis(parsedJson);
+  const analysis = parseMaintenanceJson(rawText);
   if (!analysis) {
-    throw new Error("OpenAI returned a maintenance analysis that failed validation after normalization.");
+    console.error(
+      "[ai-maintenance] Could not parse or validate analysis JSON.",
+      payload.status ? `status=${payload.status}` : "",
+      payload.incomplete_details?.reason ? `reason=${payload.incomplete_details.reason}` : "",
+      `preview=${safePreview(rawText)}`
+    );
+    throw new Error("OpenAI returned a maintenance analysis that was not valid JSON.");
   }
 
   return toDraft(analysis);
