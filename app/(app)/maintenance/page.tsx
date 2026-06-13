@@ -343,7 +343,7 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
         ) : null}
 
         {params.ai === "1" ? (
-          <DetailSection title="AI photo intake" description="Generate a structured maintenance draft from up to three photos.">
+          <DetailSection title="AI intake" description="Generate a structured maintenance draft from a written description and up to three photos.">
             <MaintenanceAiRequestForm
               userRole={user.role}
               userName={`${user.firstName} ${user.lastName}`.trim()}
@@ -645,10 +645,10 @@ export default async function MaintenancePage({ searchParams }: { searchParams?:
       <Card className="p-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="section-kicker">AI photo request</p>
-            <h2 className="mt-2 text-2xl font-semibold">Generate a request from photos</h2>
+            <p className="section-kicker">AI request</p>
+            <h2 className="mt-2 text-2xl font-semibold">Generate a request with AI</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-              Upload up to 3 photos, generate a draft, review the fields, and submit the maintenance request.
+              Describe the issue or upload up to 3 photos, generate a draft, review the fields, and submit the maintenance request.
             </p>
           </div>
           <Badge tone="warning">Up to 3 photos</Badge>

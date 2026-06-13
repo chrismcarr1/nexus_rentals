@@ -15,19 +15,26 @@ type PropertyOption = { id: string; name: string };
 type UnitOption = { id: string; propertyId: string; unitNumber: string; propertyName: string };
 type DraftResponse = {
   draft?: {
-    category: string;
     title: string;
+    category: string;
+    priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
     description: string;
     estimatedLow: number;
     estimatedHigh: number;
     estimatedCost: number;
-    accessNotes: string;
     timeline: string;
+    likelyCause: string;
+    recommendedRepair: string;
+    contractorType: string;
+    estimatedTimeline: string;
+    safetyConcern: "NO" | "YES";
+    safetyNotes: string;
     confidenceScore: number;
-    explanation: string;
   };
   error?: string;
 };
+
+const aiDisclaimer = "AI estimates are informational and should be verified by a qualified professional.";
 
 const imageAccept = "image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif";
 
@@ -36,6 +43,8 @@ function emptyDraftFields(userName: string) {
     category: "",
     title: "",
     description: "",
+    priority: "MEDIUM",
+    safetyConcern: "NO",
     estimatedCost: "",
     entryPermission: "REQUEST_APPROVAL",
     contactPreference: "APP",
@@ -130,8 +139,9 @@ export function MaintenanceAiRequestForm({
   }
 
   async function generateDraft() {
-    if (photos.length === 0) {
-      setDraftError("Upload at least one photo first.");
+    const description = (fields.description || fields.title).trim();
+    if (photos.length === 0 && !description) {
+      setDraftError("Describe the issue or upload at least one photo first.");
       return;
     }
 
@@ -144,7 +154,7 @@ export function MaintenanceAiRequestForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imagePaths: photos.map((photo) => photo.path),
-          notes: fields.description || fields.title
+          description
         })
       });
       const payload = (await response.json().catch(() => ({}))) as DraftResponse;
@@ -160,8 +170,9 @@ export function MaintenanceAiRequestForm({
         category: payload.draft!.category,
         title: payload.draft!.title,
         description: payload.draft!.description,
+        priority: payload.draft!.priority,
+        safetyConcern: payload.draft!.safetyConcern,
         estimatedCost: String(payload.draft!.estimatedCost),
-        accessNotes: payload.draft!.accessNotes,
         timeline: payload.draft!.timeline
       }));
     } finally {
@@ -172,7 +183,8 @@ export function MaintenanceAiRequestForm({
   return (
     <form action={createMaintenanceAction} className="mt-5 space-y-5">
       <input type="hidden" name="status" value="OPEN" />
-      <input type="hidden" name="priority" value="MEDIUM" />
+      {userRole === "TENANT" ? <input type="hidden" name="priority" value={fields.priority} /> : null}
+      <input type="hidden" name="safetyConcern" value={fields.safetyConcern} />
       <input type="hidden" name="actualCost" value="" />
       <input type="hidden" name="assignedTo" value="" />
       {photos.map((photo) => (
@@ -232,10 +244,15 @@ export function MaintenanceAiRequestForm({
                 </button>
               </div>
             ))}
-            {photos.length === 0 ? <p className="text-sm text-[var(--muted)]">Upload a close-up, a wide room view, and any important visible detail.</p> : null}
+            {photos.length === 0 ? <p className="text-sm text-[var(--muted)]">Upload a close-up, a wide room view, and any important visible detail. Photos are optional — a written description alone also works.</p> : null}
           </div>
 
-          <Button type="button" className="w-full" onClick={generateDraft} disabled={photos.length === 0 || isGenerating || isUploading}>
+          <Button
+            type="button"
+            className="w-full"
+            onClick={generateDraft}
+            disabled={isGenerating || isUploading || (photos.length === 0 && !(fields.description || fields.title).trim())}
+          >
             <Sparkles className="h-4 w-4" />
             {isGenerating ? "Generating draft..." : "Generate AI draft"}
           </Button>
@@ -246,14 +263,28 @@ export function MaintenanceAiRequestForm({
             <div className="rounded-md border border-[rgba(13,143,123,0.2)] bg-[var(--accent-soft)] p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge>{draftSummary.category}</Badge>
+                <Badge tone={draftSummary.priority === "URGENT" || draftSummary.priority === "HIGH" ? "danger" : "default"}>
+                  {draftSummary.priority}
+                </Badge>
                 <span className="text-sm font-semibold text-[var(--text)]">
                   ${draftSummary.estimatedLow.toLocaleString()} - ${draftSummary.estimatedHigh.toLocaleString()}
                 </span>
               </div>
-              <p className="mt-3 text-sm leading-6 text-[var(--muted-strong)]">{draftSummary.explanation}</p>
+              <p className="mt-3 text-sm leading-6 text-[var(--muted-strong)]">
+                Likely cause: {draftSummary.likelyCause}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[var(--muted-strong)]">
+                Recommended repair: {draftSummary.recommendedRepair} ({draftSummary.contractorType}, {draftSummary.estimatedTimeline})
+              </p>
+              {draftSummary.safetyNotes ? (
+                <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Safety: {draftSummary.safetyNotes}
+                </p>
+              ) : null}
               <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
                 Confidence {Math.round(draftSummary.confidenceScore * 100)}%
               </p>
+              <p className="mt-2 text-xs leading-5 text-[var(--muted)]">{aiDisclaimer}</p>
             </div>
           ) : null}
 
@@ -298,6 +329,14 @@ export function MaintenanceAiRequestForm({
               <span className="text-sm font-semibold text-[var(--text)]">Category</span>
               <input name="category" value={fields.category} onChange={(event) => updateField("category", event.target.value)} className="field mt-2" />
             </label>
+            {userRole !== "TENANT" ? (
+              <label className="block">
+                <span className="text-sm font-semibold text-[var(--text)]">Priority</span>
+                <select name="priority" className="field mt-2" value={fields.priority} onChange={(event) => updateField("priority", event.target.value)}>
+                  {["LOW", "MEDIUM", "HIGH", "URGENT"].map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+                </select>
+              </label>
+            ) : null}
             <label className="block">
               <span className="text-sm font-semibold text-[var(--text)]">Estimated cost</span>
               <input name="estimatedCost" type="number" min="0" step="1" value={fields.estimatedCost} onChange={(event) => updateField("estimatedCost", event.target.value)} className="field mt-2" />
