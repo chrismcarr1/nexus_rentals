@@ -58,6 +58,13 @@ export const propertySchema = z.object({
   name: z.string().min(2),
   description: z.string().optional(),
   amenities: z.string().optional(),
+  // Listing-related marketing/contact fields, surfaced as listing autofill.
+  petPolicy: z.string().optional(),
+  parking: z.string().optional(),
+  utilities: z.string().optional(),
+  contactName: z.string().optional(),
+  contactEmail: z.string().optional(),
+  contactPhone: z.string().optional(),
   notes: z.string().optional(),
   managerId: z.string().optional()
 });
@@ -75,8 +82,16 @@ export const unitSchema = z.object({
   occupancyStatus: z.enum(["OCCUPIED", "VACANT", "NOTICE", "TURNOVER"]),
   leaseStatus: z.enum(["ACTIVE", "UPCOMING", "EXPIRED", "TERMINATED"]),
   amenities: z.string().optional(),
+  // Listing-related fields, surfaced as listing autofill defaults.
+  availabilityDate: z.string().optional(),
+  leaseTerms: z.string().optional(),
+  unitDescription: z.string().optional(),
   notes: z.string().optional()
 });
+
+// Editing an existing unit's listing-relevant detail. Does not allow changing
+// the property the unit belongs to.
+export const unitUpdateSchema = unitSchema.omit({ propertyId: true });
 
 export const tenantSchema = z.object({
   firstName: z.string().min(2),

@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckCircle2, Circle, ImagePlus, Plus, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,11 +9,20 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { createListingAction, updateListingAction } from "@/lib/listing-actions";
+import { buildListingDefaultsFromPropertyUnit } from "@/lib/listing-defaults";
 
 export type ListingPropertyOption = {
   id: string;
   name: string;
   formattedAddress: string;
+  description?: string;
+  amenities?: string;
+  petPolicy?: string;
+  parking?: string;
+  utilities?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
   photoUrls: string[];
 };
 
@@ -26,6 +35,11 @@ export type ListingUnitOption = {
   bedrooms: number;
   bathrooms: number;
   squareFeet?: number;
+  // Already a yyyy-mm-dd date key, ready for the date input.
+  availabilityDate?: string;
+  leaseTerms?: string;
+  unitDescription?: string;
+  amenities?: string;
   photoUrls: string[];
 };
 
@@ -74,28 +88,44 @@ export function ListingEditor({
   properties,
   units,
   values,
+  initialPropertyId,
+  initialUnitId,
   error
 }: {
   mode: "create" | "edit";
   properties: ListingPropertyOption[];
   units: ListingUnitOption[];
   values?: ListingFormValues;
+  initialPropertyId?: string;
+  initialUnitId?: string;
   error?: string;
 }) {
   const initial = values;
-  const [propertyId, setPropertyId] = useState(initial?.propertyId ?? properties[0]?.id ?? "");
-  const [unitId, setUnitId] = useState(initial?.unitId ?? "");
+  // In create mode, an explicit ?propertyId/?unitId (e.g. a "Create Listing"
+  // link from a property or unit page) preselects the source and triggers
+  // autofill on mount.
+  const startPropertyId = initial?.propertyId ?? initialPropertyId ?? properties[0]?.id ?? "";
+  const startUnitId = initial?.unitId ?? initialUnitId ?? "";
+  const [propertyId, setPropertyId] = useState(startPropertyId);
+  const [unitId, setUnitId] = useState(startUnitId);
   const [rent, setRent] = useState(initial?.rent ?? "");
   const [deposit, setDeposit] = useState(initial?.deposit ?? "");
   const [bedrooms, setBedrooms] = useState(initial?.bedrooms ?? "");
   const [bathrooms, setBathrooms] = useState(initial?.bathrooms ?? "");
   const [squareFeet, setSquareFeet] = useState(initial?.squareFeet ?? "");
   const [availabilityDate, setAvailabilityDate] = useState(initial?.availabilityDate ?? "");
+  const [leaseTerms, setLeaseTerms] = useState(initial?.leaseTerms ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
+  const [amenities, setAmenities] = useState(initial?.amenities ?? "");
+  const [petPolicy, setPetPolicy] = useState(initial?.petPolicy ?? "");
+  const [parking, setParking] = useState(initial?.parking ?? "");
+  const [utilities, setUtilities] = useState(initial?.utilities ?? "");
   const [contactName, setContactName] = useState(initial?.contactName ?? "");
   const [contactEmail, setContactEmail] = useState(initial?.contactEmail ?? "");
   const [contactPhone, setContactPhone] = useState(initial?.contactPhone ?? "");
   const [photoUrls, setPhotoUrls] = useState<string[]>(initial?.photoUrls?.length ? initial.photoUrls : [""]);
+  // Tracks whether the manager has been told the fields were prefilled.
+  const [autofilled, setAutofilled] = useState(false);
 
   const propertyUnits = useMemo(() => units.filter((unit) => unit.propertyId === propertyId), [propertyId, units]);
   const selectedProperty = properties.find((property) => property.id === propertyId);
@@ -107,20 +137,57 @@ export function ListingEditor({
     return Array.from(new Set([...fromUnit, ...fromProperty])).filter((url) => !photoUrls.includes(url));
   }, [selectedUnit, selectedProperty, photoUrls]);
 
+  // Populate every editable field from the selected property + unit using the
+  // shared listing-defaults helper, so create-from-property, create-from-unit,
+  // and create-from-listings all behave identically. Fields stay editable.
+  const applyDefaults = useCallback(
+    (property: ListingPropertyOption | undefined, unit: ListingUnitOption | undefined) => {
+      if (!property) return;
+      const defaults = buildListingDefaultsFromPropertyUnit(property, unit);
+      setRent(defaults.rent ? String(defaults.rent) : "");
+      setDeposit(defaults.deposit ? String(defaults.deposit) : "");
+      setBedrooms(unit ? String(defaults.bedrooms) : "");
+      setBathrooms(defaults.bathrooms ? String(defaults.bathrooms) : "");
+      setSquareFeet(defaults.squareFeet != null ? String(defaults.squareFeet) : "");
+      setAvailabilityDate(defaults.availabilityDate ?? "");
+      setLeaseTerms(defaults.leaseTerms ?? "");
+      setDescription(defaults.description);
+      setAmenities(defaults.amenities);
+      setPetPolicy(defaults.petPolicy);
+      setParking(defaults.parking);
+      setUtilities(defaults.utilities);
+      setContactName(defaults.contactName);
+      setContactEmail(defaults.contactEmail);
+      setContactPhone(defaults.contactPhone);
+      setPhotoUrls(defaults.photoUrls.length ? defaults.photoUrls : [""]);
+      setAutofilled(true);
+    },
+    []
+  );
+
+  // On mount in create mode, prefill from any preselected property/unit.
+  useEffect(() => {
+    if (mode !== "create") return;
+    const property = properties.find((item) => item.id === startPropertyId);
+    const unit = units.find((item) => item.id === startUnitId && item.propertyId === startPropertyId);
+    applyDefaults(property, unit);
+    // Run once on mount; selection changes are handled by the choose* handlers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function chooseProperty(nextPropertyId: string) {
     setPropertyId(nextPropertyId);
     setUnitId("");
+    if (mode === "create") {
+      applyDefaults(properties.find((item) => item.id === nextPropertyId), undefined);
+    }
   }
 
   function chooseUnit(nextUnitId: string) {
     setUnitId(nextUnitId);
-    const unit = units.find((item) => item.id === nextUnitId);
-    if (unit) {
-      if (!rent) setRent(String(unit.monthlyRent));
-      if (!deposit) setDeposit(String(unit.depositAmount));
-      if (!bedrooms) setBedrooms(String(unit.bedrooms));
-      if (!bathrooms) setBathrooms(String(unit.bathrooms));
-      if (!squareFeet && unit.squareFeet) setSquareFeet(String(unit.squareFeet));
+    if (mode === "create") {
+      const unit = units.find((item) => item.id === nextUnitId);
+      applyDefaults(selectedProperty, unit);
     }
   }
 
@@ -170,6 +237,13 @@ export function ListingEditor({
 
       <div className="space-y-4">
         {error ? <div className="rounded-md border border-amber-600/18 bg-amber-500/12 px-4 py-3 text-sm text-amber-800">{error}</div> : null}
+        {mode === "create" ? (
+          <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm leading-6 text-[var(--muted)]">
+            {autofilled
+              ? "Listing details are prefilled from the selected property and unit. You can edit them before publishing."
+              : "Pick a property and unit to prefill the listing from their saved details. You can edit everything before publishing."}
+          </div>
+        ) : null}
 
         <Card className="p-5 lg:p-6">
           <p className="section-kicker">Source</p>
@@ -232,7 +306,7 @@ export function ListingEditor({
           </div>
           <label className="mt-4 block">
             <FieldLabel label="Lease terms" hint="e.g. 12-month" />
-            <Input name="leaseTerms" defaultValue={initial?.leaseTerms ?? ""} placeholder="12-month lease, renewable" />
+            <Input name="leaseTerms" value={leaseTerms} onChange={(event) => setLeaseTerms(event.target.value)} placeholder="12-month lease, renewable" />
           </label>
           <label className="mt-4 block">
             <FieldLabel label="Description" hint="Shown to renters" />
@@ -246,19 +320,19 @@ export function ListingEditor({
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="block sm:col-span-2">
               <FieldLabel label="Amenities" hint="Comma separated" />
-              <Input name="amenities" defaultValue={initial?.amenities ?? ""} placeholder="In-unit laundry, Central AC, Dishwasher" />
+              <Input name="amenities" value={amenities} onChange={(event) => setAmenities(event.target.value)} placeholder="In-unit laundry, Central AC, Dishwasher" />
             </label>
             <label className="block">
               <FieldLabel label="Pet policy" />
-              <Input name="petPolicy" defaultValue={initial?.petPolicy ?? ""} placeholder="Cats and dogs welcome (deposit required)" />
+              <Input name="petPolicy" value={petPolicy} onChange={(event) => setPetPolicy(event.target.value)} placeholder="Cats and dogs welcome (deposit required)" />
             </label>
             <label className="block">
               <FieldLabel label="Parking" />
-              <Input name="parking" defaultValue={initial?.parking ?? ""} placeholder="1 covered space included" />
+              <Input name="parking" value={parking} onChange={(event) => setParking(event.target.value)} placeholder="1 covered space included" />
             </label>
             <label className="block sm:col-span-2">
               <FieldLabel label="Utilities" />
-              <Input name="utilities" defaultValue={initial?.utilities ?? ""} placeholder="Water and trash included; tenant pays electric" />
+              <Input name="utilities" value={utilities} onChange={(event) => setUtilities(event.target.value)} placeholder="Water and trash included; tenant pays electric" />
             </label>
           </div>
         </Card>

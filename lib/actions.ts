@@ -95,7 +95,8 @@ import {
   settingsSchema,
   signupSchema,
   tenantSchema,
-  unitSchema
+  unitSchema,
+  unitUpdateSchema
 } from "@/lib/validations";
 import { isRetiredAccountEmail } from "@/lib/retired-accounts";
 import { generateDamageEstimate } from "@/services/damage-estimator";
@@ -835,6 +836,12 @@ export async function createPropertyAction(formData: FormData) {
     name: getString(formData, "name"),
     description: getOptionalString(formData, "description"),
     amenities: getOptionalString(formData, "amenities"),
+    petPolicy: getOptionalString(formData, "petPolicy"),
+    parking: getOptionalString(formData, "parking"),
+    utilities: getOptionalString(formData, "utilities"),
+    contactName: getOptionalString(formData, "contactName"),
+    contactEmail: getOptionalString(formData, "contactEmail"),
+    contactPhone: getOptionalString(formData, "contactPhone"),
     notes: getOptionalString(formData, "notes"),
     managerId: getOptionalString(formData, "managerId")
   });
@@ -909,6 +916,12 @@ export async function updatePropertyAction(formData: FormData) {
     name: getString(formData, "name"),
     description: getOptionalString(formData, "description"),
     amenities: getOptionalString(formData, "amenities"),
+    petPolicy: getOptionalString(formData, "petPolicy"),
+    parking: getOptionalString(formData, "parking"),
+    utilities: getOptionalString(formData, "utilities"),
+    contactName: getOptionalString(formData, "contactName"),
+    contactEmail: getOptionalString(formData, "contactEmail"),
+    contactPhone: getOptionalString(formData, "contactPhone"),
     notes: getOptionalString(formData, "notes"),
     managerId: getOptionalString(formData, "managerId")
   });
@@ -964,6 +977,12 @@ export async function updatePropertyAction(formData: FormData) {
                 country: address.country,
                 description: parsed.description,
                 amenities: parsed.amenities ?? "",
+                petPolicy: parsed.petPolicy,
+                parking: parsed.parking,
+                utilities: parsed.utilities,
+                contactName: parsed.contactName,
+                contactEmail: parsed.contactEmail,
+                contactPhone: parsed.contactPhone,
                 notes: parsed.notes,
                 ...(user.role === UserRole.ADMIN ? { managerId: parsed.managerId || undefined } : {}),
                 updatedAt: uploadedAt
@@ -1272,6 +1291,9 @@ export async function createUnitAction(formData: FormData) {
     occupancyStatus: getString(formData, "occupancyStatus"),
     leaseStatus: getString(formData, "leaseStatus"),
     amenities: getOptionalString(formData, "amenities"),
+    availabilityDate: getOptionalString(formData, "availabilityDate"),
+    leaseTerms: getOptionalString(formData, "leaseTerms"),
+    unitDescription: getOptionalString(formData, "unitDescription"),
     notes: getOptionalString(formData, "notes")
   });
   if (!unitResult.success) {
@@ -1310,6 +1332,9 @@ export async function createUnitAction(formData: FormData) {
       ...parsed,
       squareFeet: parsed.squareFeet || null,
       amenities: parsed.amenities ?? "",
+      // Store as ISO noon (matching listings/leases) so display never drifts a
+      // day across time zones; the editor converts it back to a date key.
+      availabilityDate: parsed.availabilityDate ? dateOnlyToUtcNoonIso(parsed.availabilityDate) : undefined,
       files: uploads.length
         ? {
             create: uploads.map((file, index) => {
@@ -1334,6 +1359,77 @@ export async function createUnitAction(formData: FormData) {
 
   revalidatePath("/properties");
   redirect(`/units/${unit.id}`);
+}
+
+// Edit an existing unit's details, including the listing-relevant fields
+// (rent, deposit, layout, availability, lease terms, description, amenities)
+// that power listing autofill. Scoped to units the manager/admin owns.
+export async function updateUnitAction(formData: FormData) {
+  const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
+  const portal = await getPortalContext(user);
+  const unitId = getString(formData, "unitId");
+  const existing = portal.scope.units.find((item) => item.id === unitId);
+  if (!existing) {
+    redirect("/units");
+  }
+
+  const result = unitUpdateSchema.safeParse({
+    unitNumber: getString(formData, "unitNumber"),
+    nickname: getOptionalString(formData, "nickname"),
+    unitType: getString(formData, "unitType"),
+    bedrooms: getString(formData, "bedrooms"),
+    bathrooms: getString(formData, "bathrooms"),
+    squareFeet: getOptionalString(formData, "squareFeet"),
+    monthlyRent: getString(formData, "monthlyRent"),
+    depositAmount: getString(formData, "depositAmount"),
+    occupancyStatus: getString(formData, "occupancyStatus"),
+    leaseStatus: getString(formData, "leaseStatus"),
+    amenities: getOptionalString(formData, "amenities"),
+    availabilityDate: getOptionalString(formData, "availabilityDate"),
+    leaseTerms: getOptionalString(formData, "leaseTerms"),
+    unitDescription: getOptionalString(formData, "unitDescription"),
+    notes: getOptionalString(formData, "notes")
+  });
+  if (!result.success) {
+    redirect(`/units/${encodeURIComponent(unitId)}?error=invalid-unit#listing-details`);
+  }
+  const parsed = result.data;
+
+  const duplicate = portal.scope.units.some(
+    (item) =>
+      item.id !== unitId &&
+      item.propertyId === existing.propertyId &&
+      item.unitNumber.trim().toLowerCase() === parsed.unitNumber.trim().toLowerCase()
+  );
+  if (duplicate) {
+    redirect(`/units/${encodeURIComponent(unitId)}?error=duplicate-unit#listing-details`);
+  }
+
+  await db.unit.update({
+    where: { id: unitId },
+    data: {
+      unitNumber: parsed.unitNumber,
+      nickname: parsed.nickname,
+      unitType: parsed.unitType,
+      bedrooms: parsed.bedrooms,
+      bathrooms: parsed.bathrooms,
+      squareFeet: parsed.squareFeet || null,
+      monthlyRent: parsed.monthlyRent,
+      depositAmount: parsed.depositAmount,
+      occupancyStatus: parsed.occupancyStatus,
+      leaseStatus: parsed.leaseStatus,
+      amenities: parsed.amenities ?? "",
+      availabilityDate: parsed.availabilityDate ? dateOnlyToUtcNoonIso(parsed.availabilityDate) : undefined,
+      leaseTerms: parsed.leaseTerms,
+      unitDescription: parsed.unitDescription,
+      notes: parsed.notes
+    }
+  });
+
+  revalidatePath("/properties");
+  revalidatePath(`/properties/${existing.propertyId}`);
+  revalidatePath(`/units/${unitId}`);
+  redirect(`/units/${unitId}?updated=1`);
 }
 
 export async function createTenantAction(formData: FormData) {

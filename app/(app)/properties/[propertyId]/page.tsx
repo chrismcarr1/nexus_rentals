@@ -126,6 +126,10 @@ export default async function PropertyDetailPage({
             <Link href="#edit" className="inline-flex min-h-10 items-center justify-center rounded-md border border-[var(--line-strong)] bg-[var(--panel)] px-3.5 py-2 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)]">
               Edit property
             </Link>
+            <Link href={`/listings/new?propertyId=${encodeURIComponent(property.id)}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--line-strong)] bg-[var(--panel)] px-3.5 py-2 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)]">
+              <Plus className="h-4 w-4" />
+              Create Listing
+            </Link>
             <Link href="#add-unit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]">
               <Plus className="h-4 w-4" />
               New Unit
@@ -408,6 +412,17 @@ export default async function PropertyDetailPage({
             <AddressFields defaultValue={property} />
             <textarea name="description" defaultValue={property.description ?? ""} placeholder="Asset summary" className="field min-h-24" />
             <input name="amenities" defaultValue={property.amenities} placeholder="Amenities, comma separated" className="field" />
+            <div className="form-grid-2">
+              <input name="petPolicy" defaultValue={property.petPolicy ?? ""} placeholder="Pet policy" className="field" />
+              <input name="parking" defaultValue={property.parking ?? ""} placeholder="Parking" className="field" />
+            </div>
+            <input name="utilities" defaultValue={property.utilities ?? ""} placeholder="Utilities (e.g. Water & trash included)" className="field" />
+            <p className="text-xs font-medium text-[var(--muted)]">Leasing contact (shown on public listings)</p>
+            <div className="form-grid-3">
+              <input name="contactName" defaultValue={property.contactName ?? ""} placeholder="Contact name" className="field" />
+              <input name="contactEmail" type="email" defaultValue={property.contactEmail ?? ""} placeholder="Contact email" className="field" />
+              <input name="contactPhone" defaultValue={property.contactPhone ?? ""} placeholder="Contact phone" className="field" />
+            </div>
             <textarea name="notes" defaultValue={property.notes ?? ""} placeholder="Internal notes" className="field min-h-24" />
             {user.role === "ADMIN" ? (
               <select name="managerId" defaultValue={property.managerId ?? ""} className="field">
@@ -474,6 +489,14 @@ export default async function PropertyDetailPage({
                 </select>
               </div>
               <textarea name="amenities" placeholder="Amenities, comma separated" className="field min-h-24" />
+              <div className="form-grid-2">
+                <label className="block">
+                  <span className="field-label">Available from</span>
+                  <input name="availabilityDate" type="date" className="field" />
+                </label>
+                <input name="leaseTerms" placeholder="Lease terms (e.g. 12-month)" className="field" />
+              </div>
+              <textarea name="unitDescription" placeholder="Unit description (shown on listings)" className="field min-h-24" />
               <NamedPhotoUpload
                 pathName="imagePaths"
                 titleName="imageNames"

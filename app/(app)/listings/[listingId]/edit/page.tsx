@@ -35,6 +35,14 @@ export default async function EditListingPage({
     id: property.id,
     name: property.name,
     formattedAddress: formatAddress(property),
+    description: property.description,
+    amenities: property.amenities,
+    petPolicy: property.petPolicy,
+    parking: property.parking,
+    utilities: property.utilities,
+    contactName: property.contactName,
+    contactEmail: property.contactEmail,
+    contactPhone: property.contactPhone,
     photoUrls: propertyPhotos(property.id)
   }));
   const units: ListingUnitOption[] = portal.scope.units.map((unit) => ({
@@ -46,6 +54,10 @@ export default async function EditListingPage({
     bedrooms: unit.bedrooms,
     bathrooms: unit.bathrooms,
     squareFeet: unit.squareFeet,
+    availabilityDate: unit.availabilityDate ? appDateKeyFromValue(unit.availabilityDate) : undefined,
+    leaseTerms: unit.leaseTerms,
+    unitDescription: unit.unitDescription,
+    amenities: unit.amenities,
     photoUrls: unitPhotos(unit.id)
   }));
 

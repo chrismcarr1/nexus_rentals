@@ -287,6 +287,35 @@ export default async function PropertiesPage({ searchParams }: { searchParams?: 
                 <span className="field-label">Amenities</span>
                 <input name="amenities" placeholder="Comma separated, e.g. parking, laundry" className="field" />
               </label>
+              <div className="form-grid-2">
+                <label className="block">
+                  <span className="field-label">Pet policy</span>
+                  <input name="petPolicy" placeholder="e.g. Cats and dogs welcome" className="field" />
+                </label>
+                <label className="block">
+                  <span className="field-label">Parking</span>
+                  <input name="parking" placeholder="e.g. 1 covered space" className="field" />
+                </label>
+              </div>
+              <label className="block">
+                <span className="field-label">Utilities</span>
+                <input name="utilities" placeholder="e.g. Water & trash included" className="field" />
+              </label>
+              <p className="text-xs font-medium text-[var(--muted)]">Leasing contact (shown on public listings)</p>
+              <div className="form-grid-3">
+                <label className="block">
+                  <span className="field-label">Contact name</span>
+                  <input name="contactName" placeholder="Leasing contact" className="field" />
+                </label>
+                <label className="block">
+                  <span className="field-label">Contact email</span>
+                  <input name="contactEmail" type="email" placeholder="leasing@example.com" className="field" />
+                </label>
+                <label className="block">
+                  <span className="field-label">Contact phone</span>
+                  <input name="contactPhone" placeholder="(555) 555-1212" className="field" />
+                </label>
+              </div>
               {user.role === "ADMIN" ? (
                 <label className="block">
                   <span className="field-label">Property manager</span>

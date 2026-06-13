@@ -11,7 +11,8 @@ import { PhotoCarousel } from "@/components/photo-carousel";
 import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { addUnitPhotosAction, deleteUnitPhotoAction, renameUnitPhotoAction } from "@/lib/actions";
+import { addUnitPhotosAction, deleteUnitPhotoAction, renameUnitPhotoAction, updateUnitAction } from "@/lib/actions";
+import { appDateKeyFromValue } from "@/lib/app-time";
 import { formatUnitAddress } from "@/lib/address";
 import { requireRouteAccess } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -68,6 +69,7 @@ export default async function UnitDetailPage({
     ["VACANT", "TURNOVER"].includes(unit.occupancyStatus) &&
     !unit.leases.some((lease) => ["ACTIVE", "UPCOMING", "active", "invited", "draft"].includes(lease.status));
   const activeLease = unit.leases.find((lease) => ["ACTIVE", "UPCOMING", "active", "upcoming"].includes(lease.status));
+  const canManageUnit = user.role === "ADMIN" || (user.role === "MANAGER" && unit.property.managerId === user.id);
 
   return (
     <div className="space-y-4">
@@ -76,7 +78,17 @@ export default async function UnitDetailPage({
         title={`${unit.property.name} / Unit ${unit.unitNumber}`}
         description={`${formatUnitAddress(unit.property, unit)} · ${unit.nickname || unit.unitType} · ${unit.bedrooms} bd / ${unit.bathrooms} ba / ${unit.squareFeet ?? "n/a"} sf`}
         actions={
-          canStartMoveIn ? (
+          <div className="flex flex-wrap gap-2">
+            {canManageUnit ? (
+              <Link
+                href={`/listings/new?propertyId=${encodeURIComponent(unit.propertyId)}&unitId=${encodeURIComponent(unit.id)}`}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--line-strong)] bg-[var(--panel)] px-3.5 py-2 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)] hover:bg-[var(--surface-hover)]"
+              >
+                <Plus className="h-4 w-4" />
+                Create Listing
+              </Link>
+            ) : null}
+            {canStartMoveIn ? (
               <Link
                 href={`/move-ins/new?propertyId=${encodeURIComponent(unit.propertyId)}&unitId=${encodeURIComponent(unit.id)}`}
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]"
@@ -84,7 +96,8 @@ export default async function UnitDetailPage({
                 <Plus className="h-4 w-4" />
                 New Move-In
               </Link>
-          ) : null
+            ) : null}
+          </div>
         }
       />
 
@@ -174,6 +187,106 @@ export default async function UnitDetailPage({
           </form>
         </div>
       </DetailSection>
+
+      {canManageUnit ? (
+        <DetailSection
+          id="listing-details"
+          title="Listing details"
+          description="These fields autofill a new listing for this unit. You can still edit everything on the listing before publishing."
+        >
+          {query.error === "duplicate-unit" ? (
+            <div className="page-alert page-alert-warning mb-4">A unit with that number already exists in this property. Use a different unit number.</div>
+          ) : query.error === "invalid-unit" ? (
+            <div className="page-alert page-alert-warning mb-4">Review the unit details. Unit number, type, bedrooms, bathrooms, rent, and deposit are required.</div>
+          ) : query.updated ? (
+            <div className="page-alert page-alert-success mb-4">Unit details saved.</div>
+          ) : null}
+          <form action={updateUnitAction} className="space-y-4">
+            <input type="hidden" name="unitId" value={unit.id} />
+            <div className="form-grid-2">
+              <label className="block">
+                <span className="field-label">Unit number</span>
+                <input name="unitNumber" defaultValue={unit.unitNumber} className="field" />
+              </label>
+              <label className="block">
+                <span className="field-label">Nickname</span>
+                <input name="nickname" defaultValue={unit.nickname ?? ""} placeholder="Optional" className="field" />
+              </label>
+            </div>
+            <label className="block">
+              <span className="field-label">Unit type</span>
+              <input name="unitType" defaultValue={unit.unitType} className="field" />
+            </label>
+            <div className="form-grid-3">
+              <label className="block">
+                <span className="field-label">Bedrooms</span>
+                <input name="bedrooms" type="number" step="1" defaultValue={unit.bedrooms} className="field" />
+              </label>
+              <label className="block">
+                <span className="field-label">Bathrooms</span>
+                <input name="bathrooms" type="number" step="0.5" defaultValue={unit.bathrooms} className="field" />
+              </label>
+              <label className="block">
+                <span className="field-label">Square feet</span>
+                <input name="squareFeet" type="number" step="1" defaultValue={unit.squareFeet ?? ""} className="field" />
+              </label>
+            </div>
+            <div className="form-grid-2">
+              <label className="block">
+                <span className="field-label">Monthly rent</span>
+                <input name="monthlyRent" type="number" step="0.01" defaultValue={unit.monthlyRent} className="field" />
+              </label>
+              <label className="block">
+                <span className="field-label">Deposit</span>
+                <input name="depositAmount" type="number" step="0.01" defaultValue={unit.depositAmount} className="field" />
+              </label>
+            </div>
+            <div className="form-grid-2">
+              <label className="block">
+                <span className="field-label">Occupancy status</span>
+                <select name="occupancyStatus" defaultValue={unit.occupancyStatus} className="field">
+                  <option value="VACANT">Vacant</option>
+                  <option value="OCCUPIED">Occupied</option>
+                  <option value="NOTICE">Notice</option>
+                  <option value="TURNOVER">Turnover</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="field-label">Lease status</span>
+                <select name="leaseStatus" defaultValue={unit.leaseStatus} className="field">
+                  <option value="UPCOMING">Upcoming</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="EXPIRED">Expired</option>
+                  <option value="TERMINATED">Terminated</option>
+                </select>
+              </label>
+            </div>
+            <div className="form-grid-2">
+              <label className="block">
+                <span className="field-label">Available from</span>
+                <input name="availabilityDate" type="date" defaultValue={unit.availabilityDate ? appDateKeyFromValue(unit.availabilityDate) : ""} className="field" />
+              </label>
+              <label className="block">
+                <span className="field-label">Lease terms</span>
+                <input name="leaseTerms" defaultValue={unit.leaseTerms ?? ""} placeholder="e.g. 12-month" className="field" />
+              </label>
+            </div>
+            <label className="block">
+              <span className="field-label">Amenities</span>
+              <input name="amenities" defaultValue={unit.amenities} placeholder="Comma separated" className="field" />
+            </label>
+            <label className="block">
+              <span className="field-label">Unit description</span>
+              <textarea name="unitDescription" defaultValue={unit.unitDescription ?? ""} placeholder="Shown on listings" className="field min-h-24" />
+            </label>
+            <label className="block">
+              <span className="field-label">Internal notes</span>
+              <textarea name="notes" defaultValue={unit.notes ?? ""} placeholder="Not shown on listings" className="field min-h-24" />
+            </label>
+            <SubmitButton>Save unit details</SubmitButton>
+          </form>
+        </DetailSection>
+      ) : null}
 
       <DetailSection title="Lease history" description="Current and historical occupancy for this unit.">
         {unit.leases.length ? (

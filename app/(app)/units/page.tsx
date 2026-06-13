@@ -225,6 +225,11 @@ export default async function UnitsPage({ searchParams }: { searchParams?: Promi
                   </select>
                 </div>
                 <textarea name="amenities" placeholder="Amenities, comma separated" className="field min-h-24" />
+                <div className="form-grid-2">
+                  <input name="availabilityDate" type="date" className="field" aria-label="Available from" />
+                  <input name="leaseTerms" placeholder="Lease terms (e.g. 12-month)" className="field" />
+                </div>
+                <textarea name="unitDescription" placeholder="Unit description (shown on listings)" className="field min-h-24" />
                 <NamedPhotoUpload
                   pathName="imagePaths"
                   titleName="imageNames"

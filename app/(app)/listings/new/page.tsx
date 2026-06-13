@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import { ListingEditor, type ListingPropertyOption, type ListingUnitOption } from "@/components/listings/listing-editor";
 import { formatAddress } from "@/lib/address";
+import { appDateKeyFromValue } from "@/lib/app-time";
 import { requireRoles } from "@/lib/auth";
 import { UserRole } from "@/lib/store";
 import { getPortalContext } from "@/services/portal";
@@ -19,6 +20,14 @@ export default async function NewListingPage({ searchParams }: { searchParams?: 
     id: property.id,
     name: property.name,
     formattedAddress: formatAddress(property),
+    description: property.description,
+    amenities: property.amenities,
+    petPolicy: property.petPolicy,
+    parking: property.parking,
+    utilities: property.utilities,
+    contactName: property.contactName,
+    contactEmail: property.contactEmail,
+    contactPhone: property.contactPhone,
     photoUrls: propertyPhotos(property.id)
   }));
   const units: ListingUnitOption[] = portal.scope.units.map((unit) => ({
@@ -30,8 +39,17 @@ export default async function NewListingPage({ searchParams }: { searchParams?: 
     bedrooms: unit.bedrooms,
     bathrooms: unit.bathrooms,
     squareFeet: unit.squareFeet,
+    availabilityDate: unit.availabilityDate ? appDateKeyFromValue(unit.availabilityDate) : undefined,
+    leaseTerms: unit.leaseTerms,
+    unitDescription: unit.unitDescription,
+    amenities: unit.amenities,
     photoUrls: unitPhotos(unit.id)
   }));
+
+  // A "Create Listing" link from a property/unit page may preselect the source.
+  const initialPropertyId = properties.some((property) => property.id === params.propertyId) ? params.propertyId : undefined;
+  const initialUnit = units.find((unit) => unit.id === params.unitId && unit.propertyId === initialPropertyId);
+  const initialUnitId = initialUnit?.id;
 
   const error =
     params.error === "invalid"
@@ -47,7 +65,14 @@ export default async function NewListingPage({ searchParams }: { searchParams?: 
         title="Create Listing"
         description="Build a rental listing from an existing property or unit, then publish it to your syndication feeds."
       />
-      <ListingEditor mode="create" properties={properties} units={units} error={error} />
+      <ListingEditor
+        mode="create"
+        properties={properties}
+        units={units}
+        initialPropertyId={initialPropertyId}
+        initialUnitId={initialUnitId}
+        error={error}
+      />
     </div>
   );
 }
