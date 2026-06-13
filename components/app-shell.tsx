@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { BookOpen, ChevronDown, Gauge, LogOut, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 
+import { NexusLogo } from "@/components/brand/nexus-logo";
 import { DropdownDismissListener } from "@/components/dropdown-dismiss-listener";
 import { MobileMenuPanel } from "@/components/mobile-menu-panel";
 import { SidebarNav } from "@/components/sidebar-nav";
@@ -98,11 +99,14 @@ export function AppShell({
         >
           <div className="app-sidebar-brand">
             <Link href="/dashboard" className="app-sidebar-brand-link" aria-label="Nexus dashboard">
-            <div className="app-brand-mark flex h-8 w-8 items-center justify-center text-xs font-bold">NR</div>
-            <div className="app-sidebar-brand-copy min-w-0">
-              <p className="truncate text-sm font-semibold text-white">Nexus</p>
-              <p className="truncate text-[11px] text-[var(--sidebar-muted)]">{user.organization.name}</p>
-            </div>
+              {collapsed ? (
+                <NexusLogo variant="icon" size="sm" />
+              ) : (
+                <div className="app-sidebar-brand-copy min-w-0">
+                  <NexusLogo variant="full" size="sm" />
+                  <p className="truncate text-[10px] font-medium text-[var(--sidebar-muted)]">{user.organization.name}</p>
+                </div>
+              )}
             </Link>
             <button
               type="button"

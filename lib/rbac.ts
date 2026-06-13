@@ -9,6 +9,7 @@ import {
   FileText,
   Gauge,
   Home,
+  Megaphone,
   MessageSquare,
   Receipt,
   Settings,
@@ -30,6 +31,7 @@ export const navIconNames = {
   fileText: FileText.displayName ?? "FileText",
   gauge: Gauge.displayName ?? "Gauge",
   home: Home.displayName ?? "Home",
+  megaphone: Megaphone.displayName ?? "Megaphone",
   messageSquare: MessageSquare.displayName ?? "MessageSquare",
   receipt: Receipt.displayName ?? "Receipt",
   settings: Settings.displayName ?? "Settings",
@@ -65,6 +67,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/dashboard", label: "Executive", icon: "gauge", description: "Portfolio KPIs and executive visibility" },
       { href: "/operations", label: "Operations", icon: "calendarClock", description: "Upcoming deadlines and action queues" },
       { href: "/properties", label: "Portfolio", icon: "building2", description: "Properties, units, and assignments" },
+      { href: "/listings", label: "Listings", icon: "megaphone", description: "Create and syndicate rental listings" },
       { href: "/tenants", label: "People", icon: "users", description: "Tenant, manager, and leaseholder directory" },
       { href: "/leases", label: "Leases", icon: "home", description: "Lease pipeline and renewal exposure" },
       { href: "/transactions", label: "Payments", icon: "creditCard", description: "Collections and receivables" },
@@ -75,7 +78,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/reports", label: "Reporting", icon: "fileCheck2", description: "Financials, compliance, and exports" },
       { href: "/settings", label: "Settings", icon: "shieldCheck", description: "Platform settings and permissions" }
     ],
-    routes: ["/dashboard", "/operations", "/properties", "/tenants", "/leases", "/transactions", "/maintenance", "/documents", "/reports", "/settings", "/units", "/expenses", "/ai-assessments", "/api/stripe/connect"]
+    routes: ["/dashboard", "/operations", "/properties", "/listings", "/tenants", "/leases", "/transactions", "/maintenance", "/documents", "/reports", "/settings", "/units", "/expenses", "/ai-assessments", "/api/stripe/connect"]
   },
   MANAGER: {
     label: "Manager",
@@ -89,6 +92,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/tenants", label: "Tenants", icon: "users", description: "Resident roster and communications", section: "Portfolio" },
       { href: "/leases", label: "Leases", icon: "home", description: "Renewals, move-ins, and upcoming expirations", section: "Portfolio" },
       { href: "/applications", label: "Applications", icon: "fileCheck2", description: "Rental applications and applicant review", section: "Portfolio" },
+      { href: "/listings", label: "Listings", icon: "megaphone", description: "Create and syndicate rental listings", section: "Portfolio" },
       { href: "/transactions", label: "Payments", icon: "creditCard", description: "Overdue rent and rent status", section: "Operations" },
       { href: "/maintenance", label: "Maintenance", icon: "clipboardList", description: "Open issues and vendor progress", section: "Operations" },
       { href: "/documents", label: "Documents", icon: "fileText", description: "Lease, property, unit, and inspection files", section: "Operations" },
@@ -96,7 +100,7 @@ export const roleConfigs: Record<UserRole, RoleConfig> = {
       { href: "/reports", label: "Reports", icon: "barChart3", description: "Portfolio reporting and operating visibility", section: "Insights" },
       { href: "/settings", label: "Settings", icon: "settings", description: "Profile and assigned property context", section: "Administration" }
     ],
-    routes: ["/dashboard", "/operations", "/properties", "/units", "/tenants", "/leases", "/applications", "/move-ins", "/transactions", "/expenses", "/maintenance", "/messages", "/documents", "/reports", "/ai-assessments", "/settings", "/manager-guide", "/api/stripe/connect"]
+    routes: ["/dashboard", "/operations", "/properties", "/units", "/tenants", "/leases", "/applications", "/listings", "/move-ins", "/transactions", "/expenses", "/maintenance", "/messages", "/documents", "/reports", "/ai-assessments", "/settings", "/manager-guide", "/api/stripe/connect"]
   },
   TENANT: {
     label: "Tenant",

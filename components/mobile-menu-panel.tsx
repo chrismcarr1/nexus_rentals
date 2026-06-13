@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { BookOpen, LogOut, Search, Settings, X } from "lucide-react";
 
+import { NexusLogo } from "@/components/brand/nexus-logo";
 import { SidebarNav } from "@/components/sidebar-nav";
 import type { NavIconName } from "@/lib/rbac";
 import { cn, initials } from "@/lib/utils";
@@ -48,9 +49,8 @@ export function MobileMenuPanel({
     >
       <div className="mobile-menu-header">
         <Link href="/dashboard" className="mobile-menu-brand" onClick={onClose} aria-label="Nexus dashboard">
-          <span className="app-brand-mark flex h-8 w-8 items-center justify-center text-xs font-bold">NR</span>
           <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold text-white">Nexus</span>
+            <NexusLogo variant="full" size="xs" />
             <span className="block truncate text-[11px] text-[var(--sidebar-muted)]">{user.organization.name}</span>
           </span>
         </Link>

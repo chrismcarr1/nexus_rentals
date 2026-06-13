@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 
+import { NexusLogo } from "@/components/brand/nexus-logo";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { isSystemAdminEmail } from "@/lib/admin";
 import { acceptLegalTermsAction, logoutAction } from "@/lib/actions";
@@ -40,8 +41,7 @@ export default async function LegalAcceptPage({ searchParams }: { searchParams?:
     <main className="auth-page">
       <header className="auth-header">
         <span className="auth-brand">
-          <span className="auth-brand-mark" aria-hidden="true">N</span>
-          <span>Nexus Rentals</span>
+          <NexusLogo variant="full" size="sm" priority />
         </span>
         <form action={logoutAction}>
           <button type="submit" className="auth-home-link">Sign out</button>

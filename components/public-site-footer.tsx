@@ -1,11 +1,13 @@
 import Link from "next/link";
 
+import { NexusLogo } from "@/components/brand/nexus-logo";
+
 export function PublicSiteFooter() {
   return (
     <footer className="public-footer">
       <div className="public-footer-inner">
         <div>
-          <p className="text-sm font-semibold text-white">Nexus Rentals</p>
+          <NexusLogo variant="full" size="xs" />
           <p className="mt-1 text-xs text-slate-400">Clearer property operations for managers and residents.</p>
         </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-medium text-slate-300">

@@ -26,6 +26,7 @@ import {
   X
 } from "lucide-react";
 
+import { NexusLogo } from "@/components/brand/nexus-logo";
 import { cn, initials } from "@/lib/utils";
 
 const navigation = [
@@ -133,9 +134,8 @@ export function AdminShell({
       <div className="app-shell-layout">
         <aside className="app-sidebar">
           <Link href="/admin" className="app-sidebar-brand">
-            <span className="app-brand-mark flex h-8 w-8 items-center justify-center text-xs font-bold">NX</span>
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold text-white">Nexus Admin</span>
+            <span className="admin-brand-lockup min-w-0">
+              <NexusLogo variant="full" size="sm" />
               <span className="block truncate text-[11px] text-[var(--sidebar-muted)]">Platform control center</span>
             </span>
           </Link>
@@ -161,7 +161,7 @@ export function AdminShell({
           <header className="app-topbar">
             <div className="app-topbar-inner flex min-w-0 items-center gap-3">
               <Link href="/admin" className="mobile-topbar-brand" aria-label="Admin overview">
-                <span className="app-brand-mark flex h-8 w-8 items-center justify-center text-xs font-bold">NX</span>
+                <NexusLogo variant="icon" size="sm" priority />
               </Link>
               <p className="mobile-topbar-title">{activeItem?.label ?? "Admin"}</p>
               <form action="/admin/users" className="topbar-search relative min-w-0 flex-1">
@@ -205,9 +205,8 @@ export function AdminShell({
       >
         <div className="mobile-menu-header">
           <Link href="/admin" className="mobile-menu-brand" onClick={() => setMenuOpen(false)} aria-label="Admin overview">
-            <span className="app-brand-mark flex h-8 w-8 items-center justify-center text-xs font-bold">NX</span>
             <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold text-white">Nexus Admin</span>
+              <NexusLogo variant="full" size="xs" />
               <span className="block truncate text-[11px] text-[var(--sidebar-muted)]">Platform control center</span>
             </span>
           </Link>

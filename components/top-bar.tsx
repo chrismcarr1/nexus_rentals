@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bell, Menu, Search, X } from "lucide-react";
 
+import { NexusLogo } from "@/components/brand/nexus-logo";
 import { QuickActionMenu } from "@/components/quick-action-menu";
 import { useClickOutside } from "@/components/use-click-outside";
 import { cn } from "@/lib/utils";
@@ -56,7 +57,7 @@ export function TopBar({
     <header className="app-topbar">
       <div className="app-topbar-inner flex min-w-0 items-center gap-2">
         <Link href="/dashboard" className="mobile-topbar-brand" aria-label="Nexus dashboard">
-          <span className="app-brand-mark flex h-8 w-8 items-center justify-center text-xs font-bold">NR</span>
+          <NexusLogo variant="icon" size="sm" priority />
         </Link>
         {pageTitle ? <p className="mobile-topbar-title">{pageTitle}</p> : null}
         <form action="/dashboard" className="topbar-search relative min-w-0 flex-1">

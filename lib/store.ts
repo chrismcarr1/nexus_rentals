@@ -139,6 +139,7 @@ export type User = {
   createdAt: string;
   updatedAt: string;
 };
+export type ListingStatus = "draft" | "active" | "unpublished";
 export type Property = StoredAddress & { id: string; organizationId: string; name: string; status: PropertyStatus; description?: string; amenities: string; notes?: string; managerId?: string; createdAt: string; updatedAt: string };
 export type Unit = { id: string; propertyId: string; unitNumber: string; nickname?: string; addressOverride?: string; unitType: string; bedrooms: number; bathrooms: number; squareFeet?: number; monthlyRent: number; depositAmount: number; leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus; amenities: string; notes?: string; createdAt: string; updatedAt: string };
 export type Tenant = { id: string; organizationId: string; firstName: string; lastName: string; email?: string; phone?: string; employer?: string; emergencyName?: string; emergencyPhone?: string; notes?: string; createdAt: string; updatedAt: string };
@@ -396,6 +397,38 @@ export type PlatformEvent = {
   createdAt: string;
 };
 
+// Outbound rental listing. Reuses Property/Unit by reference (never duplicates
+// them) and stores a flat snapshot of the marketing fields needed to build a
+// syndication feed for Zillow/Apartments.com. photoUrls are public image URLs
+// (existing uploaded-photo paths or external URLs); never tenant/private data.
+export type Listing = {
+  id: string;
+  organizationId: string;
+  managerUserId: string;
+  propertyId: string;
+  unitId?: string;
+  status: ListingStatus;
+  rent: number;
+  deposit: number;
+  bedrooms: number;
+  bathrooms: number;
+  squareFeet?: number;
+  availabilityDate?: string;
+  leaseTerms?: string;
+  description?: string;
+  amenities?: string;
+  petPolicy?: string;
+  parking?: string;
+  utilities?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  photoUrls: string[];
+  createdAt: string;
+  updatedAt: string;
+  publishedAt?: string;
+};
+
 export type StoredScreeningApplication = ScreeningApplicationRecord & {
   screeningAccessTokenHash?: string | null;
 };
@@ -421,6 +454,7 @@ export type AppStore = {
   users: User[];
   properties: Property[];
   units: Unit[];
+  listings: Listing[];
   tenants: Tenant[];
   leases: Lease[];
   tenantInvites: TenantInvite[];
@@ -460,6 +494,7 @@ function emptyStore(): AppStore {
     users: [],
     properties: [],
     units: [],
+    listings: [],
     tenants: [],
     leases: [],
     tenantInvites: [],
@@ -695,6 +730,7 @@ function normalizeStore(store: AppStore): AppStore {
       ...property,
       country: property.country ?? DEFAULT_COUNTRY
     })),
+    listings: store.listings ?? [],
     discussionThreads: store.discussionThreads ?? [],
     discussionMessages: store.discussionMessages ?? [],
     tenantInvites: store.tenantInvites ?? [],
@@ -928,6 +964,7 @@ export async function getOrganizationSnapshot(organizationId: string) {
     store,
     organization: store.organizations.find((organization) => organization.id === organizationId)!,
     properties: store.properties.filter((property) => property.organizationId === organizationId),
+    listings: store.listings.filter((listing) => listing.organizationId === organizationId),
     users: store.users.filter((user) => user.organizationId === organizationId),
     units: store.units.filter((unit) => {
       const property = store.properties.find((candidate) => candidate.id === unit.propertyId);

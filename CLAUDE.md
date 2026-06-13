@@ -19,8 +19,8 @@
 
 ## Current Priorities
 
-1. Onboard first real landlords
-2. Stripe live payments
+1. Zillow integration
+2. Certn integration
 3. Tenant applications
 4. Admin analytics
 5. Production stability
