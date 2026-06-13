@@ -46,9 +46,28 @@ function FeedUrlRow({ label, url, description }: { label: string; url: string; d
   );
 }
 
-export function ListingFeedTools({ genericUrl, zillowUrl }: { genericUrl: string; zillowUrl: string }) {
+export function ListingFeedTools({
+  genericUrl,
+  zillowUrl,
+  tokenConfigured
+}: {
+  genericUrl: string;
+  zillowUrl: string;
+  tokenConfigured: boolean;
+}) {
   return (
     <div className="space-y-3">
+      {tokenConfigured ? (
+        <p className="rounded-md border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-xs leading-5 text-[var(--muted)]">
+          These URLs include the access token (<code>?token=…</code>) that authorizes the feed. Share the full URL with approved
+          partners only — anyone with the link can read the feed. The feeds do not require an app login.
+        </p>
+      ) : (
+        <p className="rounded-md border border-amber-600/18 bg-amber-500/12 px-3 py-2 text-xs leading-5 text-amber-800">
+          The feeds are locked: set <code>LISTINGS_FEED_TOKEN</code> in your environment to generate authorized feed URLs. Until then
+          every feed request returns 401.
+        </p>
+      )}
       <FeedUrlRow
         label="Zillow / MITS feed (XML)"
         url={zillowUrl}

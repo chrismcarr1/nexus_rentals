@@ -1,3 +1,4 @@
+import { rejectUnauthorizedFeedRequest } from "@/lib/listings-feed-auth";
 import { buildListingFeedItems } from "@/lib/syndication/listing-feed";
 import { buildZillowFeedXml } from "@/lib/syndication/zillow-feed";
 import { readStore } from "@/lib/store";
@@ -14,7 +15,11 @@ export const revalidate = 0;
 // a Phase 1 hosted feed: it must be validated and approved by Zillow /
 // Apartments.com before listings can syndicate externally. Only public listing
 // marketing data is exposed; all values are XML-escaped in buildZillowFeedXml.
-export async function GET() {
+export async function GET(request: Request) {
+  // Token gate (no app login): missing/invalid ?token=... returns 401.
+  const unauthorized = rejectUnauthorizedFeedRequest(request);
+  if (unauthorized) return unauthorized;
+
   const store = await readStore();
   const xml = buildZillowFeedXml(buildListingFeedItems(store));
 

@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { requireRoles } from "@/lib/auth";
 import { deleteListingAction, publishListingAction, unpublishListingAction } from "@/lib/listing-actions";
+import { getListingsFeedToken } from "@/lib/listings-feed-auth";
 import { FEED_REQUIRED_FIELDS, getListingLocationLabel, getMissingFeedFields, managerOwnsListing } from "@/lib/listings";
 import { buildAppUrl } from "@/lib/request-origin";
 import { listingToFeedItem } from "@/lib/syndication/listing-feed";
@@ -26,11 +27,12 @@ const DETAIL_ALERTS: Record<string, { tone: "success" | "warning" | "error"; mes
 
 const ALERT_CLASS = { success: "page-alert-success", warning: "page-alert-warning", error: "page-alert-error" } as const;
 
-function feedUrl(path: string) {
+function feedUrl(path: string, token: string) {
+  const query = token ? { token } : undefined;
   try {
-    return buildAppUrl(path);
+    return buildAppUrl(path, query);
   } catch {
-    return path;
+    return token ? `${path}?token=${encodeURIComponent(token)}` : path;
   }
 }
 
@@ -54,6 +56,7 @@ export default async function ListingDetailPage({
   const feedReady = missing.length === 0;
   const item = listingToFeedItem(store, listing);
   const missingSet = new Set(missing);
+  const feedToken = getListingsFeedToken();
 
   const alert = query.error
     ? { tone: "error" as const, message: decodeURIComponent(query.error) }
@@ -125,7 +128,11 @@ export default async function ListingDetailPage({
           </DetailSection>
 
           <DetailSection title="Syndication feeds" description="Hosted feed URLs for partner approval and syndication.">
-            <ListingFeedTools genericUrl={feedUrl("/api/listings/feed/generic.json")} zillowUrl={feedUrl("/api/listings/feed/zillow.xml")} />
+            <ListingFeedTools
+              genericUrl={feedUrl("/api/listings/feed/generic.json", feedToken)}
+              zillowUrl={feedUrl("/api/listings/feed/zillow.xml", feedToken)}
+              tokenConfigured={Boolean(feedToken)}
+            />
             {!feedReady || listing.status !== "active" ? (
               <p className="mt-3 text-xs leading-5 text-[var(--muted)]">
                 This listing is {listing.status === "active" ? "active" : "not active"} and {feedReady ? "feed-ready" : "incomplete"}. Only active, feed-ready listings appear in the feeds above.

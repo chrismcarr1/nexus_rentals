@@ -1,3 +1,4 @@
+import { rejectUnauthorizedFeedRequest } from "@/lib/listings-feed-auth";
 import { buildGenericFeed } from "@/lib/syndication/generic-feed";
 import { buildListingFeedItems } from "@/lib/syndication/listing-feed";
 import { readStore } from "@/lib/store";
@@ -14,7 +15,11 @@ export const revalidate = 0;
 // Draft/unpublished/incomplete listings are excluded by buildListingFeedItems,
 // and the feed item DTO only carries public marketing data — never tenant
 // information or private notes. Useful for debugging syndication.
-export async function GET() {
+export async function GET(request: Request) {
+  // Token gate (no app login): missing/invalid ?token=... returns 401.
+  const unauthorized = rejectUnauthorizedFeedRequest(request);
+  if (unauthorized) return unauthorized;
+
   const store = await readStore();
   const feed = buildGenericFeed(buildListingFeedItems(store));
 
