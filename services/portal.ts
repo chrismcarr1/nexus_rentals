@@ -4,8 +4,7 @@ import { cache } from "react";
 
 import { getEffectiveUserRole } from "@/lib/admin";
 import { addDaysToDateKey, appDateIsBefore, differenceInAppCalendarDays, getAppDateKey, monthKeyFromValue } from "@/lib/app-time";
-import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
-import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
+import { timeAsync } from "@/lib/perf";
 import { getOrganizationSnapshot, type Notification, type UserRole } from "@/lib/store";
 
 function leaseIsVisibleCurrent(status: string) {
@@ -25,30 +24,21 @@ type AppUser = {
   organizationId: string;
 };
 
-// Background-maintenance throttle: lease integrity checks and rent scheduling
-// are idempotent catch-up jobs, so they do not need to run on every page render.
-// Mutating actions (move-ins, lease edits) still invoke the schedulers directly.
-const MAINTENANCE_INTERVAL_MS = 60_000;
-const lastMaintenanceRunByOrg = new Map<string, number>();
+// Scheduled lease-integrity and rent-generation catch-up jobs no longer run in
+// the render path: they were doing two updateStore transactions per cold
+// request and busting the readStore cache mid-render. They now run via the
+// /api/cron/scheduled-maintenance cron (see lib/scheduled-maintenance.ts), and
+// mutating actions (move-ins, lease edits, invite accept) still invoke the
+// schedulers directly, so portal data stays current without blocking rendering.
 
-async function runScheduledMaintenance(organizationId: string) {
-  const now = Date.now();
-  const lastRun = lastMaintenanceRunByOrg.get(organizationId) ?? 0;
-  if (now - lastRun < MAINTENANCE_INTERVAL_MS) return;
-  lastMaintenanceRunByOrg.set(organizationId, now);
-  try {
-    await ensureLeaseConnectionIntegrity(organizationId);
-    await ensureScheduledLeasePayments(organizationId);
-  } catch (error) {
-    // Allow the next request to retry instead of waiting out the interval.
-    lastMaintenanceRunByOrg.set(organizationId, lastRun);
-    throw error;
-  }
-}
+export const getPortalContext = cache((user: AppUser) =>
+  // Instrumented inside the React cache() so the timing reflects the real
+  // one-time portal build per request; the layout and page share this result.
+  timeAsync("[perf:dashboard] getPortalContext", () => buildPortalContext(user))
+);
 
-export const getPortalContext = cache(async (user: AppUser) => {
-  await runScheduledMaintenance(user.organizationId);
-  const snapshot = await getOrganizationSnapshot(user.organizationId);
+async function buildPortalContext(user: AppUser) {
+  const snapshot = await timeAsync("[perf:dashboard] orgSnapshot", () => getOrganizationSnapshot(user.organizationId));
   const effectiveUsers = snapshot.users.map((candidate) => ({
     ...candidate,
     role: getEffectiveUserRole(candidate.role, candidate.email)
@@ -342,7 +332,7 @@ export const getPortalContext = cache(async (user: AppUser) => {
       .filter((e) => Boolean(e.date))
       .sort((a, b) => String(a.date).localeCompare(String(b.date)))
   };
-});
+}
 
 export function badgeToneFromPayment(status: string): "default" | "success" | "warning" | "danger" {
   if (status === "PAID") return "success";

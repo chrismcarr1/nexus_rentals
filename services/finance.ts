@@ -1,6 +1,5 @@
 import { addMonthsToDateKey, appDateIsBefore, appDateKeyFromValue, getAppDateKey, monthKeyFromValue } from "@/lib/app-time";
 import { db } from "@/lib/db";
-import { ensureLeaseConnectionIntegrity } from "@/lib/lease-connections";
 
 export type RevenueProjectionPoint = {
   label: string;
@@ -61,7 +60,8 @@ function leaseCountsAsActive(status: string) {
 }
 
 export async function getDashboardSnapshot(organizationId: string) {
-  await ensureLeaseConnectionIntegrity(organizationId);
+  // Lease-integrity catch-up no longer runs synchronously here; it is handled by
+  // the scheduled-maintenance cron and by mutating actions directly.
   const todayKey = getAppDateKey();
   const currentMonthKey = todayKey.slice(0, 7);
 

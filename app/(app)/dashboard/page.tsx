@@ -44,6 +44,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { createStripeCheckoutAction } from "@/lib/actions";
 import { requireUser } from "@/lib/auth";
 import { hasAcceptedCurrentPaymentTerms } from "@/lib/legal";
+import { timeAsync } from "@/lib/perf";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getManagerDashboardData } from "@/services/dashboard";
 import { getDashboardSnapshot } from "@/services/finance";
@@ -58,17 +59,23 @@ function formatPercent(rate: number) {
 }
 
 export default async function DashboardPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
+  // Whole server-side data-prep envelope for one dashboard request. getCurrentUser
+  // and getPortalContext are instrumented at their source (React cache()), so
+  // they emit their own real one-time timings even though they are cache hits here.
+  const dataPrepStart = performance.now();
   const user = await requireUser();
   const params = (await searchParams) ?? {};
   const portal = await getPortalContext(user);
-  const operations = await getOperationsTimeline(user);
+  const operations = await timeAsync("[perf:dashboard] getOperationsTimeline", () => getOperationsTimeline(user));
   const searchResults =
     params.q && user.role !== "TENANT"
-      ? await globalSearch(user.organizationId, params.q, {
-          propertyIds: portal.scope.properties.map((item) => item.id),
-          unitIds: portal.scope.units.map((item) => item.id),
-          tenantIds: portal.scope.tenants.map((item) => item.id)
-        })
+      ? await timeAsync("[perf:dashboard] globalSearch", () =>
+          globalSearch(user.organizationId, params.q!, {
+            propertyIds: portal.scope.properties.map((item) => item.id),
+            unitIds: portal.scope.units.map((item) => item.id),
+            tenantIds: portal.scope.tenants.map((item) => item.id)
+          })
+        )
       : null;
 
   const searchSection =
@@ -104,7 +111,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     ) : null;
 
   if (user.role === "MANAGER") {
-    const dashboard = await getManagerDashboardData(user, params.range);
+    const dashboard = await timeAsync("[perf:dashboard] dashboardAggregation", () =>
+      getManagerDashboardData(user, params.range)
+    );
+    console.log(`[perf:dashboard] totalDataPrep: ${Math.round(performance.now() - dataPrepStart)}ms`);
     const { range, kpis } = dashboard;
     const paidHref = `/transactions?tab=payments&dateFrom=${range.start}&dateTo=${range.end}`;
     const rentStatusHrefs: Record<string, string> = {
@@ -312,7 +322,10 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     );
   }
 
-  const snapshot = await getDashboardSnapshot(user.organizationId);
+  const snapshot = await timeAsync("[perf:dashboard] getDashboardSnapshot", () =>
+    getDashboardSnapshot(user.organizationId)
+  );
+  console.log(`[perf:dashboard] totalDataPrep: ${Math.round(performance.now() - dataPrepStart)}ms`);
   const trend =
     user.role === "ADMIN"
       ? snapshot.charts.cashFlowTrend

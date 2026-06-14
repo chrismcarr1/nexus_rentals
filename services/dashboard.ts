@@ -41,7 +41,8 @@ import {
 import { managerOwnsApplication } from "@/lib/applications";
 import { getDiscussionPageData } from "@/lib/discussions";
 import { getStripeConnectState } from "@/lib/stripe-connect";
-import { readStore, type User } from "@/lib/store";
+import { timeAsync } from "@/lib/perf";
+import { getOrganizationSnapshot, type User } from "@/lib/store";
 import { formatCurrency } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
 
@@ -248,7 +249,7 @@ export async function getManagerDashboardData(
   user: User & { organization: { name: string } },
   rangeParam?: string
 ): Promise<ManagerDashboardData> {
-  const portal = await getPortalContext(user);
+  const portal = await timeAsync("[perf:dashboard] aggregation.portalContext", () => getPortalContext(user));
   const todayKey = getAppDateKey();
   const range = getDashboardDateRange(normalizeDashboardRangeKey(rangeParam), todayKey);
 
@@ -304,7 +305,11 @@ export async function getManagerDashboardData(
 
   // Pending application submissions are not part of the portal scope; count
   // them the same way the applications page does (manager-owned links only).
-  const store = await readStore();
+  // Reuse the request-cached org snapshot's store instead of a second full read.
+  const snapshot = await timeAsync("[perf:dashboard] aggregation.orgSnapshot", () =>
+    getOrganizationSnapshot(user.organizationId)
+  );
+  const store = snapshot.store;
   const ownedApplicationIds = new Set(
     store.rentalApplications.filter((application) => managerOwnsApplication(store, user, application)).map((item) => item.id)
   );
@@ -348,7 +353,9 @@ export async function getManagerDashboardData(
     formatCurrency
   });
 
-  const discussions = await getDiscussionPageData(user);
+  const discussions = await timeAsync("[perf:dashboard] aggregation.discussions", () =>
+    getDiscussionPageData(user, undefined, store)
+  );
   const tenantMessages: DashboardMessagePreview[] = discussions.conversations
     .filter((conversation) => conversation.messageCount > 0 || conversation.hasUnread)
     .sort((a, b) => Number(b.hasUnread) - Number(a.hasUnread) || String(b.lastMessageAt ?? "").localeCompare(String(a.lastMessageAt ?? "")))

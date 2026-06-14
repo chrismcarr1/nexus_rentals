@@ -3,6 +3,8 @@ import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { cache } from "react";
+
 import { DEFAULT_COUNTRY, type StoredAddress } from "@/lib/address";
 import { normalizeRentDueTime } from "@/lib/app-time";
 import { ensureAppStoreTable, getAppStoreBackend, getSql, isLocalDevelopment } from "@/lib/database";
@@ -599,13 +601,17 @@ function logStoreTiming(op: string, startedAt: number, slowThresholdMs: number, 
   }
 }
 
+// Aggregate counts only — never any tenant/user detail or secrets. Safe to log.
 function storeSizeSummary(store: AppStore) {
   return {
-    users: store.users.length,
     properties: store.properties.length,
+    units: store.units.length,
     leases: store.leases.length,
+    maintenanceRequests: store.maintenanceRequests.length,
+    listings: store.listings.length,
     payments: store.payments.length,
-    notifications: store.notifications.length
+    applications: store.rentalApplications.length,
+    applicationSubmissions: store.applicationSubmissions.length
   };
 }
 
@@ -613,10 +619,26 @@ async function fetchHostedStore(): Promise<AppStore> {
   const startedAt = Date.now();
   await ensureAppStoreTable();
   const rows = await getSql()`select data from app_store where id = ${STORE_ID} limit 1`;
-  const store = normalizeStore((rows[0]?.data as AppStore | undefined) ?? emptyStore());
+  const raw = (rows[0]?.data as AppStore | undefined) ?? emptyStore();
+  const store = normalizeStore(raw);
+  const elapsed = Date.now() - startedAt;
+  // This is the real Neon round trip + full-blob deserialize — the thing that
+  // actually costs time. Every line here is one uncached store fetch, so the
+  // count of these per request is the duplicate-read signal.
+  console.log(`[perf:dashboard] readStore (neon fetch): ${elapsed}ms`);
+  // JSON size is gated: JSON.stringify on the whole blob is itself expensive, so
+  // only compute it when explicitly diagnosing (NEXUS_PERF_LOG=1).
+  if (process.env.NEXUS_PERF_LOG === "1") {
+    const sizeKb = Math.round(JSON.stringify(raw).length / 1024);
+    console.log(`[perf:dashboard] store diagnostics:`, { sizeKb, ...storeSizeSummary(store) });
+  }
   logStoreTiming("read", startedAt, SLOW_READ_MS, storeSizeSummary(store));
   return store;
 }
+
+// Counts every readStore() entry (cache hit or miss) so a single request's log
+// group reveals how many times the load path asked for the full store.
+let readStoreCallCount = 0;
 
 export async function readStore(): Promise<AppStore> {
   if (shouldUseLocalStore()) {
@@ -626,12 +648,17 @@ export async function readStore(): Promise<AppStore> {
   const now = Date.now();
   if (readCache && readCache.version === storeVersion && readCache.expiresAt > now) {
     try {
-      return await readCache.promise;
+      const cached = await readCache.promise;
+      readStoreCallCount += 1;
+      console.log(`[perf:dashboard] readStore #${readStoreCallCount} (cache hit)`);
+      return cached;
     } catch {
       // Cached fetch failed; fall through to a fresh attempt.
     }
   }
 
+  readStoreCallCount += 1;
+  console.log(`[perf:dashboard] readStore #${readStoreCallCount} (cache miss)`);
   const promise = fetchHostedStore();
   readCache = { version: storeVersion, expiresAt: now + READ_CACHE_TTL_MS, promise };
   try {
@@ -958,7 +985,12 @@ export async function getNotificationsByOrganization(organizationId: string, tak
     .slice(0, take);
 }
 
-export async function getOrganizationSnapshot(organizationId: string) {
+// Request-memoized: the dashboard render path asks for the same org snapshot
+// from several helpers (portal context, manager aggregation, search). The React
+// cache() collapses those into one readStore + one filtering pass per request.
+// Safe to cache because every caller is a read-only render path; server actions
+// that mutate then re-read use readStore/updateStore directly, not this.
+export const getOrganizationSnapshot = cache(async (organizationId: string) => {
   const store = await readStore();
   return {
     store,
@@ -1055,4 +1087,4 @@ export async function getOrganizationSnapshot(organizationId: string) {
       store.rentalApplications.some((application) => application.organizationId === organizationId && application.id === entry.applicationId)
     )
   };
-}
+});
