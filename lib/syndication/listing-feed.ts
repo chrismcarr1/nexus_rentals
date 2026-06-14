@@ -1,6 +1,7 @@
 import "server-only";
 
 import { formatAddress, formatUnitAddress } from "@/lib/address";
+import { normalizePublicListingPhone, splitListingAmenities } from "@/lib/listing-fields";
 import {
   getListingProperty,
   getListingTitle,
@@ -39,14 +40,6 @@ export type RentalListingFeedItem = {
   lastUpdated: string;
 };
 
-function splitAmenities(value?: string): string[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 export function listingToFeedItem(store: AppStore, listing: Listing): RentalListingFeedItem {
   const property = getListingProperty(store, listing);
   const unit = getListingUnit(store, listing);
@@ -67,13 +60,14 @@ export function listingToFeedItem(store: AppStore, listing: Listing): RentalList
     availabilityDate: listing.availabilityDate,
     leaseTerms: listing.leaseTerms,
     description: listing.description,
-    amenities: splitAmenities(listing.amenities),
+    amenities: splitListingAmenities(listing.amenities),
     petPolicy: listing.petPolicy,
     parking: listing.parking,
     utilities: listing.utilities,
     contactName: listing.contactName,
     contactEmail: listing.contactEmail,
-    contactPhone: listing.contactPhone,
+    // Normalize to a clean, human-readable phone for public partners.
+    contactPhone: normalizePublicListingPhone(listing.contactPhone),
     photoUrls: listing.photoUrls ?? [],
     lastUpdated: listing.updatedAt
   };

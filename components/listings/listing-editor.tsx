@@ -10,6 +10,11 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { createListingAction, updateListingAction } from "@/lib/listing-actions";
 import { buildListingDefaultsFromPropertyUnit } from "@/lib/listing-defaults";
+import {
+  isValidPublicListingEmail,
+  isValidPublicListingPhone,
+  LISTING_DESCRIPTION_MIN_LENGTH
+} from "@/lib/listing-fields";
 
 export type ListingPropertyOption = {
   id: string;
@@ -204,16 +209,20 @@ export function ListingEditor({
   }
 
   const photoCount = photoUrls.filter((url) => url.trim()).length;
+  const descriptionLength = description.trim().length;
+  const descriptionTooShort = descriptionLength > 0 && descriptionLength < LISTING_DESCRIPTION_MIN_LENGTH;
+  const emailInvalid = contactEmail.trim().length > 0 && !isValidPublicListingEmail(contactEmail);
+  const phoneInvalid = contactPhone.trim().length > 0 && !isValidPublicListingPhone(contactPhone);
   const readiness = [
     { ok: Boolean(selectedProperty), label: "Full property address" },
     { ok: Number(rent) > 0, label: "Rent" },
     { ok: bedrooms !== "", label: "Bedrooms" },
     { ok: Number(bathrooms) > 0, label: "Bathrooms" },
     { ok: Boolean(availabilityDate), label: "Availability date" },
-    { ok: description.trim().length >= 20, label: "Description (20+ chars)" },
-    { ok: Boolean(contactName.trim()), label: "Contact name" },
-    { ok: /.+@.+\..+/.test(contactEmail.trim()), label: "Contact email" },
-    { ok: Boolean(contactPhone.trim()), label: "Contact phone" },
+    { ok: descriptionLength >= LISTING_DESCRIPTION_MIN_LENGTH, label: `Description (${LISTING_DESCRIPTION_MIN_LENGTH}+ characters)` },
+    { ok: Boolean(contactName.trim()), label: "Public contact name" },
+    { ok: isValidPublicListingEmail(contactEmail), label: "Public contact email" },
+    { ok: isValidPublicListingPhone(contactPhone), label: "Public contact phone" },
     { ok: photoCount > 0, label: "At least one photo" }
   ];
   const readyCount = readiness.filter((item) => item.ok).length;
@@ -309,18 +318,32 @@ export function ListingEditor({
             <Input name="leaseTerms" value={leaseTerms} onChange={(event) => setLeaseTerms(event.target.value)} placeholder="12-month lease, renewable" />
           </label>
           <label className="mt-4 block">
-            <FieldLabel label="Description" hint="Shown to renters" />
-            <Textarea name="description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Describe the home, the neighborhood, and what makes it a great rental." />
+            <FieldLabel label="Description" hint={`${LISTING_DESCRIPTION_MIN_LENGTH}+ characters recommended`} />
+            <Textarea name="description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Describe the home, the neighborhood, and what makes it a great rental — highlight layout, amenities, and nearby conveniences." />
+            <span className="mt-1.5 flex items-center justify-between gap-3 text-xs">
+              <span className={descriptionTooShort ? "font-medium text-amber-700" : "text-[var(--muted)]"}>
+                {descriptionTooShort
+                  ? `Add ${LISTING_DESCRIPTION_MIN_LENGTH - descriptionLength} more characters for a feed-ready, professional description.`
+                  : "Write a polished, marketing-ready summary for public rental platforms."}
+              </span>
+              <span className={descriptionLength >= LISTING_DESCRIPTION_MIN_LENGTH ? "text-emerald-600" : "text-[var(--muted)]"}>
+                {descriptionLength}/{LISTING_DESCRIPTION_MIN_LENGTH}
+              </span>
+            </span>
           </label>
         </Card>
 
         <Card className="p-5 lg:p-6">
           <p className="section-kicker">Marketing</p>
           <h2 className="mt-2 text-xl font-semibold text-[var(--text)]">Amenities &amp; policies</h2>
+          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">These values appear publicly in your syndication feeds.</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="block sm:col-span-2">
-              <FieldLabel label="Amenities" hint="Comma separated" />
-              <Input name="amenities" value={amenities} onChange={(event) => setAmenities(event.target.value)} placeholder="In-unit laundry, Central AC, Dishwasher" />
+              <FieldLabel label="Amenities" hint="One per item, comma separated" />
+              <Input name="amenities" value={amenities} onChange={(event) => setAmenities(event.target.value)} placeholder="In-unit washer/dryer, Central AC, Dishwasher" />
+              <span className="mt-1.5 block text-xs leading-5 text-[var(--muted)]">
+                Enter each amenity as its own short item, e.g. “In-unit washer/dryer, Walkable to restaurants” — not one long sentence. Each becomes a separate amenity in the feed.
+              </span>
             </label>
             <label className="block">
               <FieldLabel label="Pet policy" />
@@ -338,21 +361,26 @@ export function ListingEditor({
         </Card>
 
         <Card className="p-5 lg:p-6">
-          <p className="section-kicker">Contact</p>
-          <h2 className="mt-2 text-xl font-semibold text-[var(--text)]">Leasing contact</h2>
-          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">Shown publicly on syndicated listings. Use a leasing contact, not tenant details.</p>
+          <p className="section-kicker">Public listing details</p>
+          <h2 className="mt-2 text-xl font-semibold text-[var(--text)]">Public listing contact</h2>
+          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">
+            These fields appear in listing feeds shared with approved rental platforms. Use a business email or leasing inbox when
+            possible — never tenant details or a personal account you don’t want published.
+          </p>
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
             <label className="block">
-              <FieldLabel label="Contact name" />
-              <Input name="contactName" value={contactName} onChange={(event) => setContactName(event.target.value)} />
+              <FieldLabel label="Public contact name" />
+              <Input name="contactName" value={contactName} onChange={(event) => setContactName(event.target.value)} placeholder="Leasing team" />
             </label>
             <label className="block">
-              <FieldLabel label="Contact email" />
-              <Input name="contactEmail" type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} />
+              <FieldLabel label="Public contact email" />
+              <Input name="contactEmail" type="email" value={contactEmail} onChange={(event) => setContactEmail(event.target.value)} placeholder="leasing@company.com" />
+              {emailInvalid ? <span className="mt-1.5 block text-xs font-medium text-amber-700">Enter a valid email address; invalid emails can’t be published to feeds.</span> : null}
             </label>
             <label className="block">
-              <FieldLabel label="Contact phone" />
-              <Input name="contactPhone" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} />
+              <FieldLabel label="Public contact phone" />
+              <Input name="contactPhone" value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} placeholder="(555) 555-1212" />
+              {phoneInvalid ? <span className="mt-1.5 block text-xs font-medium text-amber-700">Enter a valid 10-digit phone number.</span> : null}
             </label>
           </div>
         </Card>

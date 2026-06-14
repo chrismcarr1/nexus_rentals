@@ -53,7 +53,7 @@ function makeListing(overrides: Record<string, unknown> = {}) {
     squareFeet: 850,
     availabilityDate: "2026-07-01T12:00:00Z",
     leaseTerms: "12-month",
-    description: "A bright two bedroom apartment in the heart of downtown with great light.",
+    description: "A bright, beautifully maintained two-bedroom apartment in the heart of downtown with great natural light and walkable access to restaurants and shops.",
     amenities: "In-unit laundry, Central AC",
     petPolicy: "Cats welcome",
     parking: "1 space",
@@ -97,7 +97,7 @@ describe("listing feed readiness", () => {
     const missing = listings.getMissingFeedFields(storeWith(listing) as AnyStore, listing as AnyStore);
     expect(missing).toContain("Description");
     expect(missing).toContain("At least one photo");
-    expect(missing).toContain("Contact email");
+    expect(missing).toContain("Public contact email");
     expect(missing).not.toContain("Rent");
   });
 
@@ -106,6 +106,34 @@ describe("listing feed readiness", () => {
     const store: AnyStore = { properties: [], units: [], listings: [listing] };
     const missing = listings.getMissingFeedFields(store, listing as AnyStore);
     expect(missing).toContain("Full property address");
+  });
+
+  it("blocks a present-but-too-short description with a specific message", () => {
+    const listing = makeListing({ description: "Cute place near downtown." });
+    const result = listings.validateListingReadiness(storeWith(listing) as AnyStore, listing as AnyStore);
+    expect(result.ready).toBe(false);
+    expect(result.missing).toContain("Description must be at least 80 characters");
+  });
+
+  it("treats an 80+ character description as feed-ready", () => {
+    const listing = makeListing({
+      description: "Charming two-bedroom, one-bath rental near Old Colorado City with in-unit laundry and easy access to restaurants and shops."
+    });
+    expect(listings.validateListingReadiness(storeWith(listing) as AnyStore, listing as AnyStore).ready).toBe(true);
+  });
+
+  it("blocks an invalid public contact email", () => {
+    const listing = makeListing({ contactEmail: "not-an-email" });
+    const result = listings.validateListingReadiness(storeWith(listing) as AnyStore, listing as AnyStore);
+    expect(result.ready).toBe(false);
+    expect(result.missing).toContain("Public contact email is invalid");
+  });
+
+  it("blocks an invalid public contact phone", () => {
+    const listing = makeListing({ contactPhone: "123" });
+    const result = listings.validateListingReadiness(storeWith(listing) as AnyStore, listing as AnyStore);
+    expect(result.ready).toBe(false);
+    expect(result.missing).toContain("Public contact phone is invalid");
   });
 });
 
@@ -119,12 +147,26 @@ describe("buildListingFeedItems", () => {
     expect(items.map((item) => item.listingId)).toEqual(["ready"]);
   });
 
-  it("maps amenities into an array and resolves the address", () => {
+  it("maps amenities into separate clean array items and resolves the address", () => {
     const listing = makeListing();
     const item = listingFeed.listingToFeedItem(storeWith(listing) as AnyStore, listing as AnyStore);
     expect(item.amenities).toEqual(["In-unit laundry", "Central AC"]);
     expect(item.address).toContain("123 Main St");
     expect(item.unitNumber).toBe("2B");
+  });
+
+  it("emits clean public contact fields with a normalized phone", () => {
+    const listing = makeListing({ contactPhone: "6304145868" });
+    const item = listingFeed.listingToFeedItem(storeWith(listing) as AnyStore, listing as AnyStore);
+    expect(item.contactName).toBe("Jane Doe");
+    expect(item.contactEmail).toBe("jane@example.com");
+    expect(item.contactPhone).toBe("(630) 414-5868");
+  });
+
+  it("keeps amenities as separate items even with mixed separators", () => {
+    const listing = makeListing({ amenities: "In-unit washer/dryer; Walkable to restaurants\nDishwasher, Dishwasher" });
+    const item = listingFeed.listingToFeedItem(storeWith(listing) as AnyStore, listing as AnyStore);
+    expect(item.amenities).toEqual(["In-unit washer/dryer", "Walkable to restaurants", "Dishwasher"]);
   });
 });
 
@@ -134,7 +176,9 @@ describe("zillow xml feed", () => {
   });
 
   it("produces a valid XML document and never leaks raw special characters from listing data", () => {
-    const listing = makeListing({ description: "Spacious & sunny <loft>" });
+    const listing = makeListing({
+      description: "Spacious & sunny <loft> with exposed brick, in-unit laundry, and a walkable location near cafes, shops, and restaurants."
+    });
     const items = listingFeed.buildListingFeedItems(storeWith(listing) as AnyStore);
     const xml = zillow.buildZillowFeedXml(items);
     expect(xml.startsWith("<?xml")).toBe(true);
@@ -152,5 +196,28 @@ describe("generic json feed", () => {
     expect(feed.count).toBe(1);
     expect(feed.generatedAt).toBe("2026-06-13T00:00:00Z");
     expect(feed.listings[0].listingId).toBe("l1");
+  });
+
+  it("emits clean public contact fields and separate amenities", () => {
+    const listing = makeListing({ contactPhone: "(630) 414-5868" });
+    const items = listingFeed.buildListingFeedItems(storeWith(listing) as AnyStore);
+    const feed = generic.buildGenericFeed(items, "2026-06-13T00:00:00Z");
+    expect(feed.listings[0].contactName).toBe("Jane Doe");
+    expect(feed.listings[0].contactEmail).toBe("jane@example.com");
+    expect(feed.listings[0].contactPhone).toBe("(630) 414-5868");
+    expect(feed.listings[0].amenities).toEqual(["In-unit laundry", "Central AC"]);
+  });
+});
+
+describe("zillow xml public contact + amenities", () => {
+  it("emits normalized phone, contact fields, and a node per amenity", () => {
+    const listing = makeListing({ contactPhone: "6304145868" });
+    const items = listingFeed.buildListingFeedItems(storeWith(listing) as AnyStore);
+    const xml = zillow.buildZillowFeedXml(items);
+    expect(xml).toContain("<Name>Jane Doe</Name>");
+    expect(xml).toContain("<Email>jane@example.com</Email>");
+    expect(xml).toContain("<Phone>(630) 414-5868</Phone>");
+    expect(xml).toContain("<Amenity><Type>In-unit laundry</Type></Amenity>");
+    expect(xml).toContain("<Amenity><Type>Central AC</Type></Amenity>");
   });
 });

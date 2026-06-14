@@ -157,6 +157,9 @@ describe("autofilled draft feeds into existing readiness validation", () => {
       managerUserId: "m1",
       status: "draft",
       ...defaults,
+      // A feed-ready listing needs an 80+ char description; the fixture's unit
+      // description is shorter, so set a professional one for this check.
+      description: "Charming two-bedroom, one-bath rental near the park with in-unit laundry and easy access to restaurants and shops.",
       // availabilityDate on a real listing is stored ISO; readiness only checks presence.
       availabilityDate: "2026-07-01T12:00:00Z",
       createdAt: "2026-06-01T00:00:00Z",

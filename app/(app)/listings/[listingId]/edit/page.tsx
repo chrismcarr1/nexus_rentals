@@ -31,6 +31,9 @@ export default async function EditListingPage({
   const unitPhotos = (unitId: string) =>
     portal.scope.files.filter((file) => file.kind === "UNIT_IMAGE" && file.unitId === unitId).map((file) => file.path);
 
+  // Public contact defaults: prefer the property's listing contact, then the
+  // organization's business contact (used by autofill when changing source).
+  const org = portal.organization;
   const properties: ListingPropertyOption[] = portal.scope.properties.map((property) => ({
     id: property.id,
     name: property.name,
@@ -40,9 +43,9 @@ export default async function EditListingPage({
     petPolicy: property.petPolicy,
     parking: property.parking,
     utilities: property.utilities,
-    contactName: property.contactName,
-    contactEmail: property.contactEmail,
-    contactPhone: property.contactPhone,
+    contactName: property.contactName || org?.name || undefined,
+    contactEmail: property.contactEmail || org?.email || undefined,
+    contactPhone: property.contactPhone || org?.phone || undefined,
     photoUrls: propertyPhotos(property.id)
   }));
   const units: ListingUnitOption[] = portal.scope.units.map((unit) => ({

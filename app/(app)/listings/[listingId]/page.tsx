@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { requireRoles } from "@/lib/auth";
 import { deleteListingAction, publishListingAction, unpublishListingAction } from "@/lib/listing-actions";
 import { getListingsFeedToken } from "@/lib/listings-feed-auth";
-import { FEED_REQUIRED_FIELDS, getListingLocationLabel, getMissingFeedFields, managerOwnsListing } from "@/lib/listings";
+import { getListingLocationLabel, getListingReadiness, getMissingFeedFields, managerOwnsListing } from "@/lib/listings";
 import { buildAppUrl } from "@/lib/request-origin";
 import { listingToFeedItem } from "@/lib/syndication/listing-feed";
 import { readStore, UserRole } from "@/lib/store";
@@ -52,10 +52,10 @@ export default async function ListingDetailPage({
     notFound();
   }
 
+  const readiness = getListingReadiness(store, listing);
   const missing = getMissingFeedFields(store, listing);
   const feedReady = missing.length === 0;
   const item = listingToFeedItem(store, listing);
-  const missingSet = new Set(missing);
   const feedToken = getListingsFeedToken();
 
   const alert = query.error
@@ -110,15 +110,12 @@ export default async function ListingDetailPage({
         <div className="space-y-4">
           <DetailSection title="Feed readiness" description={feedReady ? "All required fields are complete." : `${missing.length} required field${missing.length === 1 ? "" : "s"} missing.`}>
             <ul className="space-y-2">
-              {FEED_REQUIRED_FIELDS.map((field) => {
-                const ok = !missingSet.has(field.label);
-                return (
-                  <li key={field.key} className="flex items-center gap-2 text-sm">
-                    {ok ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : <Circle className="h-4 w-4 shrink-0 text-amber-600" />}
-                    <span className={ok ? "text-[var(--text)]" : "text-[var(--muted)]"}>{field.label}</span>
-                  </li>
-                );
-              })}
+              {readiness.map((field) => (
+                <li key={field.key} className="flex items-center gap-2 text-sm">
+                  {field.ok ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" /> : <Circle className="h-4 w-4 shrink-0 text-amber-600" />}
+                  <span className={field.ok ? "text-[var(--text)]" : "text-[var(--muted)]"}>{field.ok ? field.label : field.message}</span>
+                </li>
+              ))}
             </ul>
             {!feedReady ? (
               <p className="mt-3 text-xs leading-5 text-[var(--muted)]">
