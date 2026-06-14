@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Upload, X } from "lucide-react";
 
-type UploadedAsset = { path: string; name: string; skipped?: boolean };
+export type UploadedAsset = { path: string; name: string; skipped?: boolean };
 type UploadResponse = UploadedAsset & { error?: string };
 
 const defaultAcceptedTypes = [
@@ -28,19 +28,32 @@ export function FileUploader({
   label,
   accept = defaultAcceptedTypes,
   multiple = true,
+  maxItems,
+  existingCount = 0,
+  purpose,
   onChange
 }: {
   label: string;
   accept?: string;
   multiple?: boolean;
+  maxItems?: number;
+  existingCount?: number;
+  purpose?: "tenant-id";
   onChange: (assets: UploadedAsset[]) => void;
 }) {
   const [items, setItems] = useState<UploadedAsset[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const atLimit = maxItems != null && existingCount + items.length >= maxItems;
 
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
+    if (maxItems != null && existingCount + items.length + files.length > maxItems) {
+      setErrorMessage(
+        `You can upload ${Math.max(maxItems - existingCount, 0)} more file${maxItems - existingCount === 1 ? "" : "s"}. The limit is ${maxItems}.`
+      );
+      return;
+    }
 
     setIsUploading(true);
     setErrorMessage("");
@@ -52,6 +65,7 @@ export function FileUploader({
       for (const file of Array.from(files)) {
         const formData = new FormData();
         formData.append("file", file);
+        if (purpose) formData.append("purpose", purpose);
 
         try {
           const response = await fetch("/api/upload", { method: "POST", body: formData });
@@ -94,19 +108,26 @@ export function FileUploader({
           <Upload className="h-4 w-4" />
           {label}
         </span>
-        <span className="upload-picker-action">{isUploading ? "Uploading..." : multiple ? "Choose files" : "Choose file"}</span>
+        <span className="upload-picker-action">
+          {isUploading ? "Uploading..." : atLimit ? "Limit reached" : multiple ? "Choose files" : "Choose file"}
+        </span>
         <input
           type="file"
           className="hidden"
           accept={accept}
           multiple={multiple}
-          disabled={isUploading}
+          disabled={isUploading || atLimit}
           onChange={(event) => {
             void handleFiles(event.target.files);
             event.target.value = "";
           }}
         />
       </label>
+      {maxItems != null ? (
+        <p className="mb-2 text-xs text-[var(--muted)]">
+          {existingCount + items.length} of {maxItems} files selected
+        </p>
+      ) : null}
       <div className="space-y-2">
         {errorMessage ? (
           <p className="page-alert page-alert-error" role="alert" aria-live="polite">

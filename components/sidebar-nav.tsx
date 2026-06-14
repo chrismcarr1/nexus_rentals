@@ -6,12 +6,14 @@ import {
   BarChart3,
   BellRing,
   Building2,
+  CalendarClock,
   ClipboardList,
   CreditCard,
   FileCheck2,
   FileText,
   Gauge,
   Home,
+  Megaphone,
   MessageSquare,
   Receipt,
   Settings,
@@ -28,12 +30,14 @@ const icons: Record<NavIconName, LucideIcon> = {
   barChart3: BarChart3,
   bellRing: BellRing,
   building2: Building2,
+  calendarClock: CalendarClock,
   clipboardList: ClipboardList,
   creditCard: CreditCard,
   fileCheck2: FileCheck2,
   fileText: FileText,
   gauge: Gauge,
   home: Home,
+  megaphone: Megaphone,
   messageSquare: MessageSquare,
   receipt: Receipt,
   settings: Settings,
@@ -50,7 +54,15 @@ type NavItem = {
   section?: string;
 };
 
-export function SidebarNav({ items }: { items: NavItem[] }) {
+export function SidebarNav({
+  items,
+  collapsed = false,
+  ariaLabel = "Primary navigation"
+}: {
+  items: NavItem[];
+  collapsed?: boolean;
+  ariaLabel?: string;
+}) {
   const pathname = usePathname();
   const groups = items.reduce<Array<{ label?: string; items: NavItem[] }>>((result, item) => {
     const current = result[result.length - 1];
@@ -63,7 +75,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
   }, []);
 
   return (
-    <nav className="sidebar-nav" aria-label="Primary navigation">
+    <nav className="sidebar-nav" aria-label={ariaLabel} data-collapsed={collapsed}>
       {groups.map((group, groupIndex) => (
         <div key={`${group.label ?? "navigation"}-${groupIndex}`} className="sidebar-nav-group">
           {group.label ? <p className="sidebar-nav-label">{group.label}</p> : null}
@@ -85,7 +97,8 @@ export function SidebarItem({ item, active }: { item: NavItem; active: boolean }
   return (
     <Link
       href={item.href}
-      title={item.description}
+      title={`${item.label}: ${item.description}`}
+      aria-label={item.label}
       aria-current={active ? "page" : undefined}
       className={cn(
         "sidebar-nav-item group relative flex items-center gap-2.5 px-3 transition duration-150",
@@ -111,7 +124,7 @@ export function SidebarItem({ item, active }: { item: NavItem; active: boolean }
       >
         <Icon className="h-4 w-4" />
       </span>
-      <span className="min-w-0 flex-1">
+      <span className="sidebar-nav-text min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium leading-5">{item.label}</span>
       </span>
     </Link>

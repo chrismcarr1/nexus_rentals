@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { NexusLogo } from "@/components/brand/nexus-logo";
+
 type PublicNavItem = {
   href: string;
   label: string;
@@ -18,11 +20,8 @@ export function PublicSiteHeader({
     <header className="public-header">
       <div className="public-header-inner">
         <Link href="/" className="public-brand" aria-label="Nexus Rentals home">
-          <span className="public-brand-mark">N</span>
-          <span>
-            <span className="block text-sm font-semibold text-[var(--text)]">Nexus Rentals</span>
-            <span className="block text-[10px] font-semibold uppercase tracking-[0.13em] text-[var(--muted)]">Property operations</span>
-          </span>
+          <NexusLogo variant="full" size="sm" className="public-brand-full" priority />
+          <NexusLogo variant="icon" size="sm" className="public-brand-icon" priority />
         </Link>
 
         <nav className="public-nav" aria-label="Public navigation">

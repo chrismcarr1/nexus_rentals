@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { appDateKeyFromValue, DEFAULT_RENT_DUE_TIME } from "@/lib/app-time";
+import { canManagerAbsorbPaymentCharge, MANAGER_ABSORB_MIN_RENT_MESSAGE } from "@/lib/payment-charge";
 import { formatPhoneNumber } from "@/lib/phone";
 
 const optionalMoney = z.preprocess(
@@ -57,6 +58,13 @@ export const propertySchema = z.object({
   name: z.string().min(2),
   description: z.string().optional(),
   amenities: z.string().optional(),
+  // Listing-related marketing/contact fields, surfaced as listing autofill.
+  petPolicy: z.string().optional(),
+  parking: z.string().optional(),
+  utilities: z.string().optional(),
+  contactName: z.string().optional(),
+  contactEmail: z.string().optional(),
+  contactPhone: z.string().optional(),
   notes: z.string().optional(),
   managerId: z.string().optional()
 });
@@ -74,8 +82,16 @@ export const unitSchema = z.object({
   occupancyStatus: z.enum(["OCCUPIED", "VACANT", "NOTICE", "TURNOVER"]),
   leaseStatus: z.enum(["ACTIVE", "UPCOMING", "EXPIRED", "TERMINATED"]),
   amenities: z.string().optional(),
+  // Listing-related fields, surfaced as listing autofill defaults.
+  availabilityDate: z.string().optional(),
+  leaseTerms: z.string().optional(),
+  unitDescription: z.string().optional(),
   notes: z.string().optional()
 });
+
+// Editing an existing unit's listing-relevant detail. Does not allow changing
+// the property the unit belongs to.
+export const unitUpdateSchema = unitSchema.omit({ propertyId: true });
 
 export const tenantSchema = z.object({
   firstName: z.string().min(2),
@@ -101,6 +117,10 @@ export const leaseSchema = z.object({
   lateFeePolicy: z.string().optional(),
   notes: z.string().optional(),
   documentPath: z.string().optional(),
+  documentName: z.string().optional(),
+  tenantIdPath: z.string().optional(),
+  tenantIdName: z.string().optional(),
+  tenantIdOriginalName: z.string().optional(),
   status: z.enum(["ACTIVE", "UPCOMING", "EXPIRED", "TERMINATED"])
 });
 
@@ -124,6 +144,7 @@ export const newMoveInSchema = z
     rentDueTime: rentDueTimeSchema,
     firstRentDueDate: z.string().optional(),
     securityDepositDueDate: z.string().optional(),
+    managerAbsorbsPaymentCharge: z.boolean(),
     createFirstRentCharge: z.boolean(),
     createSecurityDepositCharge: z.boolean(),
     additionalChargeDescription: z.string().optional(),
@@ -133,6 +154,10 @@ export const newMoveInSchema = z
     lateFeePolicy: z.string().optional(),
     notes: z.string().optional(),
     documentPath: z.string().optional(),
+    documentName: z.string().optional(),
+    tenantIdPath: z.string().optional(),
+    tenantIdName: z.string().optional(),
+    tenantIdOriginalName: z.string().optional(),
     sendInvite: z.boolean(),
     existingLeaseId: z.string().optional(),
     applicationSubmissionId: z.string().optional()
@@ -153,6 +178,9 @@ export const newMoveInSchema = z
     }
     if (value.createFirstRentCharge && !firstRentDue) {
       context.addIssue({ code: "custom", path: ["firstRentDueDate"], message: "First rent due date is required." });
+    }
+    if (value.managerAbsorbsPaymentCharge && !canManagerAbsorbPaymentCharge(value.monthlyRent)) {
+      context.addIssue({ code: "custom", path: ["managerAbsorbsPaymentCharge"], message: MANAGER_ABSORB_MIN_RENT_MESSAGE });
     }
     if (value.createSecurityDepositCharge && value.securityDeposit > 0 && !depositDue) {
       context.addIssue({ code: "custom", path: ["securityDepositDueDate"], message: "Deposit due date is required." });

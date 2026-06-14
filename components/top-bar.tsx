@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bell, Search } from "lucide-react";
+import { Bell, Menu, Search, X } from "lucide-react";
 
+import { NexusLogo } from "@/components/brand/nexus-logo";
 import { QuickActionMenu } from "@/components/quick-action-menu";
 import { useClickOutside } from "@/components/use-click-outside";
 import { cn } from "@/lib/utils";
@@ -11,12 +12,16 @@ import { cn } from "@/lib/utils";
 export function TopBar({
   role,
   organizationName,
+  pageTitle,
   notifications,
   searchQuery,
-  searchResults
+  searchResults,
+  onMenuToggle,
+  mobileNavOpen = false
 }: {
   role: "ADMIN" | "MANAGER" | "TENANT";
   organizationName: string;
+  pageTitle?: string;
   notifications: Array<{ id: string; title: string; body: string; href?: string; label?: string; isUnread?: boolean }>;
   searchQuery?: string;
   searchResults?: {
@@ -24,6 +29,8 @@ export function TopBar({
     units: Array<{ id: string; unitNumber: string; property: { name: string } }>;
     tenants: Array<{ id: string; firstName: string; lastName: string }>;
   };
+  onMenuToggle?: () => void;
+  mobileNavOpen?: boolean;
 }) {
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [locallyReadHrefs, setLocallyReadHrefs] = useState<string[]>([]);
@@ -49,6 +56,10 @@ export function TopBar({
   return (
     <header className="app-topbar">
       <div className="app-topbar-inner flex min-w-0 items-center gap-2">
+        <Link href="/dashboard" className="mobile-topbar-brand" aria-label="Nexus dashboard">
+          <NexusLogo variant="icon" size="sm" priority />
+        </Link>
+        {pageTitle ? <p className="mobile-topbar-title">{pageTitle}</p> : null}
         <form action="/dashboard" className="topbar-search relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
           <input
@@ -141,6 +152,20 @@ export function TopBar({
           </div>
 
           <p className="workspace-chip min-w-0 max-w-52 truncate px-2 text-xs font-medium text-[var(--muted)]">{organizationName}</p>
+
+          {onMenuToggle ? (
+            <button
+              type="button"
+              onClick={onMenuToggle}
+              aria-label={mobileNavOpen ? "Close navigation menu" : "Open navigation menu"}
+              aria-expanded={mobileNavOpen}
+              aria-controls="mobile-menu"
+              aria-haspopup="dialog"
+              className="mobile-nav-trigger topbar-icon-button"
+            >
+              {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          ) : null}
         </div>
       </div>
     </header>

@@ -5,12 +5,12 @@ import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "@/components/filter-bar";
+import { NamedPhotoUpload } from "@/components/named-photo-upload";
 import { PageHeader } from "@/components/page-header";
 import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { SingleUploadInput } from "@/components/upload-inputs";
 import { createUnitAction } from "@/lib/actions";
 import { requireRouteAccess } from "@/lib/auth";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -225,7 +225,20 @@ export default async function UnitsPage({ searchParams }: { searchParams?: Promi
                   </select>
                 </div>
                 <textarea name="amenities" placeholder="Amenities, comma separated" className="field min-h-24" />
-                <SingleUploadInput name="imagePath" label="Upload unit image" />
+                <div className="form-grid-2">
+                  <input name="availabilityDate" type="date" className="field" aria-label="Available from" />
+                  <input name="leaseTerms" placeholder="Lease terms (e.g. 12-month)" className="field" />
+                </div>
+                <textarea name="unitDescription" placeholder="Unit description (shown on listings)" className="field min-h-24" />
+                <NamedPhotoUpload
+                  pathName="imagePaths"
+                  titleName="imageNames"
+                  originalNameName="imageOriginalNames"
+                  kind="unit"
+                  existingCount={0}
+                  limit={10}
+                  label="Upload unit photos"
+                />
                 <div className="flex gap-2">
                   <SubmitButton>Create unit</SubmitButton>
                   <Link href="/units" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--line-strong)] bg-[var(--panel)] px-3.5 py-2 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)] hover:bg-[var(--surface-hover)]">

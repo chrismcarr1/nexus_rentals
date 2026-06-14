@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 
 import { getEffectiveUserRole, isSystemAdminEmail } from "@/lib/admin";
 import { LEGAL_ACCEPT_PATH, requiresLegalAcceptance } from "@/lib/legal";
+import { timeAsync } from "@/lib/perf";
 import { getOrganizationById, getUserById, type UserRole } from "@/lib/store";
 import { canAccessPath } from "@/lib/rbac";
 import { isRetiredAccountEmail } from "@/lib/retired-accounts";
@@ -80,26 +81,31 @@ export async function getSession() {
 // getPortalContext() memoizes by user object identity. Deduplicating here means
 // both receive the same instance, so the portal context is computed once per
 // request instead of twice (and the user/org store reads run once).
-export const getCurrentUser = cache(async () => {
-  const session = await getSession();
-  if (!session) return null;
+export const getCurrentUser = cache(async () =>
+  // Instrumented inside the React cache() so the timing reflects the real
+  // one-time auth cost per request; later callers (page after layout) hit the
+  // cache and never re-enter this function.
+  timeAsync("[perf:dashboard] getCurrentUser", async () => {
+    const session = await getSession();
+    if (!session) return null;
 
-  try {
-    const user = await getUserById(session.sub);
-    if (!user) return null;
-    if (user.isActive === false) return null;
-    if (isRetiredAccountEmail(user.email)) return null;
-    // Reject tokens issued before the user's session version was last advanced
-    // (logout, password reset, account disable, role/email change).
-    if ((user.sessionVersion ?? 0) !== (session.sessionVersion ?? 0)) return null;
-    const organization = await getOrganizationById(user.organizationId);
-    if (!organization) return null;
-    return { ...user, role: getEffectiveUserRole(user.role, user.email), organization };
-  } catch (error) {
-    console.error("[auth] Failed to load current user from database", error);
-    return null;
-  }
-});
+    try {
+      const user = await getUserById(session.sub);
+      if (!user) return null;
+      if (user.isActive === false) return null;
+      if (isRetiredAccountEmail(user.email)) return null;
+      // Reject tokens issued before the user's session version was last advanced
+      // (logout, password reset, account disable, role/email change).
+      if ((user.sessionVersion ?? 0) !== (session.sessionVersion ?? 0)) return null;
+      const organization = await getOrganizationById(user.organizationId);
+      if (!organization) return null;
+      return { ...user, role: getEffectiveUserRole(user.role, user.email), organization };
+    } catch (error) {
+      console.error("[auth] Failed to load current user from database", error);
+      return null;
+    }
+  })
+);
 
 // Mandatory account-level legal gate: every protected page and server action
 // that calls requireUser() (directly or via requireRoles/requireSystemAdmin)

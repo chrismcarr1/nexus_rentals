@@ -34,6 +34,13 @@ export function isLocalDevelopment() {
   return process.env.NODE_ENV !== "production";
 }
 
+export type AppStoreBackend = "postgres" | "local-json";
+
+export function getAppStoreBackend(): AppStoreBackend {
+  const requested = process.env.NEXUS_DATA_STORE?.trim().toLowerCase();
+  return isLocalDevelopment() && requested === "local-json" ? "local-json" : "postgres";
+}
+
 // Safe, secret-free description of where DATABASE_URL points: hostname only,
 // never the connection string (which embeds credentials).
 export function describeDatabaseTarget(): { label: string; remote: boolean } {
@@ -45,6 +52,12 @@ export function describeDatabaseTarget(): { label: string; remote: boolean } {
   } catch {
     return { label: "missing-or-invalid", remote: false };
   }
+}
+
+export function describeAppStoreTarget(): { label: string; remote: boolean } {
+  return getAppStoreBackend() === "local-json"
+    ? { label: "local-json", remote: false }
+    : describeDatabaseTarget();
 }
 
 let warnedRemoteDevDatabase = false;
@@ -75,6 +88,11 @@ function assertDatabaseAllowedForEnvironment() {
 }
 
 export function getSql() {
+  if (getAppStoreBackend() === "local-json") {
+    throw new Error(
+      "Hosted Postgres is disabled because NEXUS_DATA_STORE=local-json. Local development data is stored in data/app-db.json."
+    );
+  }
   if (!sqlClient) {
     assertDatabaseAllowedForEnvironment();
     sqlClient = postgres(getDatabaseUrl(), {

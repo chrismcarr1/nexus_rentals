@@ -124,10 +124,10 @@ CLOUDFLARE_EMAIL_API_TOKEN=""
 
 ### Local development database
 
-- **With hosted Postgres (default):** set a real `DATABASE_URL` in `.env.local` and run `npm run dev`. The app reads and writes the hosted document store exactly as production does.
-- **Without hosted Postgres (offline fallback):** in development only (`next dev`), if `DATABASE_URL` is missing, invalid, or the connection times out, the app logs `Hosted Postgres unavailable; using local development store.` and immediately serves `data/app-db.json` instead. The unavailable state is cached for 30 seconds so pages and auth stay fast instead of re-waiting on the connection timeout (which is also shortened to 5 seconds in development). To use the fallback intentionally, leave `DATABASE_URL` unset or commented out in `.env.local`.
-- **Reconnecting:** restore a valid `DATABASE_URL` in `.env.local` and restart `npm run dev` (or just wait for the 30-second retry window if the database was only temporarily unreachable). Changes written to `data/app-db.json` while offline are not synced to hosted Postgres.
-- **Production is unaffected:** outside development, a missing or unreachable `DATABASE_URL` still fails loudly and never falls back to the local file. Note that the relational tenant-screening tables (`lib/screening/repository.ts`) always require Postgres; only the main app document store has a local fallback.
+- **Local JSON mode (recommended):** set `NEXUS_DATA_STORE="local-json"` in `.env.local` and run `npm run dev`. The main app and mock screening records read and write the ignored `data/app-db.json` file. Hosted Postgres access is disabled even if `DATABASE_URL` is present.
+- **Hosted Postgres development:** remove `NEXUS_DATA_STORE` or set it to `postgres`, point `DATABASE_URL` at a development branch/database, and run `npm run dev`.
+- **Offline fallback:** when hosted Postgres development is selected but the connection fails, the app temporarily falls back to `data/app-db.json` and retries after 30 seconds.
+- **Production is unaffected:** `NEXUS_DATA_STORE="local-json"` is honored only outside production. Production always requires hosted Postgres and never falls back to the local file.
 
 Tenant invite, password reset, and rental application lifecycle emails (applicant submission confirmation, manager new-application notification, screening invitations, and approve/reject decisions) use Cloudflare Email Service. Set `APP_URL` to the public Nexus production origin, never a Vercel preview URL, and set `CLOUDFLARE_EMAIL_FROM` plus either `CLOUDFLARE_EMAIL_WORKER_URL` and `CLOUDFLARE_EMAIL_WORKER_SECRET`, or `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_EMAIL_API_TOKEN`. Invite tokens are stored only as SHA-256 hashes in the hosted datastore; the raw token appears only in the tenant email link.
 

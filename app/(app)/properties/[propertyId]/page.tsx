@@ -1,23 +1,30 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Building2, Plus } from "lucide-react";
+import { ArrowLeft, Building2, Plus, Trash2 } from "lucide-react";
 
 import { AddressFields } from "@/components/address-fields";
 import { DataTable } from "@/components/data-table";
 import { DetailSection } from "@/components/detail-section";
 import { EmptyState } from "@/components/empty-state";
+import { NamedPhotoUpload } from "@/components/named-photo-upload";
 import { PageHeader } from "@/components/page-header";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { MultiUploadInput, SingleUploadInput } from "@/components/upload-inputs";
-import { createUnitAction, deletePropertyAction, updatePropertyAction } from "@/lib/actions";
+import {
+  createUnitAction,
+  deletePropertyAction,
+  deletePropertyPhotoAction,
+  renamePropertyPhotoAction,
+  updatePropertyAction
+} from "@/lib/actions";
 import { formatAddress } from "@/lib/address";
 import { managerOwnsApplication, primaryApplicant } from "@/lib/applications";
 import { requireRouteAccess } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { documentTypeLabel, getFileDisplayName, PROPERTY_PHOTO_LIMIT } from "@/lib/document-metadata";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { readStore } from "@/lib/store";
 import { formatCurrency, formatDate, parseTags } from "@/lib/utils";
@@ -99,7 +106,7 @@ export default async function PropertyDetailPage({
   const activity = [
     ...payments.map((payment) => ({ id: payment.id, label: payment.description, detail: `${payment.status} payment`, date: payment.updatedAt ?? payment.dueDate, kind: "Payment" })),
     ...maintenance.map((item) => ({ id: item.id, label: item.title, detail: `${item.priority} ${item.status.toLowerCase()} work order`, date: item.updatedAt, kind: "Maintenance" })),
-    ...documents.map((file) => ({ id: file.id, label: file.label || file.kind, detail: file.path, date: file.createdAt, kind: "File" }))
+    ...documents.map((file) => ({ id: file.id, label: getFileDisplayName(file), detail: documentTypeLabel(file.kind), date: file.createdAt, kind: "File" }))
   ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
 
   return (
@@ -118,6 +125,10 @@ export default async function PropertyDetailPage({
           <div className="flex flex-wrap gap-2">
             <Link href="#edit" className="inline-flex min-h-10 items-center justify-center rounded-md border border-[var(--line-strong)] bg-[var(--panel)] px-3.5 py-2 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)]">
               Edit property
+            </Link>
+            <Link href={`/listings/new?propertyId=${encodeURIComponent(property.id)}`} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--line-strong)] bg-[var(--panel)] px-3.5 py-2 text-sm font-semibold text-[var(--text)] transition hover:border-[var(--brand)]">
+              <Plus className="h-4 w-4" />
+              Create Listing
             </Link>
             <Link href="#add-unit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand)] px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-[var(--brand-strong)]">
               <Plus className="h-4 w-4" />
@@ -325,8 +336,8 @@ export default async function PropertyDetailPage({
               const unit = file.unitId ? units.find((item) => item.id === file.unitId) : null;
               return (
                 <tr key={file.id} className="table-row">
-                  <td className="table-cell font-semibold">{file.label || file.kind}</td>
-                  <td className="table-cell"><StatusBadge status={file.kind} /></td>
+                  <td className="table-cell font-semibold">{getFileDisplayName(file)}</td>
+                  <td className="table-cell"><StatusBadge status={documentTypeLabel(file.kind)} /></td>
                   <td className="table-cell text-[var(--muted)]">{unit ? `Unit ${unit.unitNumber}` : property.name}</td>
                   <td className="table-cell text-[var(--muted)]">{formatDate(file.createdAt)}</td>
                   <td className="table-cell text-right">
@@ -341,6 +352,48 @@ export default async function PropertyDetailPage({
           </DataTable>
         ) : (
           <EmptyState title="No documents" description="Uploaded property and unit files will appear here." />
+        )}
+      </DetailSection>
+
+      <DetailSection
+        id="photos"
+        title="Property photos"
+        description={`${propertyImages.length} of ${PROPERTY_PHOTO_LIMIT} photos. Names appear in galleries and the document register.`}
+      >
+        {query.error === "photo-limit" ? (
+          <div className="page-alert page-alert-warning mb-4">
+            This property already has the maximum of {PROPERTY_PHOTO_LIMIT} photos. Delete a photo before adding another.
+          </div>
+        ) : null}
+        {propertyImages.length ? (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {propertyImages.map((file: any) => (
+              <div key={file.id} className="overflow-hidden rounded-md border border-[var(--line)] bg-[var(--panel)]">
+                <img src={file.path} alt={getFileDisplayName(file)} className="h-40 w-full object-cover" />
+                <div className="space-y-3 p-3">
+                  <form action={renamePropertyPhotoAction} className="space-y-2">
+                    <input type="hidden" name="propertyId" value={property.id} />
+                    <input type="hidden" name="fileId" value={file.id} />
+                    <label className="block">
+                      <span className="field-label">Photo name</span>
+                      <input name="displayName" defaultValue={getFileDisplayName(file)} maxLength={120} className="field" />
+                    </label>
+                    <SubmitButton variant="secondary" className="w-full">Save name</SubmitButton>
+                  </form>
+                  <form action={deletePropertyPhotoAction}>
+                    <input type="hidden" name="propertyId" value={property.id} />
+                    <input type="hidden" name="fileId" value={file.id} />
+                    <SubmitButton variant="ghost" pendingLabel="Removing..." className="w-full text-[var(--danger)]">
+                      <Trash2 className="h-4 w-4" />
+                      Delete photo
+                    </SubmitButton>
+                  </form>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="No property photos" description="Add named photos to make this property easier to identify across the app." />
         )}
       </DetailSection>
 
@@ -359,6 +412,17 @@ export default async function PropertyDetailPage({
             <AddressFields defaultValue={property} />
             <textarea name="description" defaultValue={property.description ?? ""} placeholder="Asset summary" className="field min-h-24" />
             <input name="amenities" defaultValue={property.amenities} placeholder="Amenities, comma separated" className="field" />
+            <div className="form-grid-2">
+              <input name="petPolicy" defaultValue={property.petPolicy ?? ""} placeholder="Pet policy" className="field" />
+              <input name="parking" defaultValue={property.parking ?? ""} placeholder="Parking" className="field" />
+            </div>
+            <input name="utilities" defaultValue={property.utilities ?? ""} placeholder="Utilities (e.g. Water & trash included)" className="field" />
+            <p className="text-xs font-medium text-[var(--muted)]">Leasing contact (shown on public listings)</p>
+            <div className="form-grid-3">
+              <input name="contactName" defaultValue={property.contactName ?? ""} placeholder="Contact name" className="field" />
+              <input name="contactEmail" type="email" defaultValue={property.contactEmail ?? ""} placeholder="Contact email" className="field" />
+              <input name="contactPhone" defaultValue={property.contactPhone ?? ""} placeholder="Contact phone" className="field" />
+            </div>
             <textarea name="notes" defaultValue={property.notes ?? ""} placeholder="Internal notes" className="field min-h-24" />
             {user.role === "ADMIN" ? (
               <select name="managerId" defaultValue={property.managerId ?? ""} className="field">
@@ -370,7 +434,15 @@ export default async function PropertyDetailPage({
                 ))}
               </select>
             ) : null}
-            <MultiUploadInput name="imagePaths" label="Add property photos — up to 20 total" accept="image/*" />
+            <NamedPhotoUpload
+              pathName="imagePaths"
+              titleName="imageNames"
+              originalNameName="imageOriginalNames"
+              kind="property"
+              existingCount={propertyImages.length}
+              limit={PROPERTY_PHOTO_LIMIT}
+              label="Add property photos"
+            />
             <SubmitButton>Save changes</SubmitButton>
           </form>
         </DetailSection>
@@ -417,7 +489,23 @@ export default async function PropertyDetailPage({
                 </select>
               </div>
               <textarea name="amenities" placeholder="Amenities, comma separated" className="field min-h-24" />
-              <SingleUploadInput name="imagePath" label="Upload unit image" />
+              <div className="form-grid-2">
+                <label className="block">
+                  <span className="field-label">Available from</span>
+                  <input name="availabilityDate" type="date" className="field" />
+                </label>
+                <input name="leaseTerms" placeholder="Lease terms (e.g. 12-month)" className="field" />
+              </div>
+              <textarea name="unitDescription" placeholder="Unit description (shown on listings)" className="field min-h-24" />
+              <NamedPhotoUpload
+                pathName="imagePaths"
+                titleName="imageNames"
+                originalNameName="imageOriginalNames"
+                kind="unit"
+                existingCount={0}
+                limit={10}
+                label="Upload unit photos"
+              />
               <SubmitButton>Create unit</SubmitButton>
             </form>
           </DetailSection>

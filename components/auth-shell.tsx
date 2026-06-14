@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 
+import { NexusLogo } from "@/components/brand/nexus-logo";
 import { cn } from "@/lib/utils";
 
 type AuthShellProps = {
@@ -32,8 +33,7 @@ export function AuthShell({
     <main className="auth-page">
       <header className="auth-header">
         <Link href="/" className="auth-brand" aria-label="Nexus Rentals home">
-          <span className="auth-brand-mark" aria-hidden="true">N</span>
-          <span>Nexus Rentals</span>
+          <NexusLogo variant="full" size="sm" priority />
         </Link>
         <Link href="/" className="auth-home-link">Back to home</Link>
       </header>
@@ -63,7 +63,7 @@ export function AuthShell({
       </div>
 
       <footer className="auth-page-footer">
-        <span>Nexus Rentals</span>
+        <NexusLogo variant="full" size="xs" />
         <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <Link href="/terms" className="auth-home-link">Terms</Link>
           <Link href="/privacy" className="auth-home-link">Privacy</Link>

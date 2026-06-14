@@ -2,13 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useRef, useState } from "react";
-import { BookOpen, ChevronDown, Gauge, LogOut, Settings } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { BookOpen, ChevronDown, Gauge, LogOut, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 
+import { NexusLogo } from "@/components/brand/nexus-logo";
 import { DropdownDismissListener } from "@/components/dropdown-dismiss-listener";
+import { MobileMenuPanel } from "@/components/mobile-menu-panel";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { TopBar } from "@/components/top-bar";
 import { useClickOutside } from "@/components/use-click-outside";
+import { useMediaQuery } from "@/components/use-media-query";
+import { getPageTitle } from "@/lib/page-title";
 import { getRoleConfig } from "@/lib/rbac";
 import { cn, initials } from "@/lib/utils";
 
@@ -39,6 +43,12 @@ export function AppShell({
   const role = getRoleConfig(user.role);
   const pathname = usePathname();
   const [accountOpen, setAccountOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Tablets get an icon-only rail so content keeps enough width.
+  const isTabletRail = useMediaQuery("(min-width: 768px) and (max-width: 1023.98px)");
+  const collapsed = sidebarCollapsed || isTabletRail;
+  const pageTitle = getPageTitle(pathname, role.nav);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   useClickOutside(accountMenuRef, () => setAccountOpen(false), accountOpen);
   const guideLink =
@@ -48,20 +58,68 @@ export function AppShell({
         ? { href: "/renter-guide", label: "Tips to Being a Good Renter", description: "Practical ways to protect your home and record." }
         : null;
 
+  useEffect(() => {
+    setSidebarCollapsed(window.localStorage.getItem("nexus-sidebar-collapsed") === "true");
+  }, []);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    // Lock background scrolling while the full-screen menu sheet is open.
+    const previousOverflow = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      document.documentElement.style.overflow = previousOverflow;
+    };
+  }, [mobileNavOpen]);
+
+  function toggleSidebar() {
+    setSidebarCollapsed((collapsed) => {
+      const next = !collapsed;
+      window.localStorage.setItem("nexus-sidebar-collapsed", String(next));
+      return next;
+    });
+  }
+
   return (
     <div className="app-frame">
       <DropdownDismissListener />
-      <div className="app-shell-layout">
-        <aside className="app-sidebar">
-          <Link href="/dashboard" className="app-sidebar-brand">
-            <div className="app-brand-mark flex h-8 w-8 items-center justify-center text-xs font-bold">NR</div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">Nexus</p>
-              <p className="truncate text-[11px] text-[var(--sidebar-muted)]">{user.organization.name}</p>
-            </div>
-          </Link>
+      <div className={cn("app-shell-layout", collapsed && "app-shell-layout-collapsed")}>
+        <aside
+          id="app-sidebar"
+          className={cn("app-sidebar", collapsed && "app-sidebar-collapsed")}
+        >
+          <div className="app-sidebar-brand">
+            <Link href="/dashboard" className="app-sidebar-brand-link" aria-label="Nexus dashboard">
+              {collapsed ? (
+                <NexusLogo variant="icon" size="sm" />
+              ) : (
+                <div className="app-sidebar-brand-copy min-w-0">
+                  <NexusLogo variant="full" size="sm" />
+                  <p className="truncate text-[10px] font-medium text-[var(--sidebar-muted)]">{user.organization.name}</p>
+                </div>
+              )}
+            </Link>
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!collapsed}
+              className="sidebar-collapse-trigger"
+            >
+              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </button>
+          </div>
           <div className="app-sidebar-scroll">
-            <SidebarNav items={role.nav} />
+            <SidebarNav items={role.nav} collapsed={collapsed} />
           </div>
           <div className="app-sidebar-footer">
             {guideLink ? (
@@ -77,7 +135,7 @@ export function AppShell({
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center text-[var(--sidebar-muted)] group-hover:text-white">
                   <BookOpen className="h-4 w-4" />
                 </span>
-                <span className="min-w-0">
+                <span className="sidebar-footer-label min-w-0">
                   <span className="block truncate text-xs font-medium">{user.role === "MANAGER" ? "Manager guide" : "Renter guide"}</span>
                 </span>
               </Link>
@@ -134,11 +192,11 @@ export function AppShell({
                 <div className="avatar-mark flex h-9 w-9 shrink-0 items-center justify-center text-xs font-bold">
                   {initials(user.firstName, user.lastName)}
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="sidebar-account-copy min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-white">{user.firstName} {user.lastName}</p>
                   <p className="mt-0.5 truncate text-[11px] text-[var(--sidebar-muted)]">{role.label}</p>
                 </div>
-                <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--sidebar-muted)] transition", accountOpen && "rotate-180")} />
+                <ChevronDown className={cn("sidebar-account-chevron h-4 w-4 shrink-0 text-[var(--sidebar-muted)] transition", accountOpen && "rotate-180")} />
               </button>
             </div>
           </div>
@@ -147,13 +205,26 @@ export function AppShell({
           <TopBar
             role={user.role}
             organizationName={user.organization.name}
+            pageTitle={pageTitle}
             notifications={notifications}
             searchQuery={searchQuery}
             searchResults={searchResults}
+            onMenuToggle={() => setMobileNavOpen((open) => !open)}
+            mobileNavOpen={mobileNavOpen}
           />
           <div className="app-content"><div className="app-content-inner">{children}</div></div>
         </main>
       </div>
+      <MobileMenuPanel
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        user={user}
+        roleLabel={role.label}
+        navItems={role.nav}
+        guideLink={guideLink ? { href: guideLink.href, label: user.role === "MANAGER" ? "Manager guide" : "Renter guide" } : null}
+        searchPlaceholder={user.role === "TENANT" ? "Search your records" : "Search properties, units, tenants"}
+        logoutAction={logoutAction}
+      />
     </div>
   );
 }

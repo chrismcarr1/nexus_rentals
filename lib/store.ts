@@ -3,9 +3,20 @@ import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { cache } from "react";
+
 import { DEFAULT_COUNTRY, type StoredAddress } from "@/lib/address";
 import { normalizeRentDueTime } from "@/lib/app-time";
-import { ensureAppStoreTable, getSql, isLocalDevelopment } from "@/lib/database";
+import { ensureAppStoreTable, getAppStoreBackend, getSql, isLocalDevelopment } from "@/lib/database";
+import { getLeaseBilling } from "@/lib/payment-charge";
+import type {
+  NormalizedCheckrResult,
+  NormalizedPlaidResult,
+  ScreeningApplicationRecord,
+  ScreeningProvider,
+  ScreeningRequestRecord,
+  ScreeningRequestStatus
+} from "@/lib/screening/types";
 
 export type UserRole = "ADMIN" | "MANAGER" | "TENANT";
 export type PropertyStatus = "ACTIVE" | "ARCHIVED";
@@ -18,7 +29,20 @@ export type MaintenanceStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED" | "CLOSED";
 export type MaintenancePriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 export type AssessmentSeverity = "LOW" | "MODERATE" | "HIGH" | "CRITICAL";
 export type NotificationType = "RENT_DUE" | "RENT_OVERDUE" | "LEASE_EXPIRING" | "INSPECTION_PENDING" | "MAINTENANCE_OPEN" | "DAMAGE_ASSESSMENT" | "SYSTEM";
-export type FileKind = "PROPERTY_IMAGE" | "UNIT_IMAGE" | "MOVE_IN_IMAGE" | "MOVE_OUT_IMAGE" | "DAMAGE_IMAGE" | "LEASE_DOCUMENT" | "AVATAR";
+export type FileKind =
+  | "PROPERTY_IMAGE"
+  | "UNIT_IMAGE"
+  | "MOVE_IN_IMAGE"
+  | "MOVE_OUT_IMAGE"
+  | "DAMAGE_IMAGE"
+  | "MAINTENANCE_IMAGE"
+  | "TENANT_ID"
+  | "LEASE_DOCUMENT"
+  | "LEASE_ATTACHMENT"
+  | "PAYMENT_DOCUMENT"
+  | "GENERAL_DOCUMENT"
+  | "AVATAR";
+export type FileVisibility = "ORGANIZATION" | "TENANT" | "MANAGER_ONLY";
 export type RentalApplicationStatus = "DRAFT" | "PUBLISHED" | "SUBMITTED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED" | "WITHDRAWN" | "CONVERTED_TO_LEASE";
 export type ApplicationApplicantType = "PRIMARY" | "CO_APPLICANT";
 export type ApplicationFeeStatus = "NOT_REQUIRED" | "UNPAID" | "PAID" | "WAIVED";
@@ -51,7 +75,12 @@ export const FileKind = {
   MOVE_IN_IMAGE: "MOVE_IN_IMAGE",
   MOVE_OUT_IMAGE: "MOVE_OUT_IMAGE",
   DAMAGE_IMAGE: "DAMAGE_IMAGE",
+  MAINTENANCE_IMAGE: "MAINTENANCE_IMAGE",
+  TENANT_ID: "TENANT_ID",
   LEASE_DOCUMENT: "LEASE_DOCUMENT",
+  LEASE_ATTACHMENT: "LEASE_ATTACHMENT",
+  PAYMENT_DOCUMENT: "PAYMENT_DOCUMENT",
+  GENERAL_DOCUMENT: "GENERAL_DOCUMENT",
   AVATAR: "AVATAR"
 } as const;
 
@@ -112,8 +141,9 @@ export type User = {
   createdAt: string;
   updatedAt: string;
 };
-export type Property = StoredAddress & { id: string; organizationId: string; name: string; status: PropertyStatus; description?: string; amenities: string; notes?: string; managerId?: string; createdAt: string; updatedAt: string };
-export type Unit = { id: string; propertyId: string; unitNumber: string; nickname?: string; addressOverride?: string; unitType: string; bedrooms: number; bathrooms: number; squareFeet?: number; monthlyRent: number; depositAmount: number; leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus; amenities: string; notes?: string; createdAt: string; updatedAt: string };
+export type ListingStatus = "draft" | "active" | "unpublished";
+export type Property = StoredAddress & { id: string; organizationId: string; name: string; status: PropertyStatus; description?: string; amenities: string; petPolicy?: string; parking?: string; utilities?: string; contactName?: string; contactEmail?: string; contactPhone?: string; notes?: string; managerId?: string; createdAt: string; updatedAt: string };
+export type Unit = { id: string; propertyId: string; unitNumber: string; nickname?: string; addressOverride?: string; unitType: string; bedrooms: number; bathrooms: number; squareFeet?: number; monthlyRent: number; depositAmount: number; leaseStatus: LeaseStatus; occupancyStatus: UnitOccupancyStatus; amenities: string; availabilityDate?: string; leaseTerms?: string; unitDescription?: string; notes?: string; createdAt: string; updatedAt: string };
 export type Tenant = { id: string; organizationId: string; firstName: string; lastName: string; email?: string; phone?: string; employer?: string; emergencyName?: string; emergencyPhone?: string; notes?: string; createdAt: string; updatedAt: string };
 export type Lease = {
   id: string;
@@ -131,6 +161,13 @@ export type Lease = {
   dueDay: number;
   rentDueTime?: string;
   lastRentChargeMonth?: string;
+  // $1 payment-charge billing. monthlyRent always stays the base rent; the
+  // tenant-facing rent is derived via lib/payment-charge.ts. Absent fields
+  // (legacy leases) mean tenant responsibility with nothing absorbed.
+  managerAbsorbsPaymentCharge?: boolean;
+  paymentChargeResponsibility?: "TENANT" | "MANAGER";
+  managerAbsorbedPaymentChargeCents?: number;
+  tenantFacingRentCents?: number;
   securityDeposit: number;
   recurringCharges: string;
   lateFeePolicy?: string;
@@ -167,6 +204,13 @@ export type Payment = {
   balanceDue: number;
   categoryTag?: string;
   generatedRentMonth?: string;
+  // Recorded on generated rent charges when the lease's manager absorbs the $1
+  // payment charge: amount is the tenant-facing rent, baseRentAmount preserves
+  // the lease's base rent for reporting. Absent on legacy rows.
+  baseRentAmount?: number;
+  tenantFacingRentCents?: number;
+  managerAbsorbedPaymentChargeCents?: number;
+  paymentChargeResponsibility?: "TENANT" | "MANAGER";
   amountPaid?: number;
   stripeCheckoutSessionId?: string;
   stripePaymentIntentId?: string;
@@ -209,7 +253,27 @@ export type MaintenanceRequest = {
 };
 export type Inspection = { id: string; unitId: string; leaseId?: string; inspectionDate: string; type: string; notes?: string; createdAt: string; updatedAt: string };
 export type DamageAssessment = { id: string; inspectionId: string; createdById: string; summary: string; damageCategories: string; severity: AssessmentSeverity; confidenceScore: number; estimatedLow: number; estimatedHigh: number; wearAndTear: boolean; explanation: string; recommendedNext: string; createdAt: string; updatedAt: string };
-export type UploadedFile = { id: string; propertyId?: string; unitId?: string; inspectionId?: string; assessmentId?: string; kind: FileKind; label?: string; path: string; mimeType: string; createdAt: string };
+export type UploadedFile = {
+  id: string;
+  organizationId?: string;
+  propertyId?: string;
+  unitId?: string;
+  leaseId?: string;
+  tenantId?: string;
+  maintenanceId?: string;
+  inspectionId?: string;
+  assessmentId?: string;
+  kind: FileKind;
+  label?: string;
+  displayName?: string;
+  originalFileName?: string;
+  path: string;
+  mimeType: string;
+  visibility?: FileVisibility;
+  uploadedById?: string;
+  uploadedAt?: string;
+  createdAt: string;
+};
 export type DiscussionThread = { id: string; organizationId: string; managerUserId: string; tenantId: string; tenantUserId?: string; leaseId: string; propertyId?: string; unitId?: string; subject: string; createdAt: string; updatedAt: string };
 export type DiscussionMessage = { id: string; threadId: string; organizationId: string; senderUserId: string; body: string; createdAt: string };
 export type Notification = { id: string; organizationId: string; userId?: string; type: NotificationType; title: string; body: string; href?: string; isRead: boolean; createdAt: string };
@@ -335,11 +399,64 @@ export type PlatformEvent = {
   createdAt: string;
 };
 
+// Outbound rental listing. Reuses Property/Unit by reference (never duplicates
+// them) and stores a flat snapshot of the marketing fields needed to build a
+// syndication feed for Zillow/Apartments.com. photoUrls are public image URLs
+// (existing uploaded-photo paths or external URLs); never tenant/private data.
+export type Listing = {
+  id: string;
+  organizationId: string;
+  managerUserId: string;
+  propertyId: string;
+  unitId?: string;
+  status: ListingStatus;
+  rent: number;
+  deposit: number;
+  bedrooms: number;
+  bathrooms: number;
+  squareFeet?: number;
+  availabilityDate?: string;
+  leaseTerms?: string;
+  description?: string;
+  amenities?: string;
+  petPolicy?: string;
+  parking?: string;
+  utilities?: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  photoUrls: string[];
+  createdAt: string;
+  updatedAt: string;
+  publishedAt?: string;
+};
+
+export type StoredScreeningApplication = ScreeningApplicationRecord & {
+  screeningAccessTokenHash?: string | null;
+};
+export type StoredScreeningResult = {
+  id: string;
+  applicationId: string;
+  requestId: string;
+  provider: ScreeningProvider;
+  status: ScreeningRequestStatus;
+  providerResultId?: string | null;
+  rawResponse: Record<string, unknown>;
+  normalizedResult: NormalizedCheckrResult | NormalizedPlaidResult;
+  riskScore?: number | null;
+  recommendation?: string | null;
+  riskFlags: unknown[];
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+};
+
 export type AppStore = {
   organizations: Organization[];
   users: User[];
   properties: Property[];
   units: Unit[];
+  listings: Listing[];
   tenants: Tenant[];
   leases: Lease[];
   tenantInvites: TenantInvite[];
@@ -362,6 +479,13 @@ export type AppStore = {
   applicationInvites: ApplicationInvite[];
   applicationStatusHistory: ApplicationStatusHistoryEntry[];
   platformEvents: PlatformEvent[];
+  screeningApplications: StoredScreeningApplication[];
+  screeningRequests: ScreeningRequestRecord[];
+  screeningResults: StoredScreeningResult[];
+  checkrCandidates: Array<Record<string, any>>;
+  checkrReports: Array<Record<string, any>>;
+  plaidVerifications: Array<Record<string, any>>;
+  screeningWebhookEvents: Array<Record<string, any>>;
 };
 
 const STORE_ID = "default";
@@ -372,6 +496,7 @@ function emptyStore(): AppStore {
     users: [],
     properties: [],
     units: [],
+    listings: [],
     tenants: [],
     leases: [],
     tenantInvites: [],
@@ -393,7 +518,14 @@ function emptyStore(): AppStore {
     applicationNotes: [],
     applicationInvites: [],
     applicationStatusHistory: [],
-    platformEvents: []
+    platformEvents: [],
+    screeningApplications: [],
+    screeningRequests: [],
+    screeningResults: [],
+    checkrCandidates: [],
+    checkrReports: [],
+    plaidVerifications: [],
+    screeningWebhookEvents: []
   };
 }
 
@@ -414,6 +546,10 @@ let postgresUnavailableUntil = 0;
 
 function shouldUseLocalFallback() {
   return isLocalDevelopment() && Date.now() < postgresUnavailableUntil;
+}
+
+function shouldUseLocalStore() {
+  return getAppStoreBackend() === "local-json" || shouldUseLocalFallback();
 }
 
 function enterLocalFallback(error: unknown) {
@@ -465,13 +601,17 @@ function logStoreTiming(op: string, startedAt: number, slowThresholdMs: number, 
   }
 }
 
+// Aggregate counts only — never any tenant/user detail or secrets. Safe to log.
 function storeSizeSummary(store: AppStore) {
   return {
-    users: store.users.length,
     properties: store.properties.length,
+    units: store.units.length,
     leases: store.leases.length,
+    maintenanceRequests: store.maintenanceRequests.length,
+    listings: store.listings.length,
     payments: store.payments.length,
-    notifications: store.notifications.length
+    applications: store.rentalApplications.length,
+    applicationSubmissions: store.applicationSubmissions.length
   };
 }
 
@@ -479,25 +619,46 @@ async function fetchHostedStore(): Promise<AppStore> {
   const startedAt = Date.now();
   await ensureAppStoreTable();
   const rows = await getSql()`select data from app_store where id = ${STORE_ID} limit 1`;
-  const store = normalizeStore((rows[0]?.data as AppStore | undefined) ?? emptyStore());
+  const raw = (rows[0]?.data as AppStore | undefined) ?? emptyStore();
+  const store = normalizeStore(raw);
+  const elapsed = Date.now() - startedAt;
+  // This is the real Neon round trip + full-blob deserialize — the thing that
+  // actually costs time. Every line here is one uncached store fetch, so the
+  // count of these per request is the duplicate-read signal.
+  console.log(`[perf:dashboard] readStore (neon fetch): ${elapsed}ms`);
+  // JSON size is gated: JSON.stringify on the whole blob is itself expensive, so
+  // only compute it when explicitly diagnosing (NEXUS_PERF_LOG=1).
+  if (process.env.NEXUS_PERF_LOG === "1") {
+    const sizeKb = Math.round(JSON.stringify(raw).length / 1024);
+    console.log(`[perf:dashboard] store diagnostics:`, { sizeKb, ...storeSizeSummary(store) });
+  }
   logStoreTiming("read", startedAt, SLOW_READ_MS, storeSizeSummary(store));
   return store;
 }
 
+// Counts every readStore() entry (cache hit or miss) so a single request's log
+// group reveals how many times the load path asked for the full store.
+let readStoreCallCount = 0;
+
 export async function readStore(): Promise<AppStore> {
-  if (shouldUseLocalFallback()) {
+  if (shouldUseLocalStore()) {
     return readLocalStore();
   }
 
   const now = Date.now();
   if (readCache && readCache.version === storeVersion && readCache.expiresAt > now) {
     try {
-      return await readCache.promise;
+      const cached = await readCache.promise;
+      readStoreCallCount += 1;
+      console.log(`[perf:dashboard] readStore #${readStoreCallCount} (cache hit)`);
+      return cached;
     } catch {
       // Cached fetch failed; fall through to a fresh attempt.
     }
   }
 
+  readStoreCallCount += 1;
+  console.log(`[perf:dashboard] readStore #${readStoreCallCount} (cache miss)`);
   const promise = fetchHostedStore();
   readCache = { version: storeVersion, expiresAt: now + READ_CACHE_TTL_MS, promise };
   try {
@@ -524,6 +685,70 @@ function normalizeStore(store: AppStore): AppStore {
       .filter((lease) => lease.unitId === payment.unitId && activeLeaseStatuses.has(lease.status))
       .sort((a, b) => (b.startDate ?? b.createdAt ?? "").localeCompare(a.startDate ?? a.createdAt ?? ""))[0] ?? null;
   };
+  const fileCounters = new Map<string, number>();
+  const normalizedFiles = (store.uploadedFiles ?? []).map((file) => {
+    const unit = file.unitId ? store.units?.find((item) => item.id === file.unitId) : null;
+    const lease = file.leaseId ? sourceLeases.find((item) => item.id === file.leaseId) : null;
+    const inspection = file.inspectionId ? store.inspections?.find((item) => item.id === file.inspectionId) : null;
+    const assessment = file.assessmentId ? store.damageAssessments?.find((item) => item.id === file.assessmentId) : null;
+    const assessmentInspection = assessment
+      ? store.inspections?.find((item) => item.id === assessment.inspectionId)
+      : null;
+    const propertyId =
+      file.propertyId ??
+      lease?.propertyId ??
+      unit?.propertyId ??
+      store.units?.find((item) => item.id === lease?.unitId)?.propertyId ??
+      store.units?.find((item) => item.id === inspection?.unitId)?.propertyId ??
+      store.units?.find((item) => item.id === assessmentInspection?.unitId)?.propertyId;
+    const property = store.properties?.find((item) => item.id === propertyId);
+    const counterKey = `${file.kind}:${propertyId ?? file.unitId ?? file.leaseId ?? "general"}`;
+    const counter = (fileCounters.get(counterKey) ?? 0) + 1;
+    fileCounters.set(counterKey, counter);
+    const fallbackName =
+      file.kind === "PROPERTY_IMAGE"
+        ? `Property photo ${counter}`
+        : file.kind === "UNIT_IMAGE"
+          ? `Unit photo ${counter}`
+          : file.kind === "TENANT_ID"
+            ? "Tenant ID"
+            : file.kind === "LEASE_DOCUMENT"
+              ? "Lease agreement"
+              : "General document";
+
+    return {
+      ...file,
+      organizationId: file.organizationId ?? property?.organizationId,
+      propertyId,
+      displayName: file.displayName ?? file.label ?? fallbackName,
+      uploadedAt: file.uploadedAt ?? file.createdAt,
+      visibility: file.visibility ?? (file.kind === "TENANT_ID" ? "MANAGER_ONLY" : "ORGANIZATION")
+    };
+  });
+  const legacyLeaseFiles = sourceLeases.flatMap((lease) => {
+    if (!lease.documentPath || normalizedFiles.some((file) => file.leaseId === lease.id && file.path === lease.documentPath)) {
+      return [];
+    }
+    const unit = lease.unitId ? store.units?.find((item) => item.id === lease.unitId) : null;
+    const propertyId = lease.propertyId ?? unit?.propertyId;
+    const property = store.properties?.find((item) => item.id === propertyId);
+    return [{
+      id: `legacy-lease-document-${lease.id}`,
+      organizationId: property?.organizationId,
+      propertyId,
+      unitId: lease.unitId,
+      leaseId: lease.id,
+      tenantId: lease.tenantIds?.[0],
+      kind: "LEASE_DOCUMENT" as const,
+      label: "Lease agreement",
+      displayName: "Lease agreement",
+      path: lease.documentPath,
+      mimeType: "application/octet-stream",
+      visibility: "TENANT" as const,
+      uploadedAt: lease.updatedAt ?? lease.createdAt,
+      createdAt: lease.updatedAt ?? lease.createdAt
+    }];
+  });
 
   return {
     ...emptyStore(),
@@ -532,6 +757,7 @@ function normalizeStore(store: AppStore): AppStore {
       ...property,
       country: property.country ?? DEFAULT_COUNTRY
     })),
+    listings: store.listings ?? [],
     discussionThreads: store.discussionThreads ?? [],
     discussionMessages: store.discussionMessages ?? [],
     tenantInvites: store.tenantInvites ?? [],
@@ -555,6 +781,7 @@ function normalizeStore(store: AppStore): AppStore {
         .map((tenantId) => store.tenants?.find((item) => item.id === tenantId))
         .find(Boolean);
       const tenantUser = lease.tenantUserId ? store.users?.find((item) => item.id === lease.tenantUserId) : null;
+      const billing = getLeaseBilling({ ...lease, monthlyRent: lease.monthlyRent ?? 0 });
 
       return {
         ...lease,
@@ -565,6 +792,10 @@ function normalizeStore(store: AppStore): AppStore {
         tenantEmail: lease.tenantEmail ?? tenantUser?.email ?? tenant?.email,
         tenantIds: lease.tenantIds ?? [],
         monthlyRent: lease.monthlyRent ?? 0,
+        managerAbsorbsPaymentCharge: billing.managerAbsorbsPaymentCharge,
+        paymentChargeResponsibility: billing.paymentChargeResponsibility,
+        managerAbsorbedPaymentChargeCents: billing.managerAbsorbedPaymentChargeCents,
+        tenantFacingRentCents: billing.tenantFacingRentCents,
         dueDay: lease.dueDay ?? 1,
         rentDueTime: normalizeRentDueTime(lease.rentDueTime),
         securityDeposit: lease.securityDeposit ?? 0,
@@ -573,18 +804,28 @@ function normalizeStore(store: AppStore): AppStore {
     }),
     payments: (store.payments ?? []).map((payment) => {
       const lease = inferPaymentLease(payment);
+      const isRent = (payment.categoryTag ?? "").toLowerCase() === "rent";
       return {
         ...payment,
         tenantId: payment.tenantId ?? lease?.tenantIds?.[0],
         lateFeeAmount: payment.lateFeeAmount ?? 0,
-        balanceDue: payment.balanceDue ?? (payment.status === "PAID" ? 0 : payment.amount)
+        balanceDue: payment.balanceDue ?? (payment.status === "PAID" ? 0 : payment.amount),
+        ...(isRent
+          ? {
+              baseRentAmount: payment.baseRentAmount ?? lease?.monthlyRent ?? payment.amount,
+              tenantFacingRentCents: payment.tenantFacingRentCents ?? Math.round(payment.amount * 100),
+              managerAbsorbedPaymentChargeCents: payment.managerAbsorbedPaymentChargeCents ?? 0,
+              paymentChargeResponsibility: payment.paymentChargeResponsibility ?? "TENANT"
+            }
+          : {})
       };
-    })
+    }),
+    uploadedFiles: [...normalizedFiles, ...legacyLeaseFiles]
   };
 }
 
 export async function writeStore(store: AppStore) {
-  if (shouldUseLocalFallback()) {
+  if (shouldUseLocalStore()) {
     await writeLocalStore(store);
     invalidateStoreReadCache();
     return;
@@ -594,7 +835,7 @@ export async function writeStore(store: AppStore) {
     await ensureAppStoreTable();
     await getSql()`
       insert into app_store (id, data, updated_at)
-      values (${STORE_ID}, ${getSql().json(store)}::jsonb, now())
+      values (${STORE_ID}, ${getSql().json(store as any)}::jsonb, now())
       on conflict (id) do update set data = excluded.data, updated_at = now()
     `;
     logStoreTiming("write", startedAt, SLOW_WRITE_MS, storeSizeSummary(store));
@@ -622,7 +863,7 @@ async function updateLocalStore(updater: (store: AppStore) => AppStore | Promise
 }
 
 export async function updateStore(updater: (store: AppStore) => AppStore | Promise<AppStore>) {
-  if (shouldUseLocalFallback()) {
+  if (shouldUseLocalStore()) {
     return updateLocalStore(updater);
   }
 
@@ -650,7 +891,7 @@ export async function updateStore(updater: (store: AppStore) => AppStore | Promi
       if (next !== store) {
         await tx`
           insert into app_store (id, data, updated_at)
-          values (${STORE_ID}, ${sql.json(next)}::jsonb, now())
+          values (${STORE_ID}, ${sql.json(next as any)}::jsonb, now())
           on conflict (id) do update set data = excluded.data, updated_at = now()
         `;
         wrote = true;
@@ -700,6 +941,32 @@ export async function getUserById(id: string) {
   return store.users.find((user) => user.id === id) ?? null;
 }
 
+// Bypasses the shared read cache for the rare reads that must observe a write
+// made milliseconds earlier — possibly by another server instance whose cache
+// invalidation we cannot see (e.g. rendering settings immediately after a
+// Stripe repair action redirected back). Use sparingly: every call is a full
+// uncached store fetch.
+export async function readStoreFresh(): Promise<AppStore> {
+  if (shouldUseLocalStore()) {
+    return readLocalStore();
+  }
+  try {
+    return await fetchHostedStore();
+  } catch (error) {
+    if (isLocalDevelopment()) {
+      enterLocalFallback(error);
+      return readLocalStore();
+    }
+    console.error("[store] Failed to read hosted Postgres datastore (fresh read)", error);
+    throw error;
+  }
+}
+
+export async function getUserByIdFresh(id: string) {
+  const store = await readStoreFresh();
+  return store.users.find((user) => user.id === id) ?? null;
+}
+
 export async function getOrganizationById(id: string) {
   const store = await readStore();
   return store.organizations.find((organization) => organization.id === id) ?? null;
@@ -718,12 +985,18 @@ export async function getNotificationsByOrganization(organizationId: string, tak
     .slice(0, take);
 }
 
-export async function getOrganizationSnapshot(organizationId: string) {
+// Request-memoized: the dashboard render path asks for the same org snapshot
+// from several helpers (portal context, manager aggregation, search). The React
+// cache() collapses those into one readStore + one filtering pass per request.
+// Safe to cache because every caller is a read-only render path; server actions
+// that mutate then re-read use readStore/updateStore directly, not this.
+export const getOrganizationSnapshot = cache(async (organizationId: string) => {
   const store = await readStore();
   return {
     store,
     organization: store.organizations.find((organization) => organization.id === organizationId)!,
     properties: store.properties.filter((property) => property.organizationId === organizationId),
+    listings: store.listings.filter((listing) => listing.organizationId === organizationId),
     users: store.users.filter((user) => user.organizationId === organizationId),
     units: store.units.filter((unit) => {
       const property = store.properties.find((candidate) => candidate.id === unit.propertyId);
@@ -764,7 +1037,16 @@ export async function getOrganizationSnapshot(organizationId: string) {
     discussionThreads: store.discussionThreads.filter((thread) => thread.organizationId === organizationId),
     discussionMessages: store.discussionMessages.filter((message) => message.organizationId === organizationId),
     uploadedFiles: store.uploadedFiles.filter((file) => {
+      if (file.organizationId) return file.organizationId === organizationId;
       if (file.propertyId) return store.properties.find((property) => property.id === file.propertyId)?.organizationId === organizationId;
+      if (file.leaseId) {
+        const lease = store.leases.find((candidate) => candidate.id === file.leaseId);
+        const property = lease
+          ? store.properties.find((candidate) => candidate.id === lease.propertyId) ??
+            store.properties.find((candidate) => candidate.id === store.units.find((unit) => unit.id === lease.unitId)?.propertyId)
+          : null;
+        return property?.organizationId === organizationId;
+      }
       if (file.unitId) {
         const unit = store.units.find((candidate) => candidate.id === file.unitId);
         const property = store.properties.find((candidate) => candidate.id === unit?.propertyId);
@@ -805,4 +1087,4 @@ export async function getOrganizationSnapshot(organizationId: string) {
       store.rentalApplications.some((application) => application.organizationId === organizationId && application.id === entry.applicationId)
     )
   };
-}
+});

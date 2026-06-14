@@ -1,6 +1,6 @@
 import "server-only";
 
-import { describeDatabaseTarget } from "@/lib/database";
+import { describeAppStoreTarget } from "@/lib/database";
 import { getAppUrlDiagnostics } from "@/lib/request-origin";
 
 // Environment-safety guard rails for Stripe configuration.
@@ -100,7 +100,7 @@ export function getStripeEnvDiagnostics(): StripeEnvDiagnostics {
     stripeMode: getStripeKeyMode(),
     webhookConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET?.trim()),
     appUrl: { present: appUrl.present, valid: appUrl.valid, host: appUrl.host, issue: appUrl.issue },
-    databaseTarget: describeDatabaseTarget().label
+    databaseTarget: describeAppStoreTarget().label
   };
 }
 

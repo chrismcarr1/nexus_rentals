@@ -14,6 +14,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { Textarea } from "@/components/ui/textarea";
 import { createMoveInAction } from "@/lib/actions";
 import { addMonthsToDateKey, appDateKeyFromValue, DEFAULT_RENT_DUE_TIME, formatAppDate, formatRentDueTime, getAppDateKey, isValidRentDueTime } from "@/lib/app-time";
+import { canManagerAbsorbPaymentCharge, MANAGER_ABSORB_MIN_RENT_MESSAGE, PAYMENT_CHARGE_CENTS } from "@/lib/payment-charge";
 import { formatPhoneNumber } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +47,7 @@ export type MoveInUnitOption = {
     dueDay: number;
     rentDueTime?: string;
     documentPath?: string;
+    managerAbsorbsPaymentCharge?: boolean;
   } | null;
 };
 
@@ -82,6 +84,7 @@ type MoveInFormState = {
   rentDueTime: string;
   firstRentDueDate: string;
   securityDepositDueDate: string;
+  managerAbsorbsPaymentCharge: boolean;
   createFirstRentCharge: boolean;
   createSecurityDepositCharge: boolean;
   additionalChargeDescription: string;
@@ -91,6 +94,10 @@ type MoveInFormState = {
   lateFeePolicy: string;
   notes: string;
   documentPath: string;
+  documentName: string;
+  tenantIdPath: string;
+  tenantIdName: string;
+  tenantIdOriginalName: string;
   sendInvite: boolean;
   existingLeaseId: string;
   applicationSubmissionId: string;
@@ -107,6 +114,16 @@ const steps = [
 function formatCurrency(value: string | number) {
   const amount = typeof value === "number" ? value : Number(value || 0);
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
+}
+
+function formatCurrencyExact(value: string | number) {
+  const amount = typeof value === "number" ? value : Number(value || 0);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
+    maximumFractionDigits: 2
+  }).format(amount);
 }
 
 function formatDate(value: string) {
@@ -209,6 +226,7 @@ export function NewMoveInWizard({
     rentDueTime: defaultUnit?.resumableLease?.rentDueTime ?? DEFAULT_RENT_DUE_TIME,
     firstRentDueDate: today,
     securityDepositDueDate: today,
+    managerAbsorbsPaymentCharge: defaultUnit?.resumableLease?.managerAbsorbsPaymentCharge ?? false,
     createFirstRentCharge: true,
     createSecurityDepositCharge: true,
     additionalChargeDescription: "",
@@ -218,6 +236,10 @@ export function NewMoveInWizard({
     lateFeePolicy: "",
     notes: "",
     documentPath: defaultUnit?.resumableLease?.documentPath ?? "",
+    documentName: "Lease agreement",
+    tenantIdPath: "",
+    tenantIdName: "Tenant ID",
+    tenantIdOriginalName: "",
     sendInvite: defaultUnit?.resumableLease?.status !== "invited",
     existingLeaseId: defaultUnit?.resumableLease?.id ?? "",
     applicationSubmissionId: prefill?.applicationSubmissionId ?? ""
@@ -226,8 +248,15 @@ export function NewMoveInWizard({
   const propertyUnits = useMemo(() => units.filter((unit) => unit.propertyId === form.propertyId), [form.propertyId, units]);
   const selectedProperty = properties.find((property) => property.id === form.propertyId) ?? null;
   const selectedUnit = units.find((unit) => unit.id === form.unitId) ?? null;
+  // Display-only preview of the billing choice; the server recomputes these.
+  const baseMonthlyRent = Number(form.monthlyRent || 0);
+  const absorbAllowed = canManagerAbsorbPaymentCharge(baseMonthlyRent);
+  const managerAbsorbs = form.managerAbsorbsPaymentCharge && absorbAllowed;
+  const tenantFacingRent = managerAbsorbs
+    ? (Math.round(baseMonthlyRent * 100) - PAYMENT_CHARGE_CENTS) / 100
+    : baseMonthlyRent;
   const totalInitialCharges =
-    (form.createFirstRentCharge ? Number(form.monthlyRent || 0) : 0) +
+    (form.createFirstRentCharge ? tenantFacingRent : 0) +
     (form.createSecurityDepositCharge ? Number(form.securityDeposit || 0) : 0) +
     Number(form.additionalChargeAmount || 0);
 
@@ -253,7 +282,12 @@ export function NewMoveInWizard({
       securityDeposit: String(nextUnit?.resumableLease?.securityDeposit ?? nextUnit?.depositAmount ?? 0),
       dueDay: String(nextUnit?.resumableLease?.dueDay ?? 1),
       rentDueTime: nextUnit?.resumableLease?.rentDueTime ?? DEFAULT_RENT_DUE_TIME,
+      managerAbsorbsPaymentCharge: nextUnit?.resumableLease?.managerAbsorbsPaymentCharge ?? false,
       documentPath: nextUnit?.resumableLease?.documentPath ?? "",
+      documentName: "Lease agreement",
+      tenantIdPath: "",
+      tenantIdName: "Tenant ID",
+      tenantIdOriginalName: "",
       sendInvite: nextUnit?.resumableLease?.status !== "invited",
       existingLeaseId: nextUnit?.resumableLease?.id ?? ""
     });
@@ -276,7 +310,12 @@ export function NewMoveInWizard({
       securityDeposit: String(unit?.resumableLease?.securityDeposit ?? unit?.depositAmount ?? 0),
       dueDay: String(unit?.resumableLease?.dueDay ?? 1),
       rentDueTime: unit?.resumableLease?.rentDueTime ?? DEFAULT_RENT_DUE_TIME,
+      managerAbsorbsPaymentCharge: unit?.resumableLease?.managerAbsorbsPaymentCharge ?? false,
       documentPath: unit?.resumableLease?.documentPath ?? "",
+      documentName: "Lease agreement",
+      tenantIdPath: "",
+      tenantIdName: "Tenant ID",
+      tenantIdOriginalName: "",
       sendInvite: unit?.resumableLease?.status !== "invited",
       existingLeaseId: unit?.resumableLease?.id ?? ""
     });
@@ -317,6 +356,7 @@ export function NewMoveInWizard({
       const dueDay = Number(form.dueDay);
       if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 28) return "Set a rent due day from 1 to 28.";
       if (!isValidRentDueTime(form.rentDueTime)) return "Set a valid rent due time.";
+      if (form.managerAbsorbsPaymentCharge && !absorbAllowed) return MANAGER_ABSORB_MIN_RENT_MESSAGE;
       if (form.createFirstRentCharge && !form.firstRentDueDate) return "Set the first rent charge due date.";
       if (form.createSecurityDepositCharge && !form.securityDepositDueDate) return "Set the security deposit due date.";
       if (Number(form.additionalChargeAmount || 0) > 0 && !form.additionalChargeDescription.trim()) return "Name the additional move-in charge.";
@@ -573,10 +613,34 @@ export function NewMoveInWizard({
                     label="Attach signed or prepared lease"
                     accept=".pdf,.doc,.docx,image/*"
                     multiple={false}
-                    onChange={(items) => patch({ documentPath: items[0]?.path ?? "" })}
+                    onChange={(items) =>
+                      patch({
+                        documentPath: items[0]?.path ?? "",
+                        documentName: items[0] ? "Lease agreement" : ""
+                      })
+                    }
                   />
                   <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
                     This agreement will be available from the tenant invite and their lease page.
+                  </p>
+                </div>
+                <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-4">
+                  <FieldLabel label="Upload tenant ID" hint="PDF, JPG, or PNG" />
+                  <FileUploader
+                    label="Choose tenant ID"
+                    accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf"
+                    multiple={false}
+                    purpose="tenant-id"
+                    onChange={(items) =>
+                      patch({
+                        tenantIdPath: items[0]?.path ?? "",
+                        tenantIdName: items[0] ? "Tenant ID" : "",
+                        tenantIdOriginalName: items[0]?.name ?? ""
+                      })
+                    }
+                  />
+                  <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
+                    Stored as a manager-only document linked to this tenant and lease.
                   </p>
                 </div>
               </div>
@@ -605,11 +669,50 @@ export function NewMoveInWizard({
                     <Input type="date" value={form.firstRentDueDate} onChange={(event) => patch({ firstRentDueDate: event.target.value })} />
                   </label>
                 </div>
+                <div className="overflow-hidden rounded-md border border-[var(--line)] bg-white">
+                  <label className="flex items-start gap-3 p-4 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.managerAbsorbsPaymentCharge}
+                      onChange={(event) => patch({ managerAbsorbsPaymentCharge: event.target.checked })}
+                      className="mt-1"
+                    />
+                    <span>
+                      <span className="block font-semibold text-[var(--text)]">Manager absorbs $1 payment charge</span>
+                      <span className="mt-1 block leading-5 text-[var(--muted)]">
+                        If selected, the tenant&apos;s monthly rent due is reduced by $1. Nexus records the $1 as manager-absorbed.
+                      </span>
+                    </span>
+                  </label>
+                  <div className="grid gap-px border-t border-[var(--line)] bg-[var(--line)] sm:grid-cols-3">
+                    <div className="bg-[var(--surface)] px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Base monthly rent</p>
+                      <p className="mt-1 text-sm font-semibold tabular-nums text-[var(--text)]">{formatCurrencyExact(baseMonthlyRent)}</p>
+                    </div>
+                    <div className="bg-[var(--surface)] px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Tenant-facing rent</p>
+                      <p className="mt-1 text-sm font-semibold tabular-nums text-[var(--text)]">{formatCurrencyExact(tenantFacingRent)}</p>
+                    </div>
+                    <div className="bg-[var(--surface)] px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Manager absorbed</p>
+                      <p className="mt-1 text-sm font-semibold tabular-nums text-[var(--text)]">{managerAbsorbs ? "$1/month" : "$0"}</p>
+                    </div>
+                  </div>
+                  {form.managerAbsorbsPaymentCharge && !absorbAllowed ? (
+                    <p className="border-t border-amber-600/18 bg-amber-500/12 px-4 py-2.5 text-xs leading-5 text-amber-800">
+                      {MANAGER_ABSORB_MIN_RENT_MESSAGE}
+                    </p>
+                  ) : (
+                    <p className="border-t border-[var(--line)] px-4 py-2.5 text-xs leading-5 text-[var(--muted)]">
+                      The lease keeps its base monthly rent; rent charges are created for the tenant-facing amount.
+                    </p>
+                  )}
+                </div>
                 <label className="flex items-start gap-3 rounded-md border border-[var(--line)] bg-white p-4 text-sm">
                   <input type="checkbox" checked={form.createFirstRentCharge} onChange={(event) => patch({ createFirstRentCharge: event.target.checked })} className="mt-1" />
                   <span>
                     <span className="block font-semibold text-[var(--text)]">Create first rent charge</span>
-                    <span className="mt-1 block text-[var(--muted)]">{formatCurrency(form.monthlyRent)} due {formatDate(form.firstRentDueDate)}</span>
+                    <span className="mt-1 block text-[var(--muted)]">{formatCurrencyExact(tenantFacingRent)} due {formatDate(form.firstRentDueDate)}</span>
                   </span>
                 </label>
                 <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(180px,0.5fr)]">
@@ -662,11 +765,14 @@ export function NewMoveInWizard({
                   <ReviewRow label="Email" value={form.tenantEmail || "Not set"} />
                   <ReviewRow label="Lease term" value={`${formatDate(form.startDate)} to ${formatDate(form.endDate)}`} />
                   <ReviewRow label="Move-in" value={formatDate(form.moveInDate)} />
-                  <ReviewRow label="Monthly rent" value={formatCurrency(form.monthlyRent)} />
+                  <ReviewRow label="Base monthly rent" value={formatCurrencyExact(baseMonthlyRent)} />
+                  <ReviewRow label="Tenant-facing rent" value={formatCurrencyExact(tenantFacingRent)} />
+                  <ReviewRow label="Payment charge" value={managerAbsorbs ? "Manager absorbs $1/month" : "Tenant responsibility"} />
                   <ReviewRow label="Security deposit" value={formatCurrency(form.securityDeposit)} />
                   <ReviewRow label="Rent schedule" value={`Day ${form.dueDay} at ${formatRentDueTime(form.rentDueTime)}`} />
                   <ReviewRow label="Initial charges" value={formatCurrency(totalInitialCharges)} />
                   <ReviewRow label="Lease agreement" value={form.documentPath ? "Attached" : "Not attached"} />
+                  <ReviewRow label="Tenant ID" value={form.tenantIdPath ? "Attached" : "Not attached"} />
                   <ReviewRow label="Lease record" value={form.existingLeaseId ? "Continue existing lease" : "Create new lease"} />
                 </div>
                 <div className="rounded-md border border-[var(--line)] bg-[var(--surface)] p-4">

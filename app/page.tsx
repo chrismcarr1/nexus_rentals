@@ -13,6 +13,7 @@ import {
   Wrench
 } from "lucide-react";
 
+import { NexusLogo } from "@/components/brand/nexus-logo";
 import { PublicSiteFooter } from "@/components/public-site-footer";
 import { PublicSiteHeader } from "@/components/public-site-header";
 import { getSession } from "@/lib/auth";
@@ -77,6 +78,7 @@ export default async function HomePage() {
       <section id="overview" className="public-hero public-anchor">
         <div className="public-container public-hero-grid">
           <div className="public-hero-copy">
+            <NexusLogo variant="full" size="xl" className="public-hero-logo" priority />
             <p className="public-eyebrow">Property management software</p>
             <h1 className="public-display-title">Run rental operations from one dependable workspace.</h1>
             <p className="public-lead">
@@ -104,8 +106,7 @@ export default async function HomePage() {
           <div className="public-product-preview" aria-label="Nexus manager dashboard preview">
             <div className="public-preview-sidebar">
               <div className="public-preview-brand">
-                <span>N</span>
-                Nexus
+                <NexusLogo variant="full" size="xs" />
               </div>
               {["Dashboard", "Properties", "Units", "Tenants", "Leases", "Payments", "Maintenance"].map((item, index) => (
                 <div key={item} className={index === 0 ? "public-preview-nav-active" : ""}>{item}</div>
@@ -247,7 +248,7 @@ export default async function HomePage() {
       <section className="public-cta">
         <div className="public-container public-cta-inner">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-300">Nexus Rentals</p>
+            <NexusLogo variant="full" size="md" />
             <h2>Bring your property operations into focus.</h2>
           </div>
           <div className="flex flex-wrap gap-3">

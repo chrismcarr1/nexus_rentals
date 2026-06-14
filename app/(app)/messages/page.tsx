@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MessageSquare, Send } from "lucide-react";
+import { ChevronLeft, MessageSquare, Send } from "lucide-react";
 
 import { EmptyState } from "@/components/empty-state";
 import { MessageScrollArea } from "@/components/message-scroll-area";
@@ -56,7 +56,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
           }
         />
       ) : (
-        <section className="surface-panel messages-layout overflow-hidden">
+        <section className={cn("surface-panel messages-layout overflow-hidden", selected ? "messages-show-thread" : "messages-show-list")}>
           <aside className="messages-conversations flex min-h-0 flex-col border-r border-[var(--line)] bg-[var(--panel)]">
             <div className="border-b border-[var(--line)] p-4">
               <div className="flex items-center justify-between gap-3">
@@ -128,6 +128,9 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
                   <div className="border-b border-[var(--line)] px-5 py-4">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex min-w-0 items-center gap-3">
+                        <Link href="/messages" className="messages-back" aria-label="Back to all conversations">
+                          <ChevronLeft className="h-5 w-5" />
+                        </Link>
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[var(--brand)] bg-[#061712] text-sm font-bold text-[var(--brand)]">
                           {getSubjectInitials(activeName)}
                         </div>
@@ -189,7 +192,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: Pr
                         placeholder="Write a message..."
                         className="field min-h-24 resize-none"
                       />
-                      <SubmitButton pendingLabel="Sending..." className="mb-0 gap-2">
+                      <SubmitButton pendingLabel="Sending..." className="mb-0 w-full sm:w-auto sm:self-end">
                         <Send className="h-4 w-4" />
                         Send
                       </SubmitButton>

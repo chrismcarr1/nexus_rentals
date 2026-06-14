@@ -1,7 +1,7 @@
+import { analyzeMaintenanceRequest } from "@/lib/ai-maintenance";
 import { getCurrentUser } from "@/lib/auth";
 import { filterSubmittedAssetPaths } from "@/lib/file-security";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { generateMaintenancePhotoDraft } from "@/services/maintenance-estimator";
 
 export const runtime = "nodejs";
 
@@ -31,29 +31,26 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid draft request." }, { status: 400 });
   }
 
-  const payload = body as { imagePaths?: unknown; notes?: unknown };
+  const payload = body as { imagePaths?: unknown; description?: unknown };
   const imagePaths = Array.isArray(payload.imagePaths)
     ? filterSubmittedAssetPaths(payload.imagePaths.map(String), user, 3)
     : [];
+  const description = typeof payload.description === "string" ? payload.description.trim() : "";
 
-  if (imagePaths.length === 0) {
-    return Response.json({ error: "Upload at least one photo before generating a draft." }, { status: 400 });
-  }
-
-  try {
-    const draft = await generateMaintenancePhotoDraft({
-      imagePaths,
-      notes: typeof payload.notes === "string" ? payload.notes : undefined
-    });
-
-    return Response.json({ draft });
-  } catch (error) {
-    console.error("[maintenance-ai] Failed to generate draft", error);
+  if (imagePaths.length === 0 && !description) {
     return Response.json(
-      {
-        error: error instanceof Error ? error.message : "Could not generate an AI maintenance draft."
-      },
-      { status: 500 }
+      { error: "Describe the issue or upload at least one photo before generating a draft." },
+      { status: 400 }
     );
   }
+
+  const draft = await analyzeMaintenanceRequest({ description, imagePaths });
+  if (!draft) {
+    return Response.json(
+      { error: "Could not generate an AI maintenance draft. Try again, or fill in the fields manually." },
+      { status: 502 }
+    );
+  }
+
+  return Response.json({ draft });
 }

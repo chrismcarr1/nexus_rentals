@@ -26,8 +26,8 @@ import { DetailSection } from "@/components/detail-section";
 import { PaymentTermsAcknowledgement } from "@/components/payment-terms-acknowledgement";
 import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "@/components/filter-bar";
+import { UpcomingOperationsCard } from "@/components/operations-timeline-list";
 import { PageHeader } from "@/components/page-header";
-import { PaymentCalendar } from "@/components/payment-calendar";
 import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
 import { SearchInput } from "@/components/search-input";
 import { StatCard } from "@/components/stat-card";
@@ -56,6 +56,7 @@ import { requireUser } from "@/lib/auth";
 import { hasAcceptedCurrentPaymentTerms } from "@/lib/legal";
 import { getStripeConnectState } from "@/lib/stripe-connect";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { getOperationsTimeline } from "@/services/operations";
 import { badgeToneFromPayment, getPortalContext } from "@/services/portal";
 
 type PaymentsTab = "collections" | "payments" | "accounting";
@@ -178,6 +179,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
   const user = await requireUser();
   const params = (await searchParams) ?? {};
   const portal = await getPortalContext(user);
+  const operations = await getOperationsTimeline(user);
   const stripeMessage =
     stripeStatusMessage(params.stripe) ??
     (params.error === "invalid-payment"
@@ -353,7 +355,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
           </div>
         </Card>
 
-        <PaymentCalendar events={portal.calendar} defaultCollapsed={false} />
+        <UpcomingOperationsCard events={operations} title="Upcoming Dates" />
       </div>
     );
   }
@@ -427,6 +429,9 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
       const status = collectionStatus(row.payment).label;
       if (query && !row.searchText.includes(query)) return false;
       if (propertyFilter !== "all" && row.property?.id !== propertyFilter) return false;
+      // "overdue" is a grouped filter used by dashboard deep links: any charge
+      // that is past due, regardless of how late it is.
+      if (statusFilter === "overdue") return status === "Late" || status === "Severely Late";
       if (statusFilter !== "all" && status !== statusFilter) return false;
       return true;
     })
@@ -650,6 +655,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                   { label: "Due Soon", value: "Due Soon" },
                   { label: "Pending", value: "Pending" },
                   { label: "Partial", value: "Partial" },
+                  { label: "Overdue (any)", value: "overdue" },
                   { label: "Late", value: "Late" },
                   { label: "Severely Late", value: "Severely Late" }
                 ]
@@ -692,6 +698,11 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
                     </td>
                     <td className="table-cell">
                       <span className="font-semibold tabular-nums">{formatCurrency(row.amountDue)}</span>
+                      {row.payment.paymentChargeResponsibility === "MANAGER" ? (
+                        <span className="mt-0.5 block text-xs text-[var(--brand)]">
+                          Base {formatCurrency(row.payment.baseRentAmount ?? row.amountDue)} - $1 manager absorbed
+                        </span>
+                      ) : null}
                       {row.payment.lateFeeAmount ? (
                         <span className="mt-0.5 block text-xs text-[var(--muted)]">+{formatCurrency(row.payment.lateFeeAmount)} late fee</span>
                       ) : null}
@@ -1383,7 +1394,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams?
         </aside>
       ) : null}
 
-      <PaymentCalendar events={portal.calendar} defaultCollapsed />
+      <UpcomingOperationsCard events={operations} href="/operations" />
     </div>
   );
 }

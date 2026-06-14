@@ -5,7 +5,7 @@ import packageJson from "@/package.json";
 import { getEffectiveUserRole, normalizeEmail } from "@/lib/admin";
 import { formatAddress } from "@/lib/address";
 import { appDateIsBefore, getAppDateKey } from "@/lib/app-time";
-import { describeDatabaseTarget } from "@/lib/database";
+import { describeAppStoreTarget, getAppStoreBackend } from "@/lib/database";
 import { getEmailDiagnostics } from "@/lib/email";
 import { getAppUrlDiagnostics } from "@/lib/request-origin";
 import { getRuntimeEnvironment, getStripeKeyMode } from "@/lib/stripe-env";
@@ -988,9 +988,9 @@ export async function getAdminAnalytics(range: AdminTimeRange = "30d") {
       // hostname. Secret values are never included in this snapshot.
       runtimeEnvironment: getRuntimeEnvironment(),
       stripeMode: getStripeKeyMode(),
-      databaseTarget: describeDatabaseTarget().label,
+      databaseTarget: describeAppStoreTarget().label,
       version: packageJson.version,
-      databaseConfigured: Boolean(process.env.DATABASE_URL),
+      databaseConfigured: getAppStoreBackend() === "local-json" || Boolean(process.env.DATABASE_URL),
       authSecretConfigured: Boolean(process.env.AUTH_SECRET),
       stripeApiConfigured: Boolean(process.env.STRIPE_SECRET_KEY),
       stripeWebhookConfigured: Boolean(process.env.STRIPE_WEBHOOK_SECRET),

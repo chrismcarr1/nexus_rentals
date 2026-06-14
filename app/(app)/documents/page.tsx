@@ -9,24 +9,18 @@ import { RowActionLink, RowActionsMenu } from "@/components/row-actions-menu";
 import { StatCard } from "@/components/stat-card";
 import { StatusBadge } from "@/components/status-badge";
 import { requireRoles } from "@/lib/auth";
+import { documentDownloadHref, documentFilterGroup, documentTypeLabel, getFileDisplayName } from "@/lib/document-metadata";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { UserRole } from "@/lib/store";
 import { formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
-
-function humanizeKind(value: string) {
-  return value
-    .split("_")
-    .map((part) => `${part.charAt(0)}${part.slice(1).toLowerCase()}`)
-    .join(" ");
-}
 
 export default async function DocumentsPage({ searchParams }: { searchParams?: Promise<Record<string, string>> }) {
   const user = await requireRoles([UserRole.ADMIN, UserRole.MANAGER]);
   const portal = await getPortalContext(user);
   const params = (await searchParams) ?? {};
   const query = params.q?.trim().toLowerCase() ?? "";
-  const kindFilter = params.kind ?? "all";
+  const typeFilter = params.type ?? "all";
   const propertyFilter = params.propertyId ?? "all";
 
   const rows = portal.scope.files
@@ -38,15 +32,19 @@ export default async function DocumentsPage({ searchParams }: { searchParams?: P
         : unit
           ? portal.scope.properties.find((item) => item.id === unit.propertyId)
           : null;
-      return { file, property, unit };
+      const lease = file.leaseId ? portal.scope.leases.find((item) => item.id === file.leaseId) : null;
+      const tenant = file.tenantId ? portal.scope.tenants.find((item) => item.id === file.tenantId) : null;
+      const uploadedBy = file.uploadedById
+        ? [...portal.users, ...portal.managers].find((item) => item.id === file.uploadedById)
+        : null;
+      return { file, property, unit, lease, tenant, uploadedBy };
     })
     .sort((a, b) => b.file.createdAt.localeCompare(a.file.createdAt));
 
-  const kinds = Array.from(new Set(rows.map((row) => row.file.kind))).sort();
   const filtered = rows.filter((row) => {
-    const text = `${row.file.label ?? ""} ${row.file.kind} ${row.file.path} ${row.property?.name ?? ""} ${row.unit?.unitNumber ?? ""}`.toLowerCase();
+    const text = `${getFileDisplayName(row.file)} ${documentTypeLabel(row.file.kind)} ${row.property?.name ?? ""} ${row.unit?.unitNumber ?? ""} ${row.lease?.nexusLeaseId ?? ""} ${row.tenant?.firstName ?? ""} ${row.tenant?.lastName ?? ""}`.toLowerCase();
     if (query && !text.includes(query)) return false;
-    if (kindFilter !== "all" && row.file.kind !== kindFilter) return false;
+    if (typeFilter !== "all" && documentFilterGroup(row.file.kind) !== typeFilter) return false;
     if (propertyFilter !== "all" && row.property?.id !== propertyFilter) return false;
     return true;
   });
@@ -69,19 +67,24 @@ export default async function DocumentsPage({ searchParams }: { searchParams?: P
         <StatCard label="Properties with files" value={String(new Set(rows.map((row) => row.property?.id).filter(Boolean)).size)} detail="Attached assets" />
       </section>
 
-      <DetailSection title="Document register" description="Search and filter files by kind, property, unit, or source path.">
+      <DetailSection title="Document register" description="Search and filter files by type, property, unit, lease, or tenant association.">
         <FilterBar
           action="/documents"
           query={params.q}
-          queryPlaceholder="Search label, kind, property, unit, or path"
+          queryPlaceholder="Search file name, type, property, unit, lease, or tenant"
           filters={[
             {
-              name: "kind",
-              label: "Kind",
-              value: kindFilter,
+              name: "type",
+              label: "Type",
+              value: typeFilter,
               options: [
-                { label: "All file kinds", value: "all" },
-                ...kinds.map((kind) => ({ label: humanizeKind(kind), value: kind }))
+                { label: "All documents", value: "all" },
+                { label: "Property images", value: "property-images" },
+                { label: "Unit images", value: "unit-images" },
+                { label: "Tenant IDs", value: "ids" },
+                { label: "Leases", value: "leases" },
+                { label: "Maintenance", value: "maintenance" },
+                { label: "General", value: "general" }
               ]
             },
             {
@@ -97,22 +100,32 @@ export default async function DocumentsPage({ searchParams }: { searchParams?: P
         />
 
         {filtered.length ? (
-          <DataTable className="mt-4" minWidth="60rem" columns={["File", "Attachment", "Kind", "Created", "Path", ""]}>
+          <DataTable className="mt-4" minWidth="58rem" columns={["File name", "Type", "Associated with", "Uploaded", "Uploaded by", ""]}>
             {filtered.map((row) => (
               <tr key={row.file.id} className="table-row">
-                <td className="table-cell font-semibold">{row.file.label || humanizeKind(row.file.kind)}</td>
+                <td className="table-cell">
+                  <span className="block font-semibold">{getFileDisplayName(row.file)}</span>
+                  {row.file.originalFileName && row.file.originalFileName !== getFileDisplayName(row.file) ? (
+                    <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{row.file.originalFileName}</span>
+                  ) : null}
+                </td>
+                <td className="table-cell"><StatusBadge status={documentTypeLabel(row.file.kind)} /></td>
                 <td className="table-cell text-[var(--muted)]">
                   {row.property?.name ?? "Unattached"}
                   {row.unit ? <span className="block text-xs">Unit {row.unit.unitNumber}</span> : null}
+                  {row.lease ? <span className="block text-xs">Lease {row.lease.nexusLeaseId ?? row.lease.id}</span> : null}
+                  {row.tenant ? <span className="block text-xs">{row.tenant.firstName} {row.tenant.lastName}</span> : null}
                 </td>
-                <td className="table-cell"><StatusBadge status={humanizeKind(row.file.kind)} /></td>
-                <td className="table-cell text-[var(--muted)]">{formatDate(row.file.createdAt)}</td>
-                <td className="table-cell max-w-96 truncate font-mono text-xs text-[var(--muted)]">{row.file.path}</td>
+                <td className="table-cell text-[var(--muted)]">{formatDate(row.file.uploadedAt ?? row.file.createdAt)}</td>
+                <td className="table-cell text-[var(--muted)]">
+                  {row.uploadedBy ? `${row.uploadedBy.firstName} ${row.uploadedBy.lastName}` : "Not recorded"}
+                </td>
                 <td className="table-cell text-right">
                   <RowActionsMenu>
-                    <RowActionLink href={row.file.path}>Open file</RowActionLink>
+                    <RowActionLink href={documentDownloadHref(row.file.id)}>Open file</RowActionLink>
                     {row.property ? <RowActionLink href={`/properties/${row.property.id}`}>View property</RowActionLink> : null}
                     {row.unit ? <RowActionLink href={`/units/${row.unit.id}`}>View unit</RowActionLink> : null}
+                    {row.lease ? <RowActionLink href={`/leases/${row.lease.id}`}>View lease</RowActionLink> : null}
                   </RowActionsMenu>
                 </td>
               </tr>

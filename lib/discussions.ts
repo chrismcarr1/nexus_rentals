@@ -196,8 +196,14 @@ function getThreadMessages(store: AppStore, threadId: string, currentUserId: str
     });
 }
 
-export async function getDiscussionPageData(user: User, selectedKey?: string): Promise<DiscussionPageData> {
-  const store = await readStore();
+export async function getDiscussionPageData(
+  user: User,
+  selectedKey?: string,
+  // Optional pre-loaded store so a caller already holding one (e.g. the dashboard
+  // aggregation) avoids a second full app_store read in the same request.
+  preloadedStore?: AppStore
+): Promise<DiscussionPageData> {
+  const store = preloadedStore ?? (await readStore());
   const candidates = getDiscussionCandidates(store, user).sort((a, b) => {
     const dateSort = String(b.lastMessageAt ?? "").localeCompare(String(a.lastMessageAt ?? ""));
     return dateSort || a.subject.localeCompare(b.subject);

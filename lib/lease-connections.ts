@@ -5,9 +5,16 @@ import { createHash, randomBytes } from "crypto";
 import { normalizeEmail } from "@/lib/admin";
 import { addDaysToDateKey, appDateIsAfter, appDateIsBefore, appDateKeyFromValue, dateOnlyToUtcNoonIso, DEFAULT_RENT_DUE_TIME, getAppDateKey, normalizeRentDueTime } from "@/lib/app-time";
 import { formatAddress, formatUnitAddress } from "@/lib/address";
+import { cleanDisplayName } from "@/lib/document-metadata";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { ensureScheduledLeasePayments } from "@/lib/lease-payment-scheduler";
-import { createId, nowIso, readStore, updateStore, type AppStore, type Lease, type LeaseStatus, type TenantInvite, type UnitOccupancyStatus, type User } from "@/lib/store";
+import {
+  canManagerAbsorbPaymentCharge,
+  computePaymentChargeBilling,
+  getLeaseBilling,
+  MANAGER_ABSORB_MIN_RENT_MESSAGE
+} from "@/lib/payment-charge";
+import { FileKind, createId, nowIso, readStore, updateStore, type AppStore, type Lease, type LeaseStatus, type TenantInvite, type UnitOccupancyStatus, type User } from "@/lib/store";
 
 export const INVITE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
@@ -309,6 +316,7 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
   const property = getLeaseProperty(store, lease);
   const unit = getLeaseUnit(store, lease);
   const invite = getLatestInviteForLease(store, lease.id);
+  const billing = getLeaseBilling(lease);
   const manager = lease.managerUserId ? store.users.find((user) => user.id === lease.managerUserId) ?? null : null;
   const tenant =
     (lease.tenantIds ?? [])
@@ -352,7 +360,12 @@ export function toSafeLeaseRow(store: AppStore, lease: Lease) {
     inviteStatus: getInviteStatus(invite),
     startDate: lease.startDate ?? null,
     endDate: lease.endDate ?? null,
-    monthlyRent: lease.monthlyRent ?? null,
+    monthlyRent: billing.tenantFacingRent,
+    baseMonthlyRent: billing.baseMonthlyRent,
+    tenantFacingRent: billing.tenantFacingRent,
+    managerAbsorbsPaymentCharge: billing.managerAbsorbsPaymentCharge,
+    paymentChargeResponsibility: billing.paymentChargeResponsibility,
+    managerAbsorbedPaymentChargeCents: billing.managerAbsorbedPaymentChargeCents,
     dueDay: lease.dueDay ?? 1,
     rentDueTime: normalizeRentDueTime(lease.rentDueTime),
     securityDeposit: lease.securityDeposit ?? null,
@@ -391,6 +404,11 @@ export async function createConnectedLease({
   rentDueTime,
   securityDeposit,
   documentPath,
+  documentName,
+  tenantIdPath,
+  tenantIdName,
+  tenantIdOriginalName,
+  managerAbsorbsPaymentCharge = false,
   lateFeePolicy
 }: {
   manager: User;
@@ -404,6 +422,11 @@ export async function createConnectedLease({
   rentDueTime?: string;
   securityDeposit?: number;
   documentPath?: string;
+  documentName?: string;
+  tenantIdPath?: string;
+  tenantIdName?: string;
+  tenantIdOriginalName?: string;
+  managerAbsorbsPaymentCharge?: boolean;
   lateFeePolicy?: string;
 }) {
   await ensureLeaseConnectionIntegrity(manager.organizationId);
@@ -421,6 +444,11 @@ export async function createConnectedLease({
     if (unit && store.leases.some((item) => item.unitId === unit.id && (isActiveLeaseStatus(item.status) || item.status === "draft"))) {
       throw new Error("This unit already has an active, upcoming, invited, or draft lease.");
     }
+    const baseMonthlyRent = monthlyRent ?? 0;
+    if (managerAbsorbsPaymentCharge && !canManagerAbsorbPaymentCharge(baseMonthlyRent)) {
+      throw new Error(MANAGER_ABSORB_MIN_RENT_MESSAGE);
+    }
+    const billing = computePaymentChargeBilling(baseMonthlyRent, managerAbsorbsPaymentCharge);
 
     const now = nowIso();
     lease = {
@@ -433,7 +461,11 @@ export async function createConnectedLease({
       tenantIds: [],
       startDate: startDate ? dateOnlyToUtcNoonIso(startDate) : undefined,
       endDate: endDate ? dateOnlyToUtcNoonIso(endDate) : undefined,
-      monthlyRent: monthlyRent ?? 0,
+      monthlyRent: billing.baseMonthlyRent,
+      managerAbsorbsPaymentCharge: billing.managerAbsorbsPaymentCharge,
+      paymentChargeResponsibility: billing.paymentChargeResponsibility,
+      managerAbsorbedPaymentChargeCents: billing.managerAbsorbedPaymentChargeCents,
+      tenantFacingRentCents: billing.tenantFacingRentCents,
       dueDay: dueDay ?? 1,
       rentDueTime: normalizeRentDueTime(rentDueTime ?? DEFAULT_RENT_DUE_TIME),
       securityDeposit: securityDeposit ?? 0,
@@ -444,10 +476,58 @@ export async function createConnectedLease({
       createdAt: now,
       updatedAt: now
     };
+    const existingTenant = store.tenants.find(
+      (tenant) =>
+        tenant.organizationId === manager.organizationId &&
+        normalizeEmail(tenant.email ?? "") === normalizeEmail(tenantEmail)
+    );
+    const files = [];
+    if (documentPath) {
+      const displayName = cleanDisplayName(documentName, "Lease agreement");
+      files.push({
+        id: createId("file"),
+        organizationId: manager.organizationId,
+        propertyId,
+        unitId,
+        leaseId: lease.id,
+        tenantId: existingTenant?.id,
+        kind: FileKind.LEASE_DOCUMENT,
+        label: displayName,
+        displayName,
+        path: documentPath,
+        mimeType: "application/octet-stream",
+        visibility: "TENANT" as const,
+        uploadedById: manager.id,
+        uploadedAt: now,
+        createdAt: now
+      });
+    }
+    if (tenantIdPath) {
+      const displayName = cleanDisplayName(tenantIdName, "Tenant ID");
+      files.push({
+        id: createId("file"),
+        organizationId: manager.organizationId,
+        propertyId,
+        unitId,
+        leaseId: lease.id,
+        tenantId: existingTenant?.id,
+        kind: FileKind.TENANT_ID,
+        label: displayName,
+        displayName,
+        originalFileName: tenantIdOriginalName,
+        path: tenantIdPath,
+        mimeType: "application/octet-stream",
+        visibility: "MANAGER_ONLY" as const,
+        uploadedById: manager.id,
+        uploadedAt: now,
+        createdAt: now
+      });
+    }
 
     return {
       ...store,
       leases: [...store.leases, lease],
+      uploadedFiles: [...store.uploadedFiles, ...files],
       units: unit
         ? store.units.map((item) =>
             item.id === unit.id

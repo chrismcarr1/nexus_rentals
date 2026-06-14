@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { FileText } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { SingleUploadInput } from "@/components/upload-inputs";
@@ -10,8 +11,10 @@ import { deleteLeaseAction, releaseLeaseUnitAction, updateLeaseAction } from "@/
 import { formatUnitAddress } from "@/lib/address";
 import { formatRentDueTime, toDateInputValue } from "@/lib/app-time";
 import { requireRoles } from "@/lib/auth";
+import { documentDownloadHref, documentTypeLabel, getFileDisplayName } from "@/lib/document-metadata";
 import { isAllowedStoredAssetPath } from "@/lib/file-security";
 import { parseLateFeePolicy } from "@/lib/lease-payment-scheduler";
+import { getLeaseBilling } from "@/lib/payment-charge";
 import { UserRole } from "@/lib/store";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getPortalContext } from "@/services/portal";
@@ -49,6 +52,13 @@ export default async function ManageLeasePage({
   );
   const leaseCanBeReleased = Boolean(unit && blockingStatuses.has(lease.status));
   const existingLateFeePolicy = parseLateFeePolicy(lease.lateFeePolicy);
+  const leaseBilling = getLeaseBilling(lease);
+  const leaseFiles = portal.scope.files
+    .filter((file) => file.leaseId === lease.id && isAllowedStoredAssetPath(file.path, { allowDemo: true }))
+    .sort((a, b) => (b.uploadedAt ?? b.createdAt).localeCompare(a.uploadedAt ?? a.createdAt));
+  const currentLeaseDocument = leaseFiles.find(
+    (file) => file.kind === "LEASE_DOCUMENT" && (!safeDocumentPath || file.path === safeDocumentPath)
+  );
 
   return (
     <div className="space-y-4">
@@ -102,8 +112,24 @@ export default async function ManageLeasePage({
               <p className="mt-2 font-semibold">{formatDateOrUnset(lease.startDate)} to {formatDateOrUnset(lease.endDate)}</p>
             </div>
             <div className="panel-muted p-4">
-              <p className="text-sm text-[var(--muted)]">Monthly rent</p>
+              <p className="text-sm text-[var(--muted)]">Base monthly rent</p>
               <p className="mt-2 font-semibold">{formatCurrency(lease.monthlyRent)}</p>
+            </div>
+            <div className="panel-muted p-4">
+              <p className="text-sm text-[var(--muted)]">Tenant-facing rent</p>
+              <p className="mt-2 font-semibold">{formatCurrency(leaseBilling.tenantFacingRent)}</p>
+              {leaseBilling.managerAbsorbsPaymentCharge ? (
+                <p className="mt-1 text-xs text-[var(--muted)]">Manager absorbs $1/month</p>
+              ) : null}
+            </div>
+            <div className="panel-muted p-4">
+              <p className="text-sm text-[var(--muted)]">Payment charge</p>
+              <p className="mt-2 font-semibold">
+                {leaseBilling.managerAbsorbsPaymentCharge ? "Manager absorbed" : "Tenant responsibility"}
+              </p>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                {leaseBilling.managerAbsorbsPaymentCharge ? "$1/month manager-absorbed" : "$0 manager-absorbed"}
+              </p>
             </div>
             <div className="panel-muted p-4">
               <p className="text-sm text-[var(--muted)]">Security deposit</p>
@@ -119,7 +145,12 @@ export default async function ManageLeasePage({
             </div>
           </div>
           {safeDocumentPath ? (
-            <a href={safeDocumentPath} target="_blank" rel="noreferrer" className="mt-5 block truncate text-sm font-semibold text-[var(--brand)]">
+            <a
+              href={currentLeaseDocument ? documentDownloadHref(currentLeaseDocument.id) : safeDocumentPath}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-5 block truncate text-sm font-semibold text-[var(--brand)]"
+            >
               Open current lease agreement
             </a>
           ) : null}
@@ -176,6 +207,39 @@ export default async function ManageLeasePage({
           </form>
         </Card>
       </div>
+
+      <Card className="p-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--brand)]">Lease documents</p>
+            <h2 className="mt-2 text-xl font-semibold">Agreements and tenant ID</h2>
+          </div>
+          <Badge>{leaseFiles.length} files</Badge>
+        </div>
+        {leaseFiles.length ? (
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {leaseFiles.map((file) => (
+              <a
+                key={file.id}
+                href={documentDownloadHref(file.id)}
+                target="_blank"
+                rel="noreferrer"
+                className="flex min-w-0 items-center gap-3 rounded-md border border-[var(--line)] bg-[var(--surface)] p-4 transition hover:border-[var(--brand)] hover:bg-[var(--surface-hover)]"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--accent-soft)] text-[var(--brand)]">
+                  <FileText className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold">{getFileDisplayName(file)}</span>
+                  <span className="mt-1 block text-xs text-[var(--muted)]">{documentTypeLabel(file.kind)}</span>
+                </span>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-[var(--muted)]">No documents are indexed for this lease yet.</p>
+        )}
+      </Card>
 
       {unit ? (
         <Card className="p-6">
