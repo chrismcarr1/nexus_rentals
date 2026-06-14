@@ -9,6 +9,7 @@ import { DEFAULT_COUNTRY, type StoredAddress } from "@/lib/address";
 import { normalizeRentDueTime } from "@/lib/app-time";
 import { ensureAppStoreTable, getAppStoreBackend, getSql, isLocalDevelopment } from "@/lib/database";
 import { getLeaseBilling } from "@/lib/payment-charge";
+import { recordNeonFetch, recordReadStore } from "@/lib/perf";
 import type {
   NormalizedCheckrResult,
   NormalizedPlaidResult,
@@ -575,18 +576,36 @@ async function writeLocalStore(store: AppStore) {
 }
 
 // Read cache: a typical page render used to issue several identical full-blob
-// SELECTs (auth, portal snapshot, page-level queries). Reads within the short
-// TTL share one in-flight fetch. Any local write bumps the version, which
-// invalidates the cache immediately, and updateStore always reads fresh inside
-// its locked transaction, never through this cache. The TTL is kept at one
-// second so a write on another server instance can only be invisible briefly.
-const READ_CACHE_TTL_MS = 1_000;
+// SELECTs (auth, portal snapshot, page-level queries), and warm requests would
+// otherwise re-pay the Neon round trip + JSON.parse + normalizeStore every time.
+// Requests within the short TTL share one resolved parsed store. This is a
+// performance cache, NOT a source of truth:
+//   - Every local write invalidates it immediately (invalidateStoreReadCache,
+//     called from updateStore — the only app_store writer).
+//   - updateStore always reads fresh inside its locked transaction, never
+//     through this cache, so writes are never based on stale data.
+//   - The TTL is intentionally short, so cross-instance staleness (a write on
+//     another serverless instance that this one cannot see) is bounded by it.
+// Tunable via NEXUS_STORE_CACHE_TTL_MS; default 3s in production, 1s elsewhere.
+// Set it to 0 to effectively disable the cache.
+function getReadCacheTtlMs(): number {
+  const raw = process.env.NEXUS_STORE_CACHE_TTL_MS?.trim();
+  if (raw) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return process.env.NODE_ENV === "production" ? 3_000 : 1_000;
+}
+
 let storeVersion = 0;
-let readCache: { version: number; expiresAt: number; promise: Promise<AppStore> } | null = null;
+let readCache: { version: number; expiresAt: number; createdAt: number; promise: Promise<AppStore> } | null = null;
 
 function invalidateStoreReadCache() {
   storeVersion += 1;
   readCache = null;
+  if (process.env.NEXUS_PERF_LOG === "1") {
+    console.log("[perf:dashboard] cache invalidated after updateStore");
+  }
 }
 
 const SLOW_READ_MS = 400;
@@ -628,10 +647,12 @@ async function fetchHostedStore(): Promise<AppStore> {
   console.log(`[perf:dashboard] readStore (neon fetch): ${elapsed}ms`);
   // JSON size is gated: JSON.stringify on the whole blob is itself expensive, so
   // only compute it when explicitly diagnosing (NEXUS_PERF_LOG=1).
+  let sizeKb: number | null = null;
   if (process.env.NEXUS_PERF_LOG === "1") {
-    const sizeKb = Math.round(JSON.stringify(raw).length / 1024);
+    sizeKb = Math.round(JSON.stringify(raw).length / 1024);
     console.log(`[perf:dashboard] store diagnostics:`, { sizeKb, ...storeSizeSummary(store) });
   }
+  recordNeonFetch(elapsed, sizeKb);
   logStoreTiming("read", startedAt, SLOW_READ_MS, storeSizeSummary(store));
   return store;
 }
@@ -650,7 +671,9 @@ export async function readStore(): Promise<AppStore> {
     try {
       const cached = await readCache.promise;
       readStoreCallCount += 1;
-      console.log(`[perf:dashboard] readStore #${readStoreCallCount} (cache hit)`);
+      const ageMs = now - readCache.createdAt;
+      console.log(`[perf:dashboard] readStore #${readStoreCallCount} (cache hit, age ${ageMs}ms)`);
+      recordReadStore({ cacheHit: true, cacheAgeMs: ageMs });
       return cached;
     } catch {
       // Cached fetch failed; fall through to a fresh attempt.
@@ -659,8 +682,9 @@ export async function readStore(): Promise<AppStore> {
 
   readStoreCallCount += 1;
   console.log(`[perf:dashboard] readStore #${readStoreCallCount} (cache miss)`);
+  recordReadStore({ cacheHit: false });
   const promise = fetchHostedStore();
-  readCache = { version: storeVersion, expiresAt: now + READ_CACHE_TTL_MS, promise };
+  readCache = { version: storeVersion, expiresAt: now + getReadCacheTtlMs(), createdAt: now, promise };
   try {
     return await promise;
   } catch (error) {
@@ -992,6 +1016,26 @@ export async function getNotificationsByOrganization(organizationId: string, tak
 // that mutate then re-read use readStore/updateStore directly, not this.
 export const getOrganizationSnapshot = cache(async (organizationId: string) => {
   const store = await readStore();
+
+  // Precomputed id->record lookups so the org-scoping filters below run in O(n)
+  // instead of O(n*m). These are a mechanical replacement for the previous
+  // `array.find(c => c.id === X)` calls — same comparison, same result, just a
+  // Map.get. The boolean/fallback logic in each filter is intentionally left
+  // identical so org/RBAC scoping is byte-for-byte unchanged.
+  const propertyById = new Map(store.properties.map((property) => [property.id, property] as const));
+  const unitById = new Map(store.units.map((unit) => [unit.id, unit] as const));
+  const inspectionById = new Map(store.inspections.map((inspection) => [inspection.id, inspection] as const));
+  const damageAssessmentById = new Map(store.damageAssessments.map((assessment) => [assessment.id, assessment] as const));
+  const leaseById = new Map(store.leases.map((lease) => [lease.id, lease] as const));
+  // The application sub-arrays previously did `.some(app => app.org === org && app.id === x)`
+  // which is exactly "an in-org record with that id exists" (ids are unique).
+  const orgApplicationIds = new Set(
+    store.rentalApplications.filter((application) => application.organizationId === organizationId).map((application) => application.id)
+  );
+  const orgSubmissionIds = new Set(
+    store.applicationSubmissions.filter((submission) => submission.organizationId === organizationId).map((submission) => submission.id)
+  );
+
   return {
     store,
     organization: store.organizations.find((organization) => organization.id === organizationId)!,
@@ -999,92 +1043,84 @@ export const getOrganizationSnapshot = cache(async (organizationId: string) => {
     listings: store.listings.filter((listing) => listing.organizationId === organizationId),
     users: store.users.filter((user) => user.organizationId === organizationId),
     units: store.units.filter((unit) => {
-      const property = store.properties.find((candidate) => candidate.id === unit.propertyId);
+      const property = propertyById.get(unit.propertyId);
       return property?.organizationId === organizationId;
     }),
     tenants: store.tenants.filter((tenant) => tenant.organizationId === organizationId),
     leases: store.leases.filter((lease) => {
-      const unit = store.units.find((candidate) => candidate.id === lease.unitId);
+      const unit = lease.unitId ? unitById.get(lease.unitId) : undefined;
       const property = lease.propertyId
-        ? store.properties.find((candidate) => candidate.id === lease.propertyId)
-        : store.properties.find((candidate) => candidate.id === unit?.propertyId);
+        ? propertyById.get(lease.propertyId)
+        : unit
+          ? propertyById.get(unit.propertyId)
+          : undefined;
       return property?.organizationId === organizationId;
     }),
     payments: store.payments.filter((payment) => {
-      const unit = store.units.find((candidate) => candidate.id === payment.unitId);
-      const property = store.properties.find((candidate) => candidate.id === unit?.propertyId);
+      const unit = unitById.get(payment.unitId);
+      const property = unit ? propertyById.get(unit.propertyId) : undefined;
       return property?.organizationId === organizationId;
     }),
     expenses: store.expenses.filter((expense) => {
-      const property = store.properties.find((candidate) => candidate.id === expense.propertyId);
+      const property = propertyById.get(expense.propertyId);
       return property?.organizationId === organizationId;
     }),
     maintenanceRequests: store.maintenanceRequests.filter((request) => {
-      const property = store.properties.find((candidate) => candidate.id === request.propertyId);
+      const property = propertyById.get(request.propertyId);
       return property?.organizationId === organizationId;
     }),
     inspections: store.inspections.filter((inspection) => {
-      const unit = store.units.find((candidate) => candidate.id === inspection.unitId);
-      const property = store.properties.find((candidate) => candidate.id === unit?.propertyId);
+      const unit = unitById.get(inspection.unitId);
+      const property = unit ? propertyById.get(unit.propertyId) : undefined;
       return property?.organizationId === organizationId;
     }),
     damageAssessments: store.damageAssessments.filter((assessment) => {
-      const inspection = store.inspections.find((candidate) => candidate.id === assessment.inspectionId);
-      const unit = store.units.find((candidate) => candidate.id === inspection?.unitId);
-      const property = store.properties.find((candidate) => candidate.id === unit?.propertyId);
+      const inspection = inspectionById.get(assessment.inspectionId);
+      const unit = inspection ? unitById.get(inspection.unitId) : undefined;
+      const property = unit ? propertyById.get(unit.propertyId) : undefined;
       return property?.organizationId === organizationId;
     }),
     discussionThreads: store.discussionThreads.filter((thread) => thread.organizationId === organizationId),
     discussionMessages: store.discussionMessages.filter((message) => message.organizationId === organizationId),
     uploadedFiles: store.uploadedFiles.filter((file) => {
       if (file.organizationId) return file.organizationId === organizationId;
-      if (file.propertyId) return store.properties.find((property) => property.id === file.propertyId)?.organizationId === organizationId;
+      if (file.propertyId) return propertyById.get(file.propertyId)?.organizationId === organizationId;
       if (file.leaseId) {
-        const lease = store.leases.find((candidate) => candidate.id === file.leaseId);
+        const lease = leaseById.get(file.leaseId);
         const property = lease
-          ? store.properties.find((candidate) => candidate.id === lease.propertyId) ??
-            store.properties.find((candidate) => candidate.id === store.units.find((unit) => unit.id === lease.unitId)?.propertyId)
+          ? propertyById.get(lease.propertyId ?? "") ??
+            (lease.unitId ? propertyById.get(unitById.get(lease.unitId)?.propertyId ?? "") : undefined)
           : null;
         return property?.organizationId === organizationId;
       }
       if (file.unitId) {
-        const unit = store.units.find((candidate) => candidate.id === file.unitId);
-        const property = store.properties.find((candidate) => candidate.id === unit?.propertyId);
+        const unit = unitById.get(file.unitId);
+        const property = unit ? propertyById.get(unit.propertyId) : undefined;
         return property?.organizationId === organizationId;
       }
       if (file.inspectionId) {
-        const inspection = store.inspections.find((candidate) => candidate.id === file.inspectionId);
-        const unit = store.units.find((candidate) => candidate.id === inspection?.unitId);
-        const property = store.properties.find((candidate) => candidate.id === unit?.propertyId);
+        const inspection = inspectionById.get(file.inspectionId);
+        const unit = inspection ? unitById.get(inspection.unitId) : undefined;
+        const property = unit ? propertyById.get(unit.propertyId) : undefined;
         return property?.organizationId === organizationId;
       }
       if (file.assessmentId) {
-        const assessment = store.damageAssessments.find((candidate) => candidate.id === file.assessmentId);
-        const inspection = store.inspections.find((candidate) => candidate.id === assessment?.inspectionId);
-        const unit = store.units.find((candidate) => candidate.id === inspection?.unitId);
-        const property = store.properties.find((candidate) => candidate.id === unit?.propertyId);
+        const assessment = damageAssessmentById.get(file.assessmentId);
+        const inspection = assessment ? inspectionById.get(assessment.inspectionId) : undefined;
+        const unit = inspection ? unitById.get(inspection.unitId) : undefined;
+        const property = unit ? propertyById.get(unit.propertyId) : undefined;
         return property?.organizationId === organizationId;
       }
       return false;
     }),
     notifications: store.notifications.filter((notification) => notification.organizationId === organizationId),
     rentalApplications: store.rentalApplications.filter((application) => application.organizationId === organizationId),
-    applicationQuestions: store.applicationQuestions.filter((question) =>
-      store.rentalApplications.some((application) => application.organizationId === organizationId && application.id === question.applicationId)
-    ),
+    applicationQuestions: store.applicationQuestions.filter((question) => orgApplicationIds.has(question.applicationId)),
     applicationSubmissions: store.applicationSubmissions.filter((submission) => submission.organizationId === organizationId),
-    applicationApplicants: store.applicationApplicants.filter((applicant) =>
-      store.applicationSubmissions.some((submission) => submission.organizationId === organizationId && submission.id === applicant.submissionId)
-    ),
-    applicationDocuments: store.applicationDocuments.filter((document) =>
-      store.rentalApplications.some((application) => application.organizationId === organizationId && application.id === document.applicationId)
-    ),
-    applicationNotes: store.applicationNotes.filter((note) =>
-      store.rentalApplications.some((application) => application.organizationId === organizationId && application.id === note.applicationId)
-    ),
+    applicationApplicants: store.applicationApplicants.filter((applicant) => orgSubmissionIds.has(applicant.submissionId)),
+    applicationDocuments: store.applicationDocuments.filter((document) => orgApplicationIds.has(document.applicationId)),
+    applicationNotes: store.applicationNotes.filter((note) => orgApplicationIds.has(note.applicationId)),
     applicationInvites: store.applicationInvites.filter((invite) => invite.organizationId === organizationId),
-    applicationStatusHistory: store.applicationStatusHistory.filter((entry) =>
-      store.rentalApplications.some((application) => application.organizationId === organizationId && application.id === entry.applicationId)
-    )
+    applicationStatusHistory: store.applicationStatusHistory.filter((entry) => orgApplicationIds.has(entry.applicationId))
   };
 });

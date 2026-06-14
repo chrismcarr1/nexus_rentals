@@ -44,7 +44,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { createStripeCheckoutAction } from "@/lib/actions";
 import { requireUser } from "@/lib/auth";
 import { hasAcceptedCurrentPaymentTerms } from "@/lib/legal";
-import { timeAsync } from "@/lib/perf";
+import { logDashboardPerfSummary, timeAsync, timeAsyncTracked } from "@/lib/perf";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { getManagerDashboardData } from "@/services/dashboard";
 import { getDashboardSnapshot } from "@/services/finance";
@@ -111,10 +111,12 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
     ) : null;
 
   if (user.role === "MANAGER") {
-    const dashboard = await timeAsync("[perf:dashboard] dashboardAggregation", () =>
+    const dashboard = await timeAsyncTracked("[perf:dashboard] dashboardAggregation", "dashboardAggregationMs", () =>
       getManagerDashboardData(user, params.range)
     );
-    console.log(`[perf:dashboard] totalDataPrep: ${Math.round(performance.now() - dataPrepStart)}ms`);
+    const totalDataPrepMs = performance.now() - dataPrepStart;
+    console.log(`[perf:dashboard] totalDataPrep: ${Math.round(totalDataPrepMs)}ms`);
+    logDashboardPerfSummary(totalDataPrepMs);
     const { range, kpis } = dashboard;
     const paidHref = `/transactions?tab=payments&dateFrom=${range.start}&dateTo=${range.end}`;
     const rentStatusHrefs: Record<string, string> = {
@@ -325,7 +327,9 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const snapshot = await timeAsync("[perf:dashboard] getDashboardSnapshot", () =>
     getDashboardSnapshot(user.organizationId)
   );
-  console.log(`[perf:dashboard] totalDataPrep: ${Math.round(performance.now() - dataPrepStart)}ms`);
+  const totalDataPrepMs = performance.now() - dataPrepStart;
+  console.log(`[perf:dashboard] totalDataPrep: ${Math.round(totalDataPrepMs)}ms`);
+  logDashboardPerfSummary(totalDataPrepMs);
   const trend =
     user.role === "ADMIN"
       ? snapshot.charts.cashFlowTrend

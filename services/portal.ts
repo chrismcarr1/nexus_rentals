@@ -4,7 +4,7 @@ import { cache } from "react";
 
 import { getEffectiveUserRole } from "@/lib/admin";
 import { addDaysToDateKey, appDateIsBefore, differenceInAppCalendarDays, getAppDateKey, monthKeyFromValue } from "@/lib/app-time";
-import { timeAsync } from "@/lib/perf";
+import { timeAsyncTracked } from "@/lib/perf";
 import { getOrganizationSnapshot, type Notification, type UserRole } from "@/lib/store";
 
 function leaseIsVisibleCurrent(status: string) {
@@ -34,11 +34,13 @@ type AppUser = {
 export const getPortalContext = cache((user: AppUser) =>
   // Instrumented inside the React cache() so the timing reflects the real
   // one-time portal build per request; the layout and page share this result.
-  timeAsync("[perf:dashboard] getPortalContext", () => buildPortalContext(user))
+  timeAsyncTracked("[perf:dashboard] getPortalContext", "portalContextMs", () => buildPortalContext(user))
 );
 
 async function buildPortalContext(user: AppUser) {
-  const snapshot = await timeAsync("[perf:dashboard] orgSnapshot", () => getOrganizationSnapshot(user.organizationId));
+  const snapshot = await timeAsyncTracked("[perf:dashboard] orgSnapshot", "orgSnapshotMs", () =>
+    getOrganizationSnapshot(user.organizationId)
+  );
   const effectiveUsers = snapshot.users.map((candidate) => ({
     ...candidate,
     role: getEffectiveUserRole(candidate.role, candidate.email)
